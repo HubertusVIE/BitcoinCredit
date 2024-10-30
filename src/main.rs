@@ -5,7 +5,8 @@ use crate::constants::{
 use anyhow::Result;
 use clap::Parser;
 use config::Config;
-use log::info;
+use constants::SHUTDOWN_GRACE_PERIOD_MS;
+use log::{error, info};
 use service::create_service_context;
 use std::path::Path;
 use std::{env, fs};
@@ -38,8 +39,18 @@ async fn main() -> Result<()> {
     external::mint::init_wallet().await;
 
     let dht = dht::dht_main(&conf).await.expect("DHT failed to start");
-    let mut shutdown_receiver = dht.shutdown_sender.subscribe();
     let mut dht_client = dht.client;
+
+    let ctrl_c_sender = dht.shutdown_sender.clone();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("can't register ctrl-c handler");
+        info!("Received SIGINT. Shutting down...");
+        if let Err(e) = ctrl_c_sender.send(true) {
+            error!("Error triggering shutdown signal {e}");
+        }
+    });
 
     let local_peer_id = bill::identity::read_peer_id_from_file();
     dht_client
@@ -53,22 +64,21 @@ async fn main() -> Result<()> {
     dht_client.start_provide().await;
     dht_client.receive_updates_for_all_bills_topics().await;
     dht_client.put_identity_public_data_in_dht().await;
+
+    let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
     let service_context =
         create_service_context(conf.clone(), dht_client.clone(), dht.shutdown_sender).await?;
-    let _rocket = web::rocket_main(service_context).launch().await?;
 
-    info!("web server was shut down...");
-    // Wait for shutdown event after rocket server stopped
-    // TODO: race with timeout
-    shutdown_receiver
-        .recv()
-        .await
-        .expect("error during shutdown");
+    if let Err(e) = web::rocket_main(service_context).launch().await {
+        error!("Web server stopped with error: {e}, shutting down the rest of the application...");
+        if let Err(e) = web_server_error_shutdown_sender.send(true) {
+            error!("Error triggering shutdown signal {e}");
+        }
+    }
 
-    info!("shutdown event received");
-    // TODO: create ctrl-c handler
-    // TODO: sleep for a while, then stop
-    // std::process::exit(0x0100);
+    info!("Waiting for application to exit...");
+    tokio::time::sleep(std::time::Duration::from_millis(SHUTDOWN_GRACE_PERIOD_MS)).await;
+
     Ok(())
 }
 
