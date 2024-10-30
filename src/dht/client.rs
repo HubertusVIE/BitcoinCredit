@@ -46,16 +46,21 @@ impl Client {
     ) {
         // We need to use blocking stdin, because tokio's async stdin isn't meant for interactive
         // use-cases and will block forever on finishing the program
-        let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel(10);
+        let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel(100);
         std::thread::spawn(move || {
             let stdin = std::io::stdin();
             let mut reader = stdin.lock();
 
             loop {
                 let mut input = String::new();
-                if reader.read_line(&mut input).is_ok() {
-                    if let Err(e) = stdin_tx.blocking_send(input) {
-                        error!("Error handling stdin: {e}");
+                match reader.read_line(&mut input) {
+                    Ok(_) => {
+                        if let Err(e) = stdin_tx.blocking_send(input) {
+                            error!("Error handling stdin: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error reading line from stdin: {e}");
                     }
                 }
             }

@@ -41,14 +41,13 @@ pub async fn dht_main(conf: &Config) -> Result<Dht, Box<dyn Error + Send + Sync>
         .await
         .expect("Can not to create network module in dht.");
 
-    let (shutdown_sender, shutdown_receiver) = broadcast::channel::<bool>(64);
+    let (shutdown_sender, shutdown_receiver) = broadcast::channel::<bool>(100);
 
     spawn(network_event_loop.run(shutdown_receiver));
 
     let network_client_to_return = network_client.clone();
 
-    let shutdown_dht_client_receiver = shutdown_sender.subscribe();
-    spawn(network_client.run(network_events, shutdown_dht_client_receiver));
+    spawn(network_client.run(network_events, shutdown_sender.subscribe()));
 
     Ok(Dht {
         client: network_client_to_return,
