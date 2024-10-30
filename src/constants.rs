@@ -5,7 +5,7 @@ use std::net::Ipv4Addr;
 pub const BILLS_PREFIX: &str = "BILLS";
 pub const BILL_PREFIX: &str = "BILL_";
 pub const KEY_PREFIX: &str = "KEY_";
-pub const SHUTDOWN_GRACE_PERIOD_MS: u64 = 3000;
+pub const SHUTDOWN_GRACE_PERIOD_MS: u64 = 1000;
 
 // Paths
 pub const IDENTITY_FOLDER_PATH: &str = "identity";

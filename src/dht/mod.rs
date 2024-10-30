@@ -21,8 +21,7 @@ use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{identify, noise, relay, tcp, yamux, PeerId, Transport};
 use std::error::Error;
 use std::path::Path;
-use tokio::{io::AsyncBufReadExt, spawn, sync::broadcast};
-use tokio_stream::wrappers::LinesStream;
+use tokio::{spawn, sync::broadcast};
 
 mod behaviour;
 mod client;
@@ -42,9 +41,6 @@ pub async fn dht_main(conf: &Config) -> Result<Dht, Box<dyn Error + Send + Sync>
         .await
         .expect("Can not to create network module in dht.");
 
-    //Need for testing from console.
-    let stdin = LinesStream::new(tokio::io::BufReader::new(tokio::io::stdin()).lines()).fuse();
-
     let (shutdown_sender, shutdown_receiver) = broadcast::channel::<bool>(64);
 
     spawn(network_event_loop.run(shutdown_receiver));
@@ -52,7 +48,7 @@ pub async fn dht_main(conf: &Config) -> Result<Dht, Box<dyn Error + Send + Sync>
     let network_client_to_return = network_client.clone();
 
     let shutdown_dht_client_receiver = shutdown_sender.subscribe();
-    spawn(network_client.run(stdin, network_events, shutdown_dht_client_receiver));
+    spawn(network_client.run(network_events, shutdown_dht_client_receiver));
 
     Ok(Dht {
         client: network_client_to_return,

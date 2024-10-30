@@ -26,7 +26,6 @@ libp2p = { version = "0.51.3", features = [
   "dcutr",
 ] }
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "macros", "io-util", "time", "io-std"] }
-tokio-stream = { version = "0.1.16", features = ["io-util"] }
 async-trait = "0.1.83"
 rocket = { version = "0.5.1", features = ["json"] }
 rocket_dyn_templates = { version = "0.2.0", features = ["handlebars"] }
