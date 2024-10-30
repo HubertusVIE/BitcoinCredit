@@ -75,6 +75,7 @@ async fn main() -> Result<()> {
     }
 
     info!("Waiting for application to exit...");
+    // If the web server exits fast, we wait for a grace period so libp2p can finish as well
     tokio::time::sleep(std::time::Duration::from_millis(SHUTDOWN_GRACE_PERIOD_MS)).await;
 
     Ok(())
