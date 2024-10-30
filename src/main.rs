@@ -5,6 +5,7 @@ use crate::constants::{
 use anyhow::Result;
 use clap::Parser;
 use config::Config;
+use log::info;
 use service::create_service_context;
 use std::path::Path;
 use std::{env, fs};
@@ -36,18 +37,38 @@ async fn main() -> Result<()> {
 
     external::mint::init_wallet().await;
 
-    let mut dht = dht::dht_main(&conf).await.expect("DHT failed to start");
+    let dht = dht::dht_main(&conf).await.expect("DHT failed to start");
+    let mut shutdown_receiver = dht.shutdown_sender.subscribe();
+    let mut dht_client = dht.client;
 
     let local_peer_id = bill::identity::read_peer_id_from_file();
-    dht.check_new_bills(local_peer_id.to_string().clone()).await;
-    dht.upgrade_table(local_peer_id.to_string().clone()).await;
-    dht.subscribe_to_all_bills_topics().await;
-    dht.put_bills_for_parties().await;
-    dht.start_provide().await;
-    dht.receive_updates_for_all_bills_topics().await;
-    dht.put_identity_public_data_in_dht().await;
-    let service_context = create_service_context(conf.clone(), dht.clone()).await?;
+    dht_client
+        .check_new_bills(local_peer_id.to_string().clone())
+        .await;
+    dht_client
+        .upgrade_table(local_peer_id.to_string().clone())
+        .await;
+    dht_client.subscribe_to_all_bills_topics().await;
+    dht_client.put_bills_for_parties().await;
+    dht_client.start_provide().await;
+    dht_client.receive_updates_for_all_bills_topics().await;
+    dht_client.put_identity_public_data_in_dht().await;
+    let service_context =
+        create_service_context(conf.clone(), dht_client.clone(), dht.shutdown_sender).await?;
     let _rocket = web::rocket_main(service_context).launch().await?;
+
+    info!("web server was shut down...");
+    // Wait for shutdown event after rocket server stopped
+    // TODO: race with timeout
+    shutdown_receiver
+        .recv()
+        .await
+        .expect("error during shutdown");
+
+    info!("shutdown event received");
+    // TODO: create ctrl-c handler
+    // TODO: sleep for a while, then stop
+    // std::process::exit(0x0100);
     Ok(())
 }
 

@@ -21,28 +21,38 @@ use futures::prelude::*;
 use libp2p::kad::record::Record;
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
-use log::error;
+use log::{error, info};
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
+use tokio::sync::broadcast;
 use tokio_stream::wrappers::LinesStream;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Client {
     pub(super) sender: mpsc::Sender<Command>,
 }
 
 impl Client {
+    pub fn new(sender: mpsc::Sender<Command>) -> Self {
+        Self { sender }
+    }
+
     pub async fn run(
         mut self,
         mut stdin: stream::Fuse<LinesStream<tokio::io::BufReader<tokio::io::Stdin>>>,
         mut network_events: Receiver<Event>,
+        mut shutdown_dht_client_receiver: broadcast::Receiver<bool>,
     ) {
         loop {
             tokio::select! {
                 line = stdin.select_next_some() => self.handle_input_line(line.expect("Stdin not to close.")).await,
                 event = network_events.next() => self.handle_event(event.expect("Swarm stream to be infinite.")).await,
+                _ = shutdown_dht_client_receiver.recv() => {
+                    info!("Shutting down dht client...");
+                    break;
+                }
             }
         }
     }

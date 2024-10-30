@@ -7,7 +7,7 @@ use std::net::Ipv4Addr;
 /// Configuration for the bitcredit application
 /// Allows to set the ports and addresses for the http and p2p connections
 /// either via command line or environment variables
-#[derive(Parser, Clone)]
+#[derive(Debug, Parser, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Config {
     #[arg(default_value_t = 1908, long, env = "P2P_PORT")]

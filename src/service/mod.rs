@@ -1,14 +1,14 @@
 pub mod contact_service;
 
-use std::sync::Arc;
-
-use rocket::{http::Status, response::Responder};
-use thiserror::Error;
-
 use super::{dht::Client, Config};
 use crate::persistence;
 use crate::persistence::FileBasedContactStore;
 use contact_service::{ContactService, ContactServiceApi};
+use log::error;
+use rocket::{http::Status, response::Responder};
+use std::sync::Arc;
+use thiserror::Error;
+use tokio::sync::broadcast;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, Error>;
@@ -45,14 +45,21 @@ pub struct ServiceContext {
     pub config: Config,
     dht_client: Client,
     pub contact_service: Arc<dyn ContactServiceApi>,
+    pub shutdown_sender: broadcast::Sender<bool>,
 }
 
 impl ServiceContext {
-    pub fn new(config: Config, client: Client, contact_service: ContactService) -> Self {
+    pub fn new(
+        config: Config,
+        client: Client,
+        contact_service: ContactService,
+        shutdown_sender: broadcast::Sender<bool>,
+    ) -> Self {
         Self {
             config,
             dht_client: client,
             contact_service: Arc::new(contact_service),
+            shutdown_sender,
         }
     }
 
@@ -60,13 +67,29 @@ impl ServiceContext {
     pub fn dht_client(&self) -> Client {
         self.dht_client.clone()
     }
+
+    /// sends a shutdown event to all parts of the application
+    pub fn shutdown(&self) {
+        if let Err(e) = self.shutdown_sender.send(true) {
+            error!("Error sending shutdown event: {e}");
+        }
+    }
 }
 
 /// building up the service context dependencies here for now. Later we can modularize this
 /// and make it more flexible.
-pub async fn create_service_context(config: Config, client: Client) -> Result<ServiceContext> {
+pub async fn create_service_context(
+    config: Config,
+    client: Client,
+    shutdown_sender: broadcast::Sender<bool>,
+) -> Result<ServiceContext> {
     let contact_store = FileBasedContactStore::new(&config.data_dir, "contacts", "contacts")?;
     let contact_service = ContactService::new(client.clone(), Arc::new(contact_store));
 
-    Ok(ServiceContext::new(config, client, contact_service))
+    Ok(ServiceContext::new(
+        config,
+        client,
+        contact_service,
+        shutdown_sender,
+    ))
 }

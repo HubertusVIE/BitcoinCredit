@@ -22,6 +22,7 @@ use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::iter;
+use tokio::sync::broadcast;
 
 type PendingDial = HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>;
 type PendingRequestFile =
@@ -56,11 +57,15 @@ impl EventLoop {
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self, mut shutdown_event_loop_receiver: broadcast::Receiver<bool>) {
         loop {
             tokio::select! {
                 event = self.swarm.next() => self.handle_event(event.expect("Swarm stream to be infinite.")).await,
                 command = self.command_receiver.next() => if let Some(c) = command { self.handle_command(c).await },
+                _ = shutdown_event_loop_receiver.recv() => {
+                    info!("Shutting down event loop...");
+                    break;
+                }
             }
         }
     }

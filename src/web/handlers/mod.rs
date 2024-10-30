@@ -1,6 +1,7 @@
 use crate::blockchain::OperationCode;
-use rocket::get;
+use crate::service::ServiceContext;
 use rocket::serde::json::Json;
+use rocket::{get, Shutdown, State};
 
 pub mod bill;
 pub mod contacts;
@@ -8,8 +9,10 @@ pub mod identity;
 pub mod quotes;
 
 #[get("/")]
-pub async fn exit() {
-    std::process::exit(0x0100);
+pub async fn exit(shutdown: Shutdown, state: &State<ServiceContext>) {
+    log::info!("Exit called - shutting down...");
+    shutdown.notify();
+    state.shutdown();
 }
 
 #[get("/return")]
