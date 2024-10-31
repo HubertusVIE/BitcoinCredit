@@ -65,3 +65,32 @@ fn format_num(num: &u64, div: u64, order: &str) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn numbers_to_letters_one() {
+        let result = encode(&5);
+        assert_eq!("five".to_string(), result);
+    }
+
+    #[test]
+    fn numbers_to_letters_zero() {
+        let result = encode(&0);
+        assert_eq!("zero".to_string(), result);
+    }
+
+    #[test]
+    fn numbers_to_letters_few() {
+        let result = encode(&999);
+        assert_eq!("nine hundred ninety-nine".to_string(), result);
+    }
+
+    #[test]
+    fn numbers_to_letters_many() {
+        let result = encode(&123_324_324);
+        assert_eq!("one hundred twenty-three million three hundred twenty-four thousand three hundred twenty-four".to_string(), result);
+    }
+}

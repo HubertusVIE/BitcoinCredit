@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod test {
     use crate::external::bitcoin::AddressInfo;
-    use crate::util::numbers_to_words::encode;
     use crate::util::rsa::generation_rsa_key;
     use bitcoin::secp256k1::Scalar;
     use libp2p::identity::Keypair;
@@ -611,11 +610,5 @@ mod test {
             .private_decrypt(&data_enc, &mut buf, Padding::PKCS1)
             .unwrap();
         assert!(String::from_utf8(buf).unwrap().starts_with(data));
-    }
-
-    #[test]
-    fn numbers_to_letters() {
-        let result = encode(&123_324_324);
-        assert_eq!("one hundred twenty-three million three hundred twenty-four thousand three hundred twenty-four".to_string(), result);
     }
 }
