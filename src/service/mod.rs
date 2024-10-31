@@ -1,12 +1,20 @@
+pub mod bill_service;
 pub mod contact_service;
 pub mod notification_service;
 
 use super::{dht::Client, Config};
-use crate::persistence;
+use crate::external;
+use crate::persistence::bill::BillStoreApi;
 use crate::persistence::FileBasedContactStore;
+use crate::persistence::{self};
+use bill_service::{BillService, BillServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
 use log::error;
+use rocket::http::ContentType;
+use rocket::Response;
 use rocket::{http::Status, response::Responder};
+use serde_json::json;
+use std::io::Cursor;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -27,12 +35,19 @@ pub enum Error {
 
     /// errors stemming from json deserialization. Most of the time this is a
     /// bad request on the api but can also be caused by deserializing other messages
-    #[error("Deserialization error: {0}")]
+    #[error("JSON Serialization/Deserialization error: {0}")]
     Json(#[from] serde_json::Error),
 
     /// errors stemming from sending or receiving notifications
     #[error("Notification service error: {0}")]
     NotificationService(#[from] notification_service::Error),
+
+    /// errors that stem from validation
+    #[error("Validation Error: {0}")]
+    Validation(String),
+
+    #[error("External API error: {0}")]
+    ExternalApi(#[from] external::Error),
 }
 
 /// Map from service errors directly to rocket status codes. This allows us to
@@ -43,10 +58,30 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
         match self {
             // for now handle all persistence errors as InternalServerError, there
             // will be cases where we want to handle them differently (eg. 409 Conflict)
-            Error::Persistence(_) => Status::InternalServerError.respond_to(req),
+            Error::Persistence(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            Error::Json(e) => {
+                error!("{e}");
+                Status::BadRequest.respond_to(req)
+            }
             Error::PreconditionFailed => Status::NotAcceptable.respond_to(req),
-            Error::Json(_) => Status::BadRequest.respond_to(req),
             Error::NotificationService(_) => Status::InternalServerError.respond_to(req),
+            Error::Validation(msg) => {
+                let body = json!({ "error": "validation_error", "message": msg }).to_string();
+                Response::build()
+                    .status(Status::BadRequest)
+                    .header(ContentType::JSON)
+                    .sized_body(body.len(), Cursor::new(body))
+                    .ok()
+            }
+            // If an external API errors, we can only tell the caller that something went wrong on
+            // our end
+            Error::ExternalApi(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
         }
     }
 }
@@ -57,6 +92,7 @@ pub struct ServiceContext {
     pub config: Config,
     dht_client: Client,
     pub contact_service: Arc<dyn ContactServiceApi>,
+    pub bill_service: Arc<dyn BillServiceApi>,
     pub shutdown_sender: broadcast::Sender<bool>,
 }
 
@@ -65,12 +101,14 @@ impl ServiceContext {
         config: Config,
         client: Client,
         contact_service: ContactService,
+        bill_service: BillService,
         shutdown_sender: broadcast::Sender<bool>,
     ) -> Self {
         Self {
             config,
             dht_client: client,
             contact_service: Arc::new(contact_service),
+            bill_service: Arc::new(bill_service),
             shutdown_sender,
         }
     }
@@ -94,14 +132,19 @@ pub async fn create_service_context(
     config: Config,
     client: Client,
     shutdown_sender: broadcast::Sender<bool>,
+    bill_store: Arc<dyn BillStoreApi>,
 ) -> Result<ServiceContext> {
-    let contact_store = FileBasedContactStore::new(&config.data_dir, "contacts", "contacts")?;
+    let contact_store =
+        FileBasedContactStore::new(&config.data_dir, "contacts", "contacts").await?;
     let contact_service = ContactService::new(client.clone(), Arc::new(contact_store));
+
+    let bill_service = BillService::new(client.clone(), bill_store);
 
     Ok(ServiceContext::new(
         config,
         client,
         contact_service,
+        bill_service,
         shutdown_sender,
     ))
 }

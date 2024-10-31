@@ -18,7 +18,7 @@ pub struct Config {
     pub http_port: u16,
     #[arg(default_value_t = String::from("127.0.0.1"), long, env = "HTTP_ADDRESS")]
     pub http_address: String,
-    #[arg(default_value_t = String::from("./"), long, env = "DATA_DIR")]
+    #[arg(default_value_t = String::from("."), long, env = "DATA_DIR")]
     pub data_dir: String,
 }
 

@@ -32,6 +32,7 @@ tokio = { version = "1.40.0", features = [
   "io-util",
   "time",
   "io-std",
+  "fs",
 ] }
 async-trait = "0.1.83"
 rocket = { version = "0.5.1", features = ["json"] }
@@ -58,6 +59,8 @@ lettre = { version = "0.11.10", features = [
   "file-transport",
 ] }
 nostr-sdk = "0.36.0"
+uuid = { version = "1.11.0", features = ["v4"] }
+infer = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 mockall = "0.13.0"

@@ -255,6 +255,7 @@ impl Chain {
             public_key: bill_first_version.public_key,
             private_key: bill_first_version.private_key,
             language: bill_first_version.language,
+            files: bill_first_version.files,
         }
     }
 
@@ -360,7 +361,10 @@ impl Chain {
 
     async fn payment_deadline_has_passed(timestamp: i64, day: i32) -> bool {
         let period: i64 = (86400 * day) as i64;
-        let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let current_timestamp = external::time::TimeApi::get_atomic_time()
+            .await
+            .unwrap()
+            .timestamp;
         let diference = current_timestamp - timestamp;
         diference > period
     }
@@ -534,14 +538,14 @@ impl Chain {
         drawer
     }
 
-    pub fn bill_contain_node(&self, request_node_id: String) -> bool {
+    pub fn bill_contains_node(&self, request_node_id: &str) -> bool {
         for block in &self.blocks {
             match block.operation_code {
                 Issue => {
                     let bill = self.get_first_version_bill();
-                    if bill.drawer.peer_id.eq(&request_node_id)
-                        || bill.drawee.peer_id.eq(&request_node_id)
-                        || bill.payee.peer_id.eq(&request_node_id)
+                    if bill.drawer.peer_id.eq(request_node_id)
+                        || bill.drawee.peer_id.eq(request_node_id)
+                        || bill.payee.peer_id.eq(request_node_id)
                     {
                         return true;
                     }
@@ -586,8 +590,8 @@ impl Chain {
                     let endorser_bill: IdentityPublicData =
                         serde_json::from_slice(&endorser_bill_u8).unwrap();
 
-                    if endorsee_bill.peer_id.eq(&request_node_id)
-                        || endorser_bill.peer_id.eq(&request_node_id)
+                    if endorsee_bill.peer_id.eq(request_node_id)
+                        || endorser_bill.peer_id.eq(request_node_id)
                     {
                         return true;
                     }
@@ -632,8 +636,8 @@ impl Chain {
                     let mint_bill: IdentityPublicData =
                         serde_json::from_slice(&mint_bill_u8).unwrap();
 
-                    if minter_bill.peer_id.eq(&request_node_id)
-                        || mint_bill.peer_id.eq(&request_node_id)
+                    if minter_bill.peer_id.eq(request_node_id)
+                        || mint_bill.peer_id.eq(request_node_id)
                     {
                         return true;
                     }
@@ -658,7 +662,7 @@ impl Chain {
                     let requester_to_accept_bill: IdentityPublicData =
                         serde_json::from_slice(&requester_to_accept_bill_u8).unwrap();
 
-                    if requester_to_accept_bill.peer_id.eq(&request_node_id) {
+                    if requester_to_accept_bill.peer_id.eq(request_node_id) {
                         return true;
                     }
                 }
@@ -682,7 +686,7 @@ impl Chain {
                     let accepter_bill: IdentityPublicData =
                         serde_json::from_slice(&accepter_bill_u8).unwrap();
 
-                    if accepter_bill.peer_id.eq(&request_node_id) {
+                    if accepter_bill.peer_id.eq(request_node_id) {
                         return true;
                     }
                 }
@@ -706,7 +710,7 @@ impl Chain {
                     let requester_to_pay_bill: IdentityPublicData =
                         serde_json::from_slice(&requester_to_pay_bill_u8).unwrap();
 
-                    if requester_to_pay_bill.peer_id.eq(&request_node_id) {
+                    if requester_to_pay_bill.peer_id.eq(request_node_id) {
                         return true;
                     }
                 }
@@ -758,8 +762,8 @@ impl Chain {
                     let seller_bill: IdentityPublicData =
                         serde_json::from_slice(&seller_bill_u8).unwrap();
 
-                    if buyer_bill.peer_id.eq(&request_node_id)
-                        || seller_bill.peer_id.eq(&request_node_id)
+                    if buyer_bill.peer_id.eq(request_node_id)
+                        || seller_bill.peer_id.eq(request_node_id)
                     {
                         return true;
                     }

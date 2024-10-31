@@ -1,9 +1,13 @@
-use super::behaviour::{Command, Event, FileResponse};
+use super::behaviour::{
+    file_request_for_bill_attachment, parse_inbound_file_request, BillAttachmentFileRequest,
+    BillFileRequest, BillKeysFileRequest, Command, Event, FileResponse, ParsedInboundFileRequest,
+};
 use crate::bill::{get_path_for_bill, get_path_for_bill_keys};
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
 use crate::constants::{
     BILLS_FOLDER_PATH, BILLS_PREFIX, BILL_PREFIX, IDENTITY_FILE_PATH, KEY_PREFIX,
 };
+use crate::persistence::bill::BillStoreApi;
 use crate::service::contact_service::IdentityPublicData;
 use crate::{
     bill::{
@@ -11,10 +15,11 @@ use crate::{
         identity::{get_whole_identity, read_peer_id_from_file, IdentityWithAll},
     },
     util::{
-        is_not_hidden,
+        file::is_not_hidden_or_directory,
         rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key},
     },
 };
+use anyhow::{anyhow, Result};
 use futures::channel::mpsc::Receiver;
 use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
@@ -23,20 +28,21 @@ use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use log::{error, info};
 use std::collections::HashSet;
-use std::error::Error;
 use std::fs;
 use std::io::BufRead;
 use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Client {
     pub(super) sender: mpsc::Sender<Command>,
+    bill_store: Arc<dyn BillStoreApi>,
 }
 
 impl Client {
-    pub fn new(sender: mpsc::Sender<Command>) -> Self {
-        Self { sender }
+    pub fn new(sender: mpsc::Sender<Command>, bill_store: Arc<dyn BillStoreApi>) -> Self {
+        Self { sender, bill_store }
     }
 
     pub async fn run(
@@ -166,7 +172,7 @@ impl Client {
 
             for file in fs::read_dir(BILLS_FOLDER_PATH).unwrap() {
                 let dir = file.unwrap();
-                if is_not_hidden(&dir) {
+                if is_not_hidden_or_directory(&dir) {
                     let bill_name = dir
                         .path()
                         .file_stem()
@@ -188,7 +194,7 @@ impl Client {
             let mut new_record = String::new();
             for file in fs::read_dir(BILLS_FOLDER_PATH).unwrap() {
                 let dir = file.unwrap();
-                if is_not_hidden(&dir) {
+                if is_not_hidden_or_directory(&dir) {
                     let bill_name = dir
                         .path()
                         .file_stem()
@@ -215,7 +221,7 @@ impl Client {
     pub async fn start_provide(&mut self) {
         for file in fs::read_dir(BILLS_FOLDER_PATH).unwrap() {
             let dir = file.unwrap();
-            if is_not_hidden(&dir) {
+            if is_not_hidden_or_directory(&dir) {
                 let bill_name = dir
                     .path()
                     .file_stem()
@@ -268,7 +274,7 @@ impl Client {
         identity_public_data
     }
 
-    pub async fn add_bill_to_dht_for_node(&mut self, bill_name: &String, node_id: &str) {
+    pub async fn add_bill_to_dht_for_node(&mut self, bill_name: &str, node_id: &str) {
         let node_request = BILLS_PREFIX.to_string() + node_id;
         let mut record_for_saving_in_dht;
         let list_bills_for_node = self.get_record(node_request.clone()).await;
@@ -281,7 +287,7 @@ impl Client {
                 record_for_saving_in_dht = record_for_saving_in_dht.to_string() + "," + bill_name;
             }
         } else {
-            record_for_saving_in_dht = bill_name.clone();
+            record_for_saving_in_dht = bill_name.to_owned();
         }
 
         if !std::str::from_utf8(&value)
@@ -330,6 +336,46 @@ impl Client {
                     .map_err(|_| "None of the providers returned file.")
                     .expect("Can not get file content.")
                     .0
+            }
+        }
+    }
+
+    /// Requests the given file for the given bill name, saving it once it arrives
+    pub async fn get_bill_attachment(
+        &mut self,
+        bill_name: String,
+        file_name: String,
+    ) -> Result<()> {
+        let local_peer_id = read_peer_id_from_file();
+        // TODO: check if there is a bill for this bill_name and if it has a file with this name
+        // -> read_bill_from_file into persistence
+        // TODO: get the hash here
+        let mut providers = self.get_providers(bill_name.to_owned()).await;
+        providers.remove(&local_peer_id);
+        if providers.is_empty() {
+            return Err(anyhow!("No providers found"));
+        }
+
+        let requests = providers.into_iter().map(|peer_id| {
+            let mut network_client = self.clone();
+            let file_request = file_request_for_bill_attachment(
+                &local_peer_id.to_string(),
+                &bill_name,
+                &file_name,
+            );
+            async move { network_client.request_file(peer_id, file_request).await }.boxed()
+        });
+
+        match futures::future::select_ok(requests).await {
+            Err(e) => Err(anyhow!(
+                "Get Bill Attachment: None of the providers returned the file: {e}"
+            )),
+            Ok(file_content) => {
+                self.bill_store.read_bill_keys_from_file(&bill_name).await?;
+                // TODO: decrypt using private identity key
+                // TODO: calculate the hash and check if hash matches the hash from the bill from above
+                // TODO: encrypt_and_save_attached_file
+                Ok(())
             }
         }
     }
@@ -445,11 +491,7 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.")
     }
 
-    async fn request_file(
-        &mut self,
-        peer: PeerId,
-        file_name: String,
-    ) -> Result<Vec<u8>, Box<dyn Error + Send>> {
+    async fn request_file(&mut self, peer: PeerId, file_name: String) -> Result<Vec<u8>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::RequestFile {
@@ -471,45 +513,83 @@ impl Client {
 
     async fn handle_event(&mut self, event: Event) {
         let Event::InboundRequest { request, channel } = event;
-        let size_request = request.split("_").collect::<Vec<&str>>();
-        if size_request.len().eq(&3) {
-            let request_node_id: String =
-                request.splitn(2, "_").collect::<Vec<&str>>()[0].to_string();
-            let request = request.splitn(2, "_").collect::<Vec<&str>>()[1].to_string();
-
-            let mut bill_name = request.clone();
-            if request.starts_with(KEY_PREFIX) {
-                bill_name = request.splitn(2, KEY_PREFIX).collect::<Vec<&str>>()[1].to_string();
-            } else if request.starts_with(BILL_PREFIX) {
-                bill_name = request.split(BILL_PREFIX).collect::<Vec<&str>>()[1].to_string();
+        match parse_inbound_file_request(&request) {
+            Err(e) => {
+                error!("Could not handle inbound request {request}: {e}")
             }
-            let chain = Chain::read_chain_from_file(&bill_name);
+            Ok(parsed) => {
+                match parsed {
+                    // We can send the bill to anyone requesting it, since the content is encrypted
+                    // and is useless without the keys
+                    ParsedInboundFileRequest::Bill(BillFileRequest { bill_name }) => {
+                        let path_to_bill = get_path_for_bill(&bill_name);
+                        match tokio::fs::read(&path_to_bill).await {
+                            Err(e) => {
+                                error!("Could not handle inbound request {request}: {e}")
+                            }
+                            Ok(file) => {
+                                self.respond_file(file, channel).await;
+                            }
+                        }
+                    }
+                    // We check if the requester is part of the bill and if so, we get their
+                    // identity from DHT and encrypt the file with their public key
+                    ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
+                        node_id,
+                        key_name,
+                    }) => {
+                        let chain = Chain::read_chain_from_file(&key_name);
+                        if chain.bill_contains_node(&node_id) {
+                            let public_key = self
+                                .get_identity_public_data_from_dht(node_id)
+                                .await
+                                .rsa_public_key_pem;
 
-            let bill_contain_node = chain.bill_contain_node(request_node_id.clone());
+                            let path_to_key = get_path_for_bill_keys(&key_name);
+                            match tokio::fs::read(&path_to_key).await {
+                                Err(e) => {
+                                    error!("Could not handle inbound request {request}: {e}")
+                                }
+                                Ok(file) => {
+                                    let file_encrypted =
+                                        encrypt_bytes_with_public_key(&file, &public_key);
 
-            if request.starts_with(KEY_PREFIX) {
-                if bill_contain_node {
-                    let public_key = self
-                        .get_identity_public_data_from_dht(request_node_id.clone())
-                        .await
-                        .rsa_public_key_pem;
+                                    self.respond_file(file_encrypted, channel).await;
+                                }
+                            }
+                        }
+                    }
+                    // We only send attachments (encrypted with the bill public key) to participants of the bill, encrypted with their public key
+                    ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
+                        node_id,
+                        bill_name,
+                        file_name,
+                    }) => {
+                        let chain = Chain::read_chain_from_file(&bill_name);
+                        if chain.bill_contains_node(&node_id) {
+                            let public_key = self
+                                .get_identity_public_data_from_dht(node_id)
+                                .await
+                                .rsa_public_key_pem;
 
-                    let key_name =
-                        request.splitn(2, KEY_PREFIX).collect::<Vec<&str>>()[1].to_string();
-                    let path_to_key = get_path_for_bill_keys(&key_name);
-                    let file = fs::read(&path_to_key).unwrap();
+                            match self
+                                .bill_store
+                                .open_attached_file(&bill_name, &file_name)
+                                .await
+                            {
+                                Err(e) => {
+                                    error!("Could not handle inbound request {request}: {e}")
+                                }
+                                Ok(file) => {
+                                    let file_encrypted =
+                                        encrypt_bytes_with_public_key(&file, &public_key);
 
-                    let file_encrypted = encrypt_bytes_with_public_key(&file, public_key);
-
-                    self.respond_file(file_encrypted, channel).await;
+                                    self.respond_file(file_encrypted, channel).await;
+                                }
+                            }
+                        }
+                    }
                 }
-            } else if request.starts_with(BILL_PREFIX) {
-                let bill_name =
-                    request.splitn(2, BILL_PREFIX).collect::<Vec<&str>>()[1].to_string();
-                let path_to_bill = get_path_for_bill(&bill_name);
-                let file = fs::read(&path_to_bill).unwrap();
-
-                self.respond_file(file, channel).await;
             }
         }
     }
@@ -537,7 +617,7 @@ impl Client {
                     match args.next() {
                         Some(name) => String::from(name),
                         None => {
-                            error!("Expected name.");
+                            error!("Expected bill name.");
                             return;
                         }
                     }
@@ -545,12 +625,36 @@ impl Client {
                 self.get_bill(name).await;
             }
 
+            Some("GET_BILL_ATTACHMENT") => {
+                let name: String = {
+                    match args.next() {
+                        Some(name) => String::from(name),
+                        None => {
+                            error!("Expected bill name.");
+                            return;
+                        }
+                    }
+                };
+                let file_name: String = {
+                    match args.next() {
+                        Some(file_name) => String::from(file_name),
+                        None => {
+                            error!("Expected file name.");
+                            return;
+                        }
+                    }
+                };
+                if let Err(e) = self.get_bill_attachment(name, file_name).await {
+                    error!("Get Bill Attachment failed: {e}");
+                }
+            }
+
             Some("GET_KEY") => {
                 let name: String = {
                     match args.next() {
                         Some(name) => String::from(name),
                         None => {
-                            error!("Expected name.");
+                            error!("Expected bill name.");
                             return;
                         }
                     }
@@ -646,7 +750,7 @@ impl Client {
 
             _ => {
                 error!(
-                        "expected GET, PUT, SEND_MESSAGE, SUBSCRIBE, GET_RECORD, PUT_RECORD or GET_PROVIDERS."
+                        "expected GET_BILL, GET_KEY, GET_BILL_ATTACHMENT, PUT, SEND_MESSAGE, SUBSCRIBE, GET_RECORD, PUT_RECORD or GET_PROVIDERS."
                     );
             }
         }

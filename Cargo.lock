@@ -875,6 +875,7 @@ dependencies = [
  "futures",
  "hex",
  "hf",
+ "infer",
  "lettre",
  "libp2p",
  "log",
@@ -893,6 +894,7 @@ dependencies = [
  "thiserror 2.0.0",
  "tokio",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2843,6 +2845,12 @@ dependencies = [
  "hashbrown 0.14.5",
  "serde",
 ]
+
+[[package]]
+name = "infer"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "865e8a58ae8e24d2c4412c31344afa1d302a3740ad67528c10f50d6876cdcf55"
 
 [[package]]
 name = "inlinable_string"
@@ -7496,9 +7504,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81dfa00651efa65069b0b6b651f4aaa31ba9e3c3ce0137aaad053604ee7e0314"
+checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
 dependencies = [
  "getrandom 0.2.15",
  "serde",

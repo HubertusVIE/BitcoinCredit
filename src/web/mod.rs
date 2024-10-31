@@ -3,21 +3,29 @@ use log::info;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::FileServer;
 use rocket::http::Header;
-use rocket::{catch, catchers, routes, Build, Request, Response, Rocket};
+use rocket::{catch, catchers, routes, Build, Config, Request, Response, Rocket};
 
 mod data;
 mod handlers;
 
+use crate::constants::MAX_FILE_SIZE_BYTES;
 pub use data::RequestToMintBitcreditBillForm;
+use rocket::data::ByteUnit;
+use rocket::figment::Figment;
 
 pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
     let conf = context.config.clone();
-    let rocket = rocket::build()
-        .configure(
-            rocket::Config::figment()
-                .merge(("port", conf.http_port))
-                .merge(("address", conf.http_address.to_owned())),
-        )
+    let config = Figment::from(Config::default())
+        .merge(("limits.forms", ByteUnit::Byte(MAX_FILE_SIZE_BYTES as u64)))
+        .merge(("limits.file", ByteUnit::Byte(MAX_FILE_SIZE_BYTES as u64)))
+        .merge((
+            "limits.data-form",
+            ByteUnit::Byte(MAX_FILE_SIZE_BYTES as u64),
+        ))
+        .merge(("port", conf.http_port))
+        .merge(("address", conf.http_address.to_owned()));
+
+    let rocket = rocket::custom(config)
         .register("/", catchers![not_found])
         .manage(context)
         .mount("/exit", routes![handlers::exit])
@@ -45,6 +53,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             "/bill",
             routes![
                 handlers::bill::holder,
+                handlers::bill::attachment,
                 handlers::bill::issue_bill,
                 handlers::bill::endorse_bill,
                 handlers::bill::search_bill,

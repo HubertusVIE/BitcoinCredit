@@ -4,8 +4,14 @@ use std::net::Ipv4Addr;
 // General
 pub const BILLS_PREFIX: &str = "BILLS";
 pub const BILL_PREFIX: &str = "BILL_";
+pub const BILL_ATTACHMENT_PREFIX: &str = "BILLATT_";
 pub const KEY_PREFIX: &str = "KEY_";
 pub const SHUTDOWN_GRACE_PERIOD_MS: u64 = 1500;
+
+// Validation
+pub const MAX_FILE_SIZE_BYTES: usize = 5_000_000; // ~5 MB
+pub const MAX_FILE_NAME_CHARACTERS: usize = 50;
+pub const VALID_FILE_MIME_TYPES: [&str; 3] = ["image/jpeg", "image/png", "application/pdf"];
 
 // Paths
 pub const IDENTITY_FOLDER_PATH: &str = "identity";

@@ -1,11 +1,15 @@
-use std::fs::DirEntry;
-
+pub mod file;
 pub mod numbers_to_words;
 pub mod rsa;
+use uuid::Uuid;
 
-pub fn is_not_hidden(entry: &DirEntry) -> bool {
-    match hf::is_hidden(entry.path()) {
-        Ok(res) => !res,
-        Err(_) => false,
-    }
+#[cfg(not(test))]
+pub fn get_uuid_v4() -> Uuid {
+    Uuid::new_v4()
+}
+
+#[cfg(test)]
+pub fn get_uuid_v4() -> Uuid {
+    use uuid::uuid;
+    uuid!("00000000-0000-0000-0000-000000000000")
 }

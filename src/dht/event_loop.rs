@@ -4,6 +4,7 @@ use crate::constants::{
     RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
 use crate::dht::behaviour::{FileRequest, FileResponse};
+use anyhow::Result;
 use futures::channel::mpsc::Receiver;
 use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
@@ -20,13 +21,11 @@ use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{gossipsub, relay, PeerId};
 use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::iter;
 use tokio::sync::broadcast;
 
-type PendingDial = HashMap<PeerId, oneshot::Sender<Result<(), Box<dyn Error + Send>>>>;
-type PendingRequestFile =
-    HashMap<RequestId, oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>>;
+type PendingDial = HashMap<PeerId, oneshot::Sender<Result<()>>>;
+type PendingRequestFile = HashMap<RequestId, oneshot::Sender<Result<Vec<u8>>>>;
 
 pub struct EventLoop {
     swarm: Swarm<MyBehaviour>,
@@ -196,7 +195,7 @@ impl EventLoop {
                     .pending_request_file
                     .remove(&request_id)
                     .expect("Request to still be pending.")
-                    .send(Err(Box::new(error)));
+                    .send(Err(error.into()));
             }
 
             SwarmEvent::Behaviour(ComposedEvent::RequestResponse(

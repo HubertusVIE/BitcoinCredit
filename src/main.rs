@@ -7,8 +7,10 @@ use clap::Parser;
 use config::Config;
 use constants::SHUTDOWN_GRACE_PERIOD_MS;
 use log::{error, info};
+use persistence::bill::FileBasedBillStore;
 use service::create_service_context;
 use std::path::Path;
+use std::sync::Arc;
 use std::{env, fs};
 use tokio::spawn;
 
@@ -40,7 +42,11 @@ async fn main() -> Result<()> {
 
     external::mint::init_wallet().await;
 
-    let dht = dht::dht_main(&conf).await.expect("DHT failed to start");
+    let bill_store =
+        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);
+    let dht = dht::dht_main(&conf, bill_store.clone())
+        .await
+        .expect("DHT failed to start");
     let mut dht_client = dht.client;
 
     let ctrl_c_sender = dht.shutdown_sender.clone();
@@ -65,8 +71,13 @@ async fn main() -> Result<()> {
     dht_client.put_identity_public_data_in_dht().await;
 
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
-    let service_context =
-        create_service_context(conf.clone(), dht_client.clone(), dht.shutdown_sender).await?;
+    let service_context = create_service_context(
+        conf.clone(),
+        dht_client.clone(),
+        dht.shutdown_sender,
+        bill_store,
+    )
+    .await?;
 
     if let Err(e) = web::rocket_main(service_context).launch().await {
         error!("Web server stopped with error: {e}, shutting down the rest of the application...");

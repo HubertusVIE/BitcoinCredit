@@ -34,7 +34,10 @@ pub async fn accept_quote(
         .await?;
 
     if !public_data_endorsee.name.is_empty() {
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let timestamp = external::time::TimeApi::get_atomic_time()
+            .await
+            .unwrap()
+            .timestamp;
         endorse_bitcredit_bill(&quote.bill_id, public_data_endorsee.clone(), timestamp).await;
     }
 

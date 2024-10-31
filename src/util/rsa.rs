@@ -27,7 +27,7 @@ pub fn public_key_from_pem_u8(public_key_u8: &[u8]) -> Rsa<Public> {
 //--------------------------------------------------------------
 
 //-------------------------Bytes common-------------------------
-pub fn encrypt_bytes_with_public_key(bytes: &[u8], public_key: String) -> Vec<u8> {
+pub fn encrypt_bytes_with_public_key(bytes: &[u8], public_key: &str) -> Vec<u8> {
     let public_key = Rsa::public_key_from_pem(public_key.as_bytes()).unwrap();
 
     let key_size: usize = (public_key.size() / 2) as usize; //128

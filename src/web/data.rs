@@ -1,9 +1,9 @@
+use rocket::fs::TempFile;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::FromForm;
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct BitcreditBillForm {
+#[derive(FromForm, Debug)]
+pub struct BitcreditBillForm<'r> {
     pub bill_jurisdiction: String,
     pub place_of_drawing: String,
     pub currency_code: String,
@@ -15,6 +15,7 @@ pub struct BitcreditBillForm {
     pub maturity_date: String,
     pub drawer_is_payee: bool,
     pub drawer_is_drawee: bool,
+    pub files: Vec<TempFile<'r>>,
 }
 
 #[derive(FromForm, Debug, Serialize, Deserialize)]

@@ -7,22 +7,22 @@ use crate::bill::contacts::get_current_payee_private_key;
 use crate::bill::get_path_for_bill;
 use crate::blockchain::{Chain, ChainToReturn, GossipsubEvent, GossipsubEventId, OperationCode};
 use crate::constants::IDENTITY_FILE_PATH;
-use crate::external;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
-use crate::service::contact_service::IdentityPublicData;
+use crate::service::{contact_service::IdentityPublicData, Result};
+use crate::util::file::detect_content_type_for_bytes;
 use crate::{
     bill::{
-        accept_bill, endorse_bitcredit_bill, get_bills_for_list,
+        endorse_bitcredit_bill, get_bills_for_list,
         identity::{get_whole_identity, read_peer_id_from_file, IdentityWithAll},
-        issue_new_bill, issue_new_bill_drawer_is_drawee, issue_new_bill_drawer_is_payee,
         mint_bitcredit_bill, read_bill_from_file, request_acceptance, request_pay,
         sell_bitcredit_bill, BitcreditBill, BitcreditBillToReturn,
     },
     service::ServiceContext,
 };
-use log::{info, warn};
+use crate::{external, service};
+use log::warn;
 use rocket::form::Form;
-use rocket::http::Status;
+use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
 use std::path::Path;
@@ -34,6 +34,25 @@ pub async fn holder(id: String) -> Json<bool> {
     let bill: BitcreditBill = read_bill_from_file(&id).await;
     let am_i_holder = identity.peer_id.to_string().eq(&bill.payee.peer_id);
     Json(am_i_holder)
+}
+
+#[get("/attachment/<bill_name>/<file_name>")]
+pub async fn attachment(
+    state: &State<ServiceContext>,
+    bill_name: &str,
+    file_name: &str,
+) -> Result<(ContentType, Vec<u8>)> {
+    let keys = state.bill_service.get_bill_keys(bill_name).await?;
+    let file_bytes = state
+        .bill_service
+        .open_and_decrypt_attached_file(bill_name, file_name, &keys.private_key_pem)
+        .await?;
+
+    let content_type =
+        detect_content_type_for_bytes(&file_bytes).ok_or(service::Error::Validation(
+            String::from("Content Type of the requested file could not be determined"),
+        ))?;
+    Ok((content_type, file_bytes))
 }
 
 #[get("/return")]
@@ -208,137 +227,129 @@ pub async fn search_bill(state: &State<ServiceContext>) -> Status {
 #[post("/issue", data = "<bill_form>")]
 pub async fn issue_bill(
     state: &State<ServiceContext>,
-    bill_form: Form<BitcreditBillForm>,
-) -> Status {
+    bill_form: Form<BitcreditBillForm<'_>>,
+) -> Result<Status> {
     if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut status: Status = Status::Ok;
-
-        let form_bill = bill_form.into_inner();
-        let drawer = get_whole_identity();
-        let mut client = state.dht_client();
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-        let mut bill = BitcreditBill::new_empty();
-
-        if form_bill.drawer_is_payee {
-            let public_data_drawee = state
-                .contact_service
-                .get_identity_by_name(&form_bill.drawee_name)
-                .await
-                .expect("Can not get drawee identity.");
-
-            if !public_data_drawee.name.is_empty() {
-                bill = issue_new_bill_drawer_is_payee(
-                    form_bill.bill_jurisdiction,
-                    form_bill.place_of_drawing,
-                    form_bill.amount_numbers,
-                    form_bill.place_of_payment,
-                    form_bill.maturity_date,
-                    form_bill.currency_code,
-                    drawer.clone(),
-                    form_bill.language,
-                    public_data_drawee,
-                    timestamp,
-                );
-            } else {
-                status = Status::NotAcceptable
-            }
-        } else if form_bill.drawer_is_drawee {
-            let public_data_payee = state
-                .contact_service
-                .get_identity_by_name(&form_bill.payee_name)
-                .await
-                .expect("Can not get payee identity.");
-
-            if !public_data_payee.name.is_empty() {
-                bill = issue_new_bill_drawer_is_drawee(
-                    form_bill.bill_jurisdiction,
-                    form_bill.place_of_drawing,
-                    form_bill.amount_numbers,
-                    form_bill.place_of_payment,
-                    form_bill.maturity_date,
-                    form_bill.currency_code,
-                    drawer.clone(),
-                    form_bill.language,
-                    public_data_payee,
-                    timestamp,
-                );
-            } else {
-                status = Status::NotAcceptable
-            }
-        } else {
-            let public_data_drawee = state
-                .contact_service
-                .get_identity_by_name(&form_bill.drawee_name)
-                .await
-                .expect("Can not get drawee identity.");
-
-            let public_data_payee = state
-                .contact_service
-                .get_identity_by_name(&form_bill.payee_name)
-                .await
-                .expect("Can not get payee public data");
-
-            if !public_data_payee.name.is_empty() && !public_data_drawee.name.is_empty() {
-                bill = issue_new_bill(
-                    form_bill.bill_jurisdiction,
-                    form_bill.place_of_drawing,
-                    form_bill.amount_numbers,
-                    form_bill.place_of_payment,
-                    form_bill.maturity_date,
-                    form_bill.currency_code,
-                    drawer.clone(),
-                    form_bill.language,
-                    public_data_drawee,
-                    public_data_payee,
-                    timestamp,
-                );
-            } else {
-                status = Status::NotAcceptable
-            }
-        }
-
-        if status.eq(&Status::Ok) {
-            let mut nodes: Vec<String> = Vec::new();
-            let my_peer_id = drawer.peer_id.to_string().clone();
-            nodes.push(my_peer_id.to_string());
-            nodes.push(bill.drawee.peer_id.clone());
-            nodes.push(bill.payee.peer_id.clone());
-
-            for node in nodes {
-                if !node.is_empty() {
-                    info!("issue bill: add {} for node {}", &bill.name, &node);
-                    client.add_bill_to_dht_for_node(&bill.name, &node).await;
-                }
-            }
-
-            client.subscribe_to_topic(bill.name.clone()).await;
-
-            client.put(&bill.name).await;
-
-            if form_bill.drawer_is_drawee {
-                let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-
-                let correct = accept_bill(&bill.name, timestamp).await;
-
-                if correct {
-                    let chain: Chain = Chain::read_chain_from_file(&bill.name);
-                    let block = chain.get_latest_block();
-
-                    let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-                    let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-                    let message = event.to_byte_array();
-
-                    client
-                        .add_message_to_topic(message, bill.name.clone())
-                        .await;
-                }
-            }
-        }
-
-        status
+        return Err(service::Error::PreconditionFailed);
     }
+
+    // Validate Files
+    let files = &bill_form.files;
+    for file in files {
+        state.bill_service.validate_attached_file(file).await?;
+    }
+
+    let form_bill = bill_form.into_inner();
+    let drawer = get_whole_identity();
+
+    let (public_data_drawee, public_data_payee) =
+        match (form_bill.drawer_is_payee, form_bill.drawer_is_drawee) {
+            // Drawer is drawee and payee
+            (true, true) => {
+                return Err(service::Error::Validation(String::from(
+                    "Drawer can't be Drawee and Payee at the same time",
+                )));
+            }
+            // Drawer is payee
+            (true, false) => {
+                let public_data_drawee = state
+                    .contact_service
+                    .get_identity_by_name(&form_bill.drawee_name)
+                    .await
+                    .map_err(|_| {
+                        service::Error::Validation(String::from("Can not get drawee identity."))
+                    })?;
+
+                let public_data_payee =
+                    IdentityPublicData::new(drawer.identity.clone(), drawer.peer_id.to_string());
+
+                (public_data_drawee, public_data_payee)
+            }
+            // Drawer is drawee
+            (false, true) => {
+                let public_data_drawee =
+                    IdentityPublicData::new(drawer.identity.clone(), drawer.peer_id.to_string());
+
+                let public_data_payee = state
+                    .contact_service
+                    .get_identity_by_name(&form_bill.payee_name)
+                    .await
+                    .map_err(|_| {
+                        service::Error::Validation(String::from("Can not get payee identity."))
+                    })?;
+
+                (public_data_drawee, public_data_payee)
+            }
+            // Drawer is neither drawee nor payee
+            (false, false) => {
+                let public_data_drawee = state
+                    .contact_service
+                    .get_identity_by_name(&form_bill.drawee_name)
+                    .await
+                    .map_err(|_| {
+                        service::Error::Validation(String::from("Can not get drawee identity."))
+                    })?;
+
+                let public_data_payee = state
+                    .contact_service
+                    .get_identity_by_name(&form_bill.payee_name)
+                    .await
+                    .map_err(|_| {
+                        service::Error::Validation(String::from("Can not get payee identity."))
+                    })?;
+                (public_data_drawee, public_data_payee)
+            }
+        };
+
+    if public_data_drawee.name.is_empty() {
+        return Err(service::Error::Validation(String::from(
+            "Drawee not found.",
+        )));
+    }
+
+    if public_data_payee.name.is_empty() {
+        return Err(service::Error::Validation(String::from("Payee not found.")));
+    }
+
+    if public_data_drawee.name == public_data_payee.name {
+        return Err(service::Error::Validation(String::from(
+            "Drawee and payee can't be the same.",
+        )));
+    }
+
+    let bill = state
+        .bill_service
+        .issue_new_bill(
+            form_bill.bill_jurisdiction,
+            form_bill.place_of_drawing,
+            form_bill.amount_numbers,
+            form_bill.place_of_payment,
+            form_bill.maturity_date,
+            form_bill.currency_code,
+            drawer,
+            form_bill.language,
+            public_data_drawee,
+            public_data_payee,
+            &form_bill.files,
+        )
+        .await?;
+
+    state
+        .bill_service
+        .propagate_bill(
+            &bill.name,
+            &bill.drawer.peer_id,
+            &bill.drawee.peer_id,
+            &bill.payee.peer_id,
+        )
+        .await?;
+
+    // If we're the drawee, we immediately accept the bill
+    if bill.drawer == bill.drawee {
+        state.bill_service.accept_bill(&bill.name).await?;
+    }
+
+    Ok(Status::Ok)
 }
 
 #[put("/sell", data = "<sell_bill_form>")]
@@ -358,7 +369,10 @@ pub async fn sell_bill(
             .expect("Can not get buyer identity.");
 
         if !public_data_buyer.name.is_empty() {
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = external::time::TimeApi::get_atomic_time()
+                .await
+                .unwrap()
+                .timestamp;
 
             let correct = sell_bitcredit_bill(
                 &sell_bill_form.bill_name,
@@ -411,7 +425,10 @@ pub async fn endorse_bill(
             .expect("Can not get endorsee identity.");
 
         if !public_data_endorsee.name.is_empty() {
-            let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+            let timestamp = external::time::TimeApi::get_atomic_time()
+                .await
+                .unwrap()
+                .timestamp;
 
             let correct = endorse_bitcredit_bill(
                 &endorse_bill_form.bill_name,
@@ -457,7 +474,10 @@ pub async fn request_to_pay_bill(
     } else {
         let mut client = state.dht_client();
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let timestamp = external::time::TimeApi::get_atomic_time()
+            .await
+            .unwrap()
+            .timestamp;
 
         let correct = request_pay(&request_to_pay_bill_form.bill_name, timestamp).await;
 
@@ -487,7 +507,10 @@ pub async fn request_to_accept_bill(
     } else {
         let mut client = state.dht_client();
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let timestamp = external::time::TimeApi::get_atomic_time()
+            .await
+            .unwrap()
+            .timestamp;
 
         let correct = request_acceptance(&request_to_accept_bill_form.bill_name, timestamp).await;
 
@@ -511,30 +534,15 @@ pub async fn request_to_accept_bill(
 pub async fn accept_bill_form(
     state: &State<ServiceContext>,
     accept_bill_form: Form<AcceptBitcreditBillForm>,
-) -> Status {
+) -> Result<Status> {
     if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut client = state.dht_client();
-
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-
-        let correct = accept_bill(&accept_bill_form.bill_name, timestamp).await;
-
-        if correct {
-            let chain: Chain = Chain::read_chain_from_file(&accept_bill_form.bill_name);
-            let block = chain.get_latest_block();
-
-            let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-            let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-            let message = event.to_byte_array();
-
-            client
-                .add_message_to_topic(message, accept_bill_form.bill_name.clone())
-                .await;
-        }
-        Status::Ok
+        return Err(service::Error::PreconditionFailed);
     }
+    state
+        .bill_service
+        .accept_bill(&accept_bill_form.bill_name)
+        .await?;
+    Ok(Status::Ok)
 }
 
 // Mint
@@ -632,7 +640,10 @@ pub async fn mint_bill(
     } else {
         let mut client = state.dht_client();
 
-        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let timestamp = external::time::TimeApi::get_atomic_time()
+            .await
+            .unwrap()
+            .timestamp;
 
         let public_mint_node = state
             .contact_service

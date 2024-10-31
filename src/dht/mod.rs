@@ -27,17 +27,21 @@ mod behaviour;
 mod client;
 mod event_loop;
 
+use crate::persistence::bill::BillStoreApi;
 pub use client::Client;
 use log::{error, info};
+use std::sync::Arc;
 
-#[derive(Debug)]
 pub struct Dht {
     pub client: Client,
     pub shutdown_sender: broadcast::Sender<bool>,
 }
 
-pub async fn dht_main(conf: &Config) -> Result<Dht, Box<dyn Error + Send + Sync>> {
-    let (network_client, network_events, network_event_loop) = new(conf)
+pub async fn dht_main(
+    conf: &Config,
+    bill_store: Arc<dyn BillStoreApi>,
+) -> Result<Dht, Box<dyn Error + Send + Sync>> {
+    let (network_client, network_events, network_event_loop) = new(conf, bill_store)
         .await
         .expect("Can not to create network module in dht.");
 
@@ -55,7 +59,10 @@ pub async fn dht_main(conf: &Config) -> Result<Dht, Box<dyn Error + Send + Sync>
     })
 }
 
-async fn new(conf: &Config) -> Result<(Client, Receiver<Event>, EventLoop), Box<dyn Error>> {
+async fn new(
+    conf: &Config,
+    bill_store: Arc<dyn BillStoreApi>,
+) -> Result<(Client, Receiver<Event>, EventLoop), Box<dyn Error>> {
     if !Path::new(IDENTITY_PEER_ID_FILE_PATH).exists()
         && !Path::new(IDENTITY_ED_25529_KEYS_FILE_PATH).exists()
     {
@@ -192,5 +199,9 @@ async fn new(conf: &Config) -> Result<(Client, Receiver<Event>, EventLoop), Box<
     let (event_sender, event_receiver) = mpsc::channel(0);
     let event_loop = EventLoop::new(swarm, command_receiver, event_sender);
 
-    Ok((Client::new(command_sender), event_receiver, event_loop))
+    Ok((
+        Client::new(command_sender, bill_store),
+        event_receiver,
+        event_loop,
+    ))
 }

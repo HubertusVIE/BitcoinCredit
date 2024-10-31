@@ -1,4 +1,7 @@
-use crate::constants::BOOTSTRAP_NODES_FILE_PATH;
+use crate::constants::{
+    BILL_ATTACHMENT_PREFIX, BILL_PREFIX, BOOTSTRAP_NODES_FILE_PATH, KEY_PREFIX, MAX_FILE_SIZE_BYTES,
+};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use futures::prelude::*;
@@ -12,7 +15,6 @@ use libp2p::swarm::NetworkBehaviour;
 use libp2p::{dcutr, gossipsub, identify, relay, PeerId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::error::Error;
 use std::{fs, iter};
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -157,7 +159,7 @@ pub enum Command {
     RequestFile {
         file_name: String,
         peer: PeerId,
-        sender: oneshot::Sender<Result<Vec<u8>, Box<dyn Error + Send>>>,
+        sender: oneshot::Sender<Result<Vec<u8>>>,
     },
     RespondFile {
         file: Vec<u8>,
@@ -178,6 +180,67 @@ pub enum Event {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum ParsedInboundFileRequest {
+    Bill(BillFileRequest),
+    BillKeys(BillKeysFileRequest),
+    BillAttachment(BillAttachmentFileRequest),
+}
+
+#[derive(Debug, Clone)]
+pub struct BillFileRequest {
+    pub bill_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BillKeysFileRequest {
+    pub node_id: String,
+    pub key_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BillAttachmentFileRequest {
+    pub node_id: String,
+    pub bill_name: String,
+    pub file_name: String,
+}
+
+pub fn file_request_for_bill_attachment(node_id: &str, bill_name: &str, file_name: &str) -> String {
+    format!("{node_id}_{BILL_ATTACHMENT_PREFIX}_{bill_name}_{file_name}")
+}
+
+pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequest> {
+    let parts = request.split("_").collect::<Vec<&str>>();
+    if parts.len() < 3 {
+        return Err(anyhow!("invalid file request {request}"));
+    }
+
+    let node_id = parts[0].to_owned();
+    let prefix = parts[1];
+    match prefix {
+        BILL_PREFIX => Ok(ParsedInboundFileRequest::Bill(BillFileRequest {
+            bill_name: parts[2].to_owned(),
+        })),
+        KEY_PREFIX => Ok(ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
+            node_id,
+            key_name: parts[2].to_owned(),
+        })),
+        BILL_ATTACHMENT_PREFIX => {
+            if parts.len() < 4 {
+                return Err(anyhow!("invalid file request {request}"));
+            }
+            Ok(ParsedInboundFileRequest::BillAttachment(
+                BillAttachmentFileRequest {
+                    node_id,
+                    bill_name: parts[2].to_owned(),
+                    file_name: parts[3].to_owned(),
+                },
+            ))
+        }
+        _ => Err(anyhow!("invalid file request {request}")),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -212,13 +275,15 @@ impl request_response::Codec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 1_000_000).await?; // TODO: update transfer maximum.
+        let vec = read_length_prefixed(io, MAX_FILE_SIZE_BYTES).await?;
 
         if vec.is_empty() {
             return Err(tokio::io::ErrorKind::UnexpectedEof.into());
         }
 
-        Ok(FileRequest(String::from_utf8(vec).unwrap()))
+        Ok(FileRequest(
+            String::from_utf8(vec).map_err(|_| tokio::io::ErrorKind::InvalidData)?,
+        ))
     }
 
     async fn read_response<T>(
@@ -229,7 +294,7 @@ impl request_response::Codec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 500_000_000).await?; // TODO: update transfer maximum.
+        let vec = read_length_prefixed(io, MAX_FILE_SIZE_BYTES).await?;
 
         if vec.is_empty() {
             return Err(tokio::io::ErrorKind::UnexpectedEof.into());

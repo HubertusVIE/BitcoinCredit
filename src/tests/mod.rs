@@ -1,14 +1,54 @@
 #[cfg(test)]
-mod test {
-    use crate::external::bitcoin::AddressInfo;
+pub mod test {
     use crate::util::rsa::generation_rsa_key;
-    use bitcoin::secp256k1::Scalar;
     use libp2p::identity::Keypair;
     use libp2p::PeerId;
-    use log::info;
+
     use openssl::rsa::{Padding, Rsa};
     use std::fs;
     use std::path::Path;
+
+    pub const TEST_PUB_KEY: &str = r#"
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAubhgUJO9PWBZK2CfqSJr
+v3RlDeF3TWiXBocWmBJXzQe4F8qfbj8nTHYJ0Eh22uPVg/Meul/3WNitFMU93jTL
+hnYsx5qxOTHpQ8PVh1+2WvkpIfvJYBVuvmFMtFliyPuJKrOSGJp3SP5EgXbhSI+0
+BB9y/pF5E0fZbh7Nwlci1R4L+dmuW0raPxgSgQw+g3KeBc+DiFEvJJ/ZuoaukS0h
+UwDwY/QdSYRDNHNNO1W4hFJJj1dqnwfs/OmK8yWOG1GjJpI4TYnn/UO6ZJkTkTbA
+xWiIC5Q+ZwzlYEJMNIBTBz+KKTUr4BeJEdneznUb0yeBzcdCg5EHQlvv7plXsQju
+DQIDAQAB
+-----END PUBLIC KEY-----
+"#;
+
+    pub const TEST_PRIVATE_KEY: &str = r#"
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEAubhgUJO9PWBZK2CfqSJrv3RlDeF3TWiXBocWmBJXzQe4F8qf
+bj8nTHYJ0Eh22uPVg/Meul/3WNitFMU93jTLhnYsx5qxOTHpQ8PVh1+2WvkpIfvJ
+YBVuvmFMtFliyPuJKrOSGJp3SP5EgXbhSI+0BB9y/pF5E0fZbh7Nwlci1R4L+dmu
+W0raPxgSgQw+g3KeBc+DiFEvJJ/ZuoaukS0hUwDwY/QdSYRDNHNNO1W4hFJJj1dq
+nwfs/OmK8yWOG1GjJpI4TYnn/UO6ZJkTkTbAxWiIC5Q+ZwzlYEJMNIBTBz+KKTUr
+4BeJEdneznUb0yeBzcdCg5EHQlvv7plXsQjuDQIDAQABAoIBABgwJr8n1rxBKavo
+HDNDi+P2DVlG9apLxmuvuWYZ8Xx/Fl9m4OfTatNfBj0tyukMRlk2l1hvuj/EjJpJ
+bBreJmm/R2rBv3YzBW3xegR1F0N28v/9kockk3VRJ9PPVnnVpNI+a/cvWvzTPOnd
+qU6xhKEK1YfJO4sizvM0KNk4Tw2RcE08o7tcDxQY6VO94dbaZ8ZJ2V+saiAa5BqN
+cVZ+uZBmriJg+MVeB2PECqAGJWJ98r8I1Tq+2aRBc1+94E8Ilfi54qp4jpTghw3y
+LH/uyf3BsbY4j08gk0Y7ljoXmaVyR7BZhcSOhc3XvMAzoqRzQpu/Fexk3Db6fuXz
+wxvUW6ECgYEA/YTnhDbUS7r5ze7ntNQpuZZ3F9vU/FG2c+iC/MJ4Z2wb0gUJ8dXG
+8Zbx7fQE3Hs44bW50tUaTvg7UsvyLMun6/OhdDgS+HGbMhJDNOBHQ3I1QKYUulbt
+ZxRqt8dJRqOi5ctp0+zsFTko0lgA9BlIqG07oXNWzUS8Cf9DsBSaAn0CgYEAu4mg
+oZok/ohv+//sb0T0UzDlxRSUf5a7Q2A0+a+hyMJm5QYHc+slLLsUdUapsx8tu71B
+Y29J7+yfttH4R1NTP1cOPJj5edt+qknuQ0hMZKt+CS4ItxMM/bHV2z+Oi0U/LoW8
+4jo2hh2oaHdXiDlXT9Eds7RK0vTrpcw5Q95fXtECgYAow7gecFqOmtAUJvgnAX58
+Ew+vTG/g6pq15Is7bWHC74VBrgG9WyyUKDtakcQ+V6n70SbCGfYTAKM5WwXj4hNs
+Q06Qy3txa4MS+BDKbc3HsJOTg6ENnXCrBINsbaUAsMs+vAiWRSBpATnpKLFujqo6
+OuY9vbgVZZn+2Ybex1FEWQKBgQCAOqN9u9MtwwanDR+SGVjiBR4memLrNppGgGLY
+kvGRPvNyB4RTC2Z4xlY/thhUpK31n3s1TSQGDApMzBbyVhQmzBSs9IAohR9/ultS
+3/10HBpqlnJZE4qfcNhkOHnz2l5QJhu3p8weOesruuY7+9EqfzbK6Cz9P4Bc9l31
+fPhC8QKBgQCO5FYksuRclILpzSVIJRj68NXZaLknDwAiNqb1a2diqGMCASXC5Z/U
+jS4/cHdsAfssbxRGpoM5WNU7QPa/vhCVygcmAPPBD0DLT16JGpcnuAy3Ae4ss3Ih
+HnZAVCxlGQ7ooHRIxJnp09ogDo7cDIevyMn1VmIZDm9JR1TUL6pbsg==
+-----END RSA PRIVATE KEY-----
+    "#;
 
     // fn bill_to_byte_array(bill: &BitcreditBill) -> Vec<u8> {
     //     to_vec(bill).unwrap()
@@ -181,41 +221,41 @@ mod test {
     //     assert_eq!(bill.bill_jurisdiction, "bill.bill_jurisdiction".to_string());
     // }
 
-    #[test]
-    fn test_bitcoin() {
-        let _ = env_logger::try_init();
-        let s1 = bitcoin::secp256k1::Secp256k1::new();
-        let private_key1 = bitcoin::PrivateKey::new(
-            s1.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
-                .0,
-            bitcoin::Network::Testnet,
-        );
-        let public_key1 = private_key1.public_key(&s1);
-        let _address1 = bitcoin::Address::p2pkh(public_key1, bitcoin::Network::Testnet);
+    // #[test]
+    // fn test_bitcoin() {
+    //     let _ = env_logger::try_init();
+    //     let s1 = bitcoin::secp256k1::Secp256k1::new();
+    //     let private_key1 = bitcoin::PrivateKey::new(
+    //         s1.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
+    //             .0,
+    //         bitcoin::Network::Testnet,
+    //     );
+    //     let public_key1 = private_key1.public_key(&s1);
+    //     let _address1 = bitcoin::Address::p2pkh(public_key1, bitcoin::Network::Testnet);
 
-        let s2 = bitcoin::secp256k1::Secp256k1::new();
-        let private_key2 = bitcoin::PrivateKey::new(
-            s2.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
-                .0,
-            bitcoin::Network::Testnet,
-        );
-        let public_key2 = private_key1.public_key(&s2);
-        let _address2 = bitcoin::Address::p2pkh(public_key2, bitcoin::Network::Testnet);
+    //     let s2 = bitcoin::secp256k1::Secp256k1::new();
+    //     let private_key2 = bitcoin::PrivateKey::new(
+    //         s2.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
+    //             .0,
+    //         bitcoin::Network::Testnet,
+    //     );
+    //     let public_key2 = private_key1.public_key(&s2);
+    //     let _address2 = bitcoin::Address::p2pkh(public_key2, bitcoin::Network::Testnet);
 
-        let private_key3 = private_key1
-            .inner
-            .add_tweak(&Scalar::from(private_key2.inner))
-            .unwrap();
-        let pr_key3 = bitcoin::PrivateKey::new(private_key3, bitcoin::Network::Testnet);
-        let public_key3 = public_key1.inner.combine(&public_key2.inner).unwrap();
-        let pub_key3 = bitcoin::PublicKey::new(public_key3);
-        let address3 = bitcoin::Address::p2pkh(pub_key3, bitcoin::Network::Testnet);
+    //     let private_key3 = private_key1
+    //         .inner
+    //         .add_tweak(&Scalar::from(private_key2.inner))
+    //         .unwrap();
+    //     let pr_key3 = bitcoin::PrivateKey::new(private_key3, bitcoin::Network::Testnet);
+    //     let public_key3 = public_key1.inner.combine(&public_key2.inner).unwrap();
+    //     let pub_key3 = bitcoin::PublicKey::new(public_key3);
+    //     let address3 = bitcoin::Address::p2pkh(pub_key3, bitcoin::Network::Testnet);
 
-        info!("private key: {}", pr_key3);
-        info!("public key: {}", pub_key3);
-        info!("address: {}", address3);
-        info!("{}", address3.is_spend_standard());
-    }
+    //     info!("private key: {}", pr_key3);
+    //     info!("public key: {}", pub_key3);
+    //     info!("address: {}", address3);
+    //     info!("{}", address3.is_spend_standard());
+    // }
 
     // #[tokio::test]
     // async fn test_mint() {
@@ -368,29 +408,29 @@ mod test {
     //     assert_ne!(1, balance);
     // }
 
-    #[tokio::test]
-    async fn test_api() {
-        let _ = env_logger::try_init();
-        let request_url = format!(
-            "https://blockstream.info/testnet/api/address/{address}",
-            address = "mzYHxNxTTGrrxnwSc1RvqTusK4EM88o6yj"
-        );
-        info!("{}", request_url);
-        let response1 = reqwest::get(&request_url)
-            .await
-            .expect("Failed to send request")
-            .text()
-            .await
-            .expect("Failed to read response");
-        info!("{:?}", response1);
-        let response: AddressInfo = reqwest::get(&request_url)
-            .await
-            .expect("Failed to send request")
-            .json()
-            .await
-            .expect("Failed to read response");
-        info!("{:?}", response);
-    }
+    // #[tokio::test]
+    // async fn test_api() {
+    //     let _ = env_logger::try_init();
+    //     let request_url = format!(
+    //         "https://blockstream.info/testnet/api/address/{address}",
+    //         address = "mzYHxNxTTGrrxnwSc1RvqTusK4EM88o6yj"
+    //     );
+    //     info!("{}", request_url);
+    //     let response1 = reqwest::get(&request_url)
+    //         .await
+    //         .expect("Failed to send request")
+    //         .text()
+    //         .await
+    //         .expect("Failed to read response");
+    //     info!("{:?}", response1);
+    //     let response: AddressInfo = reqwest::get(&request_url)
+    //         .await
+    //         .expect("Failed to send request")
+    //         .json()
+    //         .await
+    //         .expect("Failed to read response");
+    //     info!("{:?}", response);
+    // }
 
     #[test]
     fn test_schnorr() {
