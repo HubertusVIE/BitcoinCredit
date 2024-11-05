@@ -51,7 +51,7 @@ pub struct BitcreditBillToReturn {
     pub endorsed: bool,
     pub requested_to_pay: bool,
     pub requested_to_accept: bool,
-    pub payed: bool,
+    pub paid: bool,
     pub waited_for_payment: bool,
     pub address_for_selling: String,
     pub amount_for_selling: u64,
@@ -918,11 +918,11 @@ async fn read_bill_with_chain_from_file(id: &str) -> BitcreditBillToReturn {
     let requested_to_pay = chain.exist_block_with_operation_code(OperationCode::RequestToPay);
     let requested_to_accept = chain.exist_block_with_operation_code(OperationCode::RequestToAccept);
     let address_to_pay = external::bitcoin::get_address_to_pay(bill.clone());
-    let mut payed = false;
+    let mut paid = false;
     if chain.exist_block_with_operation_code(OperationCode::RequestToPay) {
         let check_if_already_paid =
             external::bitcoin::check_if_paid(address_to_pay.clone(), bill.amount_numbers).await;
-        payed = check_if_already_paid.0;
+        paid = check_if_already_paid.0;
     }
 
     BitcreditBillToReturn {
@@ -955,7 +955,7 @@ async fn read_bill_with_chain_from_file(id: &str) -> BitcreditBillToReturn {
         seller: IdentityPublicData::new_empty(),
         requested_to_pay,
         requested_to_accept,
-        payed,
+        paid,
         link_to_pay: "".to_string(),
         link_for_buy: "".to_string(),
         pr_key_bill: "".to_string(),
