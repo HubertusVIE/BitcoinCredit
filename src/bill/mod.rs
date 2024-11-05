@@ -918,9 +918,12 @@ async fn read_bill_with_chain_from_file(id: &str) -> BitcreditBillToReturn {
     let requested_to_pay = chain.exist_block_with_operation_code(OperationCode::RequestToPay);
     let requested_to_accept = chain.exist_block_with_operation_code(OperationCode::RequestToAccept);
     let address_to_pay = external::bitcoin::get_address_to_pay(bill.clone());
-    let check_if_already_paid =
-        external::bitcoin::check_if_paid(address_to_pay.clone(), bill.amount_numbers).await;
-    let payed = check_if_already_paid.0;
+    let mut payed = false;
+    if chain.exist_block_with_operation_code(OperationCode::RequestToPay) {
+        let check_if_already_paid =
+            external::bitcoin::check_if_paid(address_to_pay.clone(), bill.amount_numbers).await;
+        payed = check_if_already_paid.0;
+    }
 
     BitcreditBillToReturn {
         name: bill.name,
