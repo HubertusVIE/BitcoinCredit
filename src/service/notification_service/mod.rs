@@ -10,7 +10,7 @@ pub mod test_utils;
 
 pub use super::{Error, Result};
 pub use event::{ActionType, BillActionEventPayload, Event, EventEnvelope, EventType};
-pub use transport::NotificationTransportApi;
+pub use transport::NotificationJsonTransportApi;
 
 /// Send events via all channels required for the event type.
 #[allow(dead_code)]
@@ -20,8 +20,8 @@ pub trait NotificationServiceApi: Send + Sync {
 }
 
 pub struct DefaultNotificationService {
-    notification_transport: Box<dyn NotificationTransportApi>,
-    email_transport: Box<dyn NotificationTransportApi>,
+    notification_transport: Box<dyn NotificationJsonTransportApi>,
+    email_transport: Box<dyn NotificationJsonTransportApi>,
 }
 
 #[async_trait]

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use log::info;
 
 #[async_trait]
-pub trait NotificationTransportApi: Send + Sync {
+pub trait NotificationJsonTransportApi: Send + Sync {
     async fn send(&self, event: EventEnvelope) -> Result<()>;
 }
 
@@ -13,7 +13,7 @@ pub struct LoggingNotificationTransport {
 }
 
 #[async_trait]
-impl NotificationTransportApi for LoggingNotificationTransport {
+impl NotificationJsonTransportApi for LoggingNotificationTransport {
     async fn send(&self, event: EventEnvelope) -> Result<()> {
         info!(
             "Sending {} event: {:?}({}) with payload: {:?} to peer: {}",
