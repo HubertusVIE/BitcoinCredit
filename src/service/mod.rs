@@ -29,6 +29,10 @@ pub enum Error {
     /// bad request on the api but can also be caused by deserializing other messages
     #[error("Deserialization error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// errors stemming from sending or receiving notifications
+    #[error("Notification service error: {0}")]
+    NotificationService(#[from] notification_service::Error),
 }
 
 /// Map from service errors directly to rocket status codes. This allows us to
@@ -42,6 +46,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             Error::Persistence(_) => Status::InternalServerError.respond_to(req),
             Error::PreconditionFailed => Status::NotAcceptable.respond_to(req),
             Error::Json(_) => Status::BadRequest.respond_to(req),
+            Error::NotificationService(_) => Status::InternalServerError.respond_to(req),
         }
     }
 }

@@ -1,16 +1,43 @@
 use crate::bill::BitcreditBill;
 use async_trait::async_trait;
-
-pub mod event;
-pub mod handler;
-pub mod transport;
+use thiserror::Error;
 
 #[cfg(test)]
 pub mod test_utils;
 
-pub use super::{Error, Result};
+pub mod email;
+pub mod event;
+pub mod handler;
+pub mod transport;
+
+pub use email::NotificationEmailTransportApi;
 pub use event::{ActionType, BillActionEventPayload, Event, EventEnvelope, EventType};
 pub use transport::NotificationJsonTransportApi;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    /// json errors when serializing/deserializing notification events
+    #[error("json serialization error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    /// errors stemming from lettre smtp transport
+    #[error("lettre smtp transport error: {0}")]
+    SmtpTransport(#[from] lettre::transport::smtp::Error),
+
+    /// errors stemming from lettre stub transport (this will only be used for testing)
+    #[error("lettre stub transport error: {0}")]
+    StubTransport(#[from] lettre::transport::stub::Error),
+
+    /// errors stemming from lettre email contents creation
+    #[error("lettre email error: {0}")]
+    LettreEmail(#[from] lettre::error::Error),
+
+    /// errors stemming from lettre address parsing
+    #[error("lettre address error: {0}")]
+    LettreAddress(#[from] lettre::address::AddressError),
+}
 
 /// Send events via all channels required for the event type.
 #[allow(dead_code)]

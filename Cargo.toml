@@ -25,7 +25,14 @@ libp2p = { version = "0.51.3", features = [
   "relay",
   "dcutr",
 ] }
-tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "macros", "io-util", "time", "io-std"] }
+tokio = { version = "1.40.0", features = [
+  "rt",
+  "rt-multi-thread",
+  "macros",
+  "io-util",
+  "time",
+  "io-std",
+] }
 async-trait = "0.1.83"
 rocket = { version = "0.5.1", features = ["json"] }
 rocket_dyn_templates = { version = "0.2.0", features = ["handlebars"] }
@@ -37,12 +44,16 @@ log = "0.4.22"
 futures = "0.3.31"
 bitcoin = { version = "0.32.3", features = ["rand", "rand-std"] }
 reqwest = { version = "0.12.8", features = ["json"] }
-anyhow = "1.0.89"
+anyhow = "1"
 clap = { version = "4.5.20", features = ["derive", "env"] }
 url = "2.5.2"
-thiserror = "1.0.64"
+thiserror = "2"
 moksha-core = { git = "https://github.com/mtbitcr/moksha" }
 moksha-mint = { git = "https://github.com/mtbitcr/moksha" }
 moksha-wallet = { git = "https://github.com/mtbitcr/moksha" }
 hf = { version = "0.3.6", default-features = false }
-
+lettre = { version = "0.11.10", features = [
+  "tokio1",
+  "tokio1-native-tls",
+  "file-transport",
+] }

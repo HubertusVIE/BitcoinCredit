@@ -7,17 +7,15 @@ pub trait NotificationJsonTransportApi: Send + Sync {
     async fn send(&self, event: EventEnvelope) -> Result<()>;
 }
 
-/// A dummy transport that logs all events that are sent.
-pub struct LoggingNotificationTransport {
-    name: String,
-}
+/// A dummy transport that logs all events that are sent as json.
+pub struct LoggingNotificationJsonTransport;
 
 #[async_trait]
-impl NotificationJsonTransportApi for LoggingNotificationTransport {
+impl NotificationJsonTransportApi for LoggingNotificationJsonTransport {
     async fn send(&self, event: EventEnvelope) -> Result<()> {
         info!(
-            "Sending {} event: {:?}({}) with payload: {:?} to peer: {}",
-            self.name, event.event_type, event.version, event.data, event.peer_id
+            "Sending json event: {:?}({}) with payload: {:?} to peer: {}",
+            event.event_type, event.version, event.data, event.peer_id
         );
         Ok(())
     }
