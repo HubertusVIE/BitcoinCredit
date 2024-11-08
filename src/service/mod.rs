@@ -1,5 +1,5 @@
 pub mod contact_service;
-pub mod notifiction_service;
+pub mod notification_service;
 
 use super::{dht::Client, Config};
 use crate::persistence;
