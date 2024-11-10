@@ -1,4 +1,6 @@
-use super::{handler::NotificationHandlerApi, Event, EventEnvelope, EventType, Result};
+use super::{
+    handler::NotificationHandlerApi, EmailMessage, Event, EventEnvelope, EventType, Result,
+};
 use serde::{de::DeserializeOwned, Serialize};
 
 /// These mocks might be useful for testing in other modules as well
@@ -58,4 +60,13 @@ pub fn create_test_event(event_type: &EventType) -> Event<TestEventPayload> {
         "peer_id".to_string(),
         create_test_event_payload(),
     )
+}
+
+pub fn get_test_email_message() -> EmailMessage {
+    EmailMessage {
+        from: "sender@example.com".to_string(),
+        to: "recipient@example.com".to_string(),
+        subject: "Hello World".to_string(),
+        body: "This is a test email.".to_string(),
+    }
 }

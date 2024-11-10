@@ -6,12 +6,13 @@ use thiserror::Error;
 pub mod test_utils;
 
 pub mod email;
+pub mod email_lettre;
+pub mod email_sendgrid;
 pub mod event;
 pub mod handler;
-pub mod lettre_email;
 pub mod transport;
 
-pub use email::NotificationEmailTransportApi;
+pub use email::{EmailMessage, NotificationEmailTransportApi};
 pub use event::{ActionType, BillActionEventPayload, Event, EventEnvelope, EventType};
 pub use transport::NotificationJsonTransportApi;
 
@@ -38,6 +39,10 @@ pub enum Error {
     /// errors stemming from lettre address parsing
     #[error("lettre address error: {0}")]
     LettreAddress(#[from] lettre::address::AddressError),
+
+    /// some transports require a http client where we use reqwest
+    #[error("http client error: {0}")]
+    HttpClient(#[from] reqwest::Error),
 }
 
 /// Send events via all channels required for the event type.
@@ -49,7 +54,7 @@ pub trait NotificationServiceApi: Send + Sync {
 
 pub struct DefaultNotificationService {
     notification_transport: Box<dyn NotificationJsonTransportApi>,
-    email_transport: Box<dyn NotificationJsonTransportApi>,
+    email_transport: Box<dyn NotificationEmailTransportApi>,
 }
 
 #[async_trait]
@@ -82,9 +87,17 @@ impl NotificationServiceApi for DefaultNotificationService {
             .send(drawee_event.try_into()?)
             .await?;
 
-        // TODO: This is just for demo purpose. The email transport will need
-        // different payloads (rendered as html) and different recipients.
-        self.email_transport.send(drawer_event.try_into()?).await?;
+        // TODO: This is just for demo purpose.
+        if !bill.drawee.email.is_empty() && !bill.drawer.email.is_empty() {
+            let email_message = EmailMessage {
+                from: bill.drawer.email.to_owned(),
+                to: bill.drawee.email.to_owned(),
+                subject: "You have been billed".to_string(),
+                body: "A bill has been signed and your approval is required.".to_string(),
+            };
+            self.email_transport.send(email_message).await?;
+        }
+
         Ok(())
     }
 }

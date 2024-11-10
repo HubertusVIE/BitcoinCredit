@@ -79,16 +79,8 @@ impl NotificationEmailTransportApi for StubEmailTransport {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_utils::get_test_email_message;
     use super::*;
-
-    fn get_test_email_message() -> EmailMessage {
-        EmailMessage {
-            from: "sender@example.com".to_string(),
-            to: "recipient@example.com".to_string(),
-            subject: "Hello World".to_string(),
-            body: "This is a test email.".to_string(),
-        }
-    }
 
     #[test]
     fn test_email_message_conversion() {
