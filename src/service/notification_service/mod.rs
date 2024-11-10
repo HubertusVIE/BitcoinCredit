@@ -8,6 +8,7 @@ pub mod test_utils;
 pub mod email;
 pub mod event;
 pub mod handler;
+pub mod lettre_email;
 pub mod transport;
 
 pub use email::NotificationEmailTransportApi;
