@@ -33,7 +33,7 @@ pub enum ActionType {
 /// to be performed by the receiver. If we want to also notify
 /// recipients via email or push notifications, we probably need to
 /// add more fields here and create multiple event types.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BillActionEventPayload {
     pub bill_name: String,
     pub action_type: ActionType,

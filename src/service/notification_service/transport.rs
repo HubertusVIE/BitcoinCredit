@@ -1,7 +1,10 @@
 use super::{EventEnvelope, Result};
 use async_trait::async_trait;
 use log::info;
+#[cfg(test)]
+use mockall::automock;
 
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait NotificationJsonTransportApi: Send + Sync {
     async fn send(&self, event: EventEnvelope) -> Result<()>;

@@ -1,5 +1,7 @@
+use crate::{bill::BitcreditBill, service::contact_service::IdentityPublicData};
+
 use super::{
-    handler::NotificationHandlerApi, EmailMessage, Event, EventEnvelope, EventType, Result,
+    email::EmailMessage, handler::NotificationHandlerApi, Event, EventEnvelope, EventType, Result,
 };
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -69,4 +71,22 @@ pub fn get_test_email_message() -> EmailMessage {
         subject: "Hello World".to_string(),
         body: "This is a test email.".to_string(),
     }
+}
+
+pub fn get_identity_public_data(peer_id: &str, email: &str) -> IdentityPublicData {
+    let mut identity = IdentityPublicData::new_only_peer_id(peer_id.to_owned());
+    identity.email = email.to_owned();
+    identity
+}
+
+pub fn get_test_bitcredit_bill(
+    name: &str,
+    payer: &IdentityPublicData,
+    payee: &IdentityPublicData,
+) -> BitcreditBill {
+    let mut bill = BitcreditBill::new_empty();
+    bill.name = name.to_owned();
+    bill.payee = payee.clone();
+    bill.drawee = payer.clone();
+    bill
 }
