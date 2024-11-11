@@ -57,11 +57,21 @@ impl<T: Serialize> Event<T> {
     pub fn new(event_type: &EventType, peer_id: String, data: T) -> Self {
         Self {
             event_type: event_type.to_owned(),
-            version: "1.0".to_string(),
+            version: get_version(event_type),
             peer_id,
             data,
         }
     }
+}
+
+/// The event version that is used for all events if no specific version
+/// is set via get_version.
+const DEFAULT_EVENT_VERSION: &str = "1.0";
+
+/// If we want to bump the version of a single event type, we can do so
+/// by matching the event type and returning the new version here.
+fn get_version(_event_type: &EventType) -> String {
+    DEFAULT_EVENT_VERSION.into()
 }
 
 /// When we receive an event, we need to know what type it is and

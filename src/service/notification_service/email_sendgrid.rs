@@ -32,8 +32,7 @@ impl SendgridTransport {
             .client
             .post(url)
             .json(&message)
-            .bearer_auth(&self.config.api_key)
-            .header("Content-Type", "application/json");
+            .bearer_auth(&self.config.api_key);
         let _ = request.send().await?;
         Ok(())
     }
@@ -134,7 +133,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_transport() {
-        let t = SendgridTransport::new(&SendgridConfig {
+        let _ = SendgridTransport::new(&SendgridConfig {
             api_key: "api_key".to_string(),
             url: "https://api.sendgrid.com".to_string(),
         });

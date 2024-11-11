@@ -52,6 +52,9 @@ pub trait NotificationServiceApi: Send + Sync {
     async fn send_bill_is_signed_event(&self, bill: &BitcreditBill) -> Result<()>;
 }
 
+/// A default implementation of the NotificationServiceApi that can
+/// send events via json and email transports.
+#[allow(dead_code)]
 pub struct DefaultNotificationService {
     notification_transport: Box<dyn NotificationJsonTransportApi>,
     email_transport: Box<dyn NotificationEmailTransportApi>,
@@ -72,32 +75,29 @@ impl NotificationServiceApi for DefaultNotificationService {
         );
         let drawee_event = Event::new(
             &event_type,
-            bill.drawee.peer_id.clone(),
+            bill.payee.peer_id.clone(),
             BillActionEventPayload {
                 bill_name: bill.name.clone(),
                 action_type: ActionType::ApproveBill,
             },
         );
 
-        // TODO: This is just for demo purpose.
         self.notification_transport
             .send(drawer_event.clone().try_into()?)
             .await?;
+
         self.notification_transport
             .send(drawee_event.try_into()?)
             .await?;
 
-        // TODO: This is just for demo purpose.
-        if !bill.drawee.email.is_empty() && !bill.drawer.email.is_empty() {
-            let email_message = EmailMessage {
-                from: bill.drawer.email.to_owned(),
-                to: bill.drawee.email.to_owned(),
-                subject: "You have been billed".to_string(),
-                body: "A bill has been signed and your approval is required.".to_string(),
-            };
-            self.email_transport.send(email_message).await?;
-        }
-
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_send_bill_is_signed_event() {}
 }
