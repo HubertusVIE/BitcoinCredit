@@ -1,14 +1,14 @@
 use super::behaviour::{
-    file_request_for_bill_attachment, parse_inbound_file_request, BillAttachmentFileRequest,
-    BillFileRequest, BillKeysFileRequest, Command, Event, FileResponse, ParsedInboundFileRequest,
+    file_request_for_bill, file_request_for_bill_attachment, file_request_for_bill_keys,
+    parse_inbound_file_request, BillAttachmentFileRequest, BillFileRequest, BillKeysFileRequest,
+    Command, Event, FileResponse, ParsedInboundFileRequest,
 };
 use crate::bill::{get_path_for_bill, get_path_for_bill_keys};
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
-use crate::constants::{
-    BILLS_FOLDER_PATH, BILLS_PREFIX, BILL_PREFIX, IDENTITY_FILE_PATH, KEY_PREFIX,
-};
+use crate::constants::{BILLS_FOLDER_PATH, BILLS_PREFIX, IDENTITY_FILE_PATH};
 use crate::persistence::bill::BillStoreApi;
 use crate::service::contact_service::IdentityPublicData;
+use crate::util;
 use crate::{
     bill::{
         get_bills,
@@ -55,14 +55,14 @@ impl Client {
         let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel(100);
         std::thread::spawn(move || {
             let stdin = std::io::stdin();
-            let mut reader = stdin.lock();
-
-            loop {
-                let mut input = String::new();
-                match reader.read_line(&mut input) {
-                    Ok(_) => {
-                        if let Err(e) = stdin_tx.blocking_send(input) {
-                            error!("Error handling stdin: {e}");
+            for line in stdin.lock().lines() {
+                match line {
+                    Ok(line) => {
+                        let line = line.trim().to_string();
+                        if !line.is_empty() {
+                            if let Err(e) = stdin_tx.blocking_send(line) {
+                                error!("Error handling stdin: {e}");
+                            }
                         }
                     }
                     Err(e) => {
@@ -115,6 +115,21 @@ impl Client {
                             decrypt_bytes_with_private_key(&key_bytes, pr_key);
 
                         fs::write(path_for_keys, key_bytes_decrypted).expect("Can't write file.");
+                    }
+
+                    if !bill_bytes.is_empty() {
+                        if let Ok(chain) = self.bill_store.read_bill_chain_from_file(bill_id).await
+                        {
+                            let bill = chain.get_first_version_bill();
+                            for file in bill.files {
+                                if let Err(e) = self
+                                    .get_bill_attachment(bill_id.to_owned(), file.name.clone())
+                                    .await
+                                {
+                                    error!("Could not get bill attachment with file name {} for bill {bill_id}: {e}", file.name);
+                                }
+                            }
+                        }
                     }
 
                     if !bill_bytes.is_empty() {
@@ -318,10 +333,9 @@ impl Client {
             let requests = providers.into_iter().map(|peer| {
                 let mut network_client = self.clone();
                 let local_peer_id = read_peer_id_from_file().to_string();
-                let mut name = name.clone();
-                name = BILL_PREFIX.to_string() + name.as_str();
-                name = local_peer_id + "_" + name.as_str();
-                async move { network_client.request_file(peer, name).await }.boxed()
+
+                let file_request = file_request_for_bill(&local_peer_id, &name);
+                async move { network_client.request_file(peer, file_request).await }.boxed()
             });
 
             let file_content = futures::future::select_ok(requests);
@@ -340,20 +354,31 @@ impl Client {
         }
     }
 
-    /// Requests the given file for the given bill name, saving it once it arrives
+    /// Requests the given file for the given bill name, decrypting it, checking it's hash,
+    /// encrypting it and saving it once it arrives
     pub async fn get_bill_attachment(
         &mut self,
         bill_name: String,
         file_name: String,
     ) -> Result<()> {
+        // check if there is such a bill and if it contains this file
+        let bill = self
+            .bill_store
+            .read_bill_chain_from_file(&bill_name)
+            .await?
+            .get_first_version_bill();
+        let local_hash = match bill.files.iter().find(|file| file.name.eq(&file_name)) {
+            None => {
+                return Err(anyhow!("Get Bill Attachment: No file found in bill {bill_name} with file name {file_name}"));
+            }
+            Some(file) => &file.hash,
+        };
+
         let local_peer_id = read_peer_id_from_file();
-        // TODO: check if there is a bill for this bill_name and if it has a file with this name
-        // -> read_bill_from_file into persistence
-        // TODO: get the hash here
         let mut providers = self.get_providers(bill_name.to_owned()).await;
         providers.remove(&local_peer_id);
         if providers.is_empty() {
-            return Err(anyhow!("No providers found"));
+            return Err(anyhow!("Get Bill Attachment: No providers found"));
         }
 
         let requests = providers.into_iter().map(|peer_id| {
@@ -371,10 +396,28 @@ impl Client {
                 "Get Bill Attachment: None of the providers returned the file: {e}"
             )),
             Ok(file_content) => {
-                self.bill_store.read_bill_keys_from_file(&bill_name).await?;
-                // TODO: decrypt using private identity key
-                // TODO: calculate the hash and check if hash matches the hash from the bill from above
-                // TODO: encrypt_and_save_attached_file
+                let bytes = file_content.0;
+                let keys = self.bill_store.read_bill_keys_from_file(&bill_name).await?;
+                let pr_key = get_whole_identity().identity.private_key_pem;
+                // decrypt file using identity private key and check hash
+                let decrypted_with_identity_key =
+                    util::rsa::decrypt_bytes_with_private_key(&bytes, pr_key);
+                let decrypted_with_bill_key = util::rsa::decrypt_bytes_with_private_key(
+                    &decrypted_with_identity_key,
+                    keys.private_key_pem,
+                );
+                let remote_hash = util::sha256_hash(&decrypted_with_bill_key);
+                if local_hash != remote_hash.as_str() {
+                    return Err(anyhow!("Get Bill Attachment: Hashes didn't match for bill {bill_name} and file name {file_name}, remote: {remote_hash}, local: {local_hash}"));
+                }
+                // encrypt with bill public key and save file locally
+                let encrypted = util::rsa::encrypt_bytes_with_public_key(
+                    &decrypted_with_bill_key,
+                    &keys.public_key_pem,
+                );
+                self.bill_store
+                    .save_attached_file(&encrypted, &bill_name, &file_name)
+                    .await?;
                 Ok(())
             }
         }
@@ -390,10 +433,9 @@ impl Client {
             let requests = providers.into_iter().map(|peer| {
                 let mut network_client = self.clone();
                 let local_peer_id = read_peer_id_from_file().to_string();
-                let mut name = name.clone();
-                name = KEY_PREFIX.to_string() + name.as_str();
-                name = local_peer_id + "_" + name.as_str();
-                async move { network_client.request_file(peer, name).await }.boxed()
+
+                let file_request = file_request_for_bill_keys(&local_peer_id, &name);
+                async move { network_client.request_file(peer, file_request).await }.boxed()
             });
 
             let file_content = futures::future::select_ok(requests);
@@ -597,7 +639,6 @@ impl Client {
     //Need for testing from console.
     async fn handle_input_line(&mut self, line: String) {
         let mut args = line.split(' ');
-
         match args.next() {
             Some("PUT") => {
                 let name: String = {

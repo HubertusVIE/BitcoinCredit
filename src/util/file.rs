@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use rocket::{fs::TempFile, http::ContentType};
+use rocket::fs::TempFile;
 use std::{ffi::OsStr, fs::DirEntry, path::Path};
 use tokio::io::AsyncReadExt;
 
@@ -15,6 +15,10 @@ pub trait UploadFileHandler: Send + Sync {
     fn extension(&self) -> Option<String>;
     /// Returns the name for an uploaded file
     fn name(&self) -> Option<String>;
+    /// Returns the file length for an uploaded file
+    fn len(&self) -> u64;
+    /// detects the content type of the file by checking the first bytes
+    async fn detect_content_type(&self) -> std::io::Result<Option<String>>;
 }
 
 #[async_trait]
@@ -34,7 +38,18 @@ impl UploadFileHandler for TempFile<'_> {
     fn name(&self) -> Option<String> {
         self.name().map(|s| s.to_owned())
     }
+
+    fn len(&self) -> u64 {
+        self.len()
+    }
+    async fn detect_content_type(&self) -> std::io::Result<Option<String>> {
+        let mut buffer = vec![0; 256];
+        let mut opened = self.open().await?;
+        let _bytes_read = opened.read(&mut buffer).await?;
+        Ok(detect_content_type_for_bytes(&buffer))
+    }
 }
+
 /// Function to sanitize the filename by removing unwanted characters.
 pub fn sanitize_filename(filename: &str) -> String {
     filename
@@ -44,11 +59,11 @@ pub fn sanitize_filename(filename: &str) -> String {
         .collect()
 }
 
-pub fn detect_content_type_for_bytes(bytes: &[u8]) -> Option<ContentType> {
+pub fn detect_content_type_for_bytes(bytes: &[u8]) -> Option<String> {
     if bytes.len() < 256 {
         return None; // can't decide with so few bytes
     }
-    infer::get(&bytes[..256]).and_then(|t| ContentType::parse_flexible(t.mime_type()))
+    infer::get(&bytes[..256]).map(|t| t.mime_type().to_owned())
 }
 
 /// Function to generate a unique filename using UUID while preserving the file extension.

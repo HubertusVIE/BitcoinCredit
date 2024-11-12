@@ -35,6 +35,7 @@ pub struct BlockForHistory {
 }
 
 impl Chain {
+    #[cfg_attr(test, allow(dead_code))]
     pub fn new(first_block: Block) -> Self {
         let blocks = vec![first_block];
 
@@ -469,7 +470,7 @@ impl Chain {
         bitcoin::Address::p2pkh(pub_key_bill, USEDNET).to_string()
     }
 
-    pub(super) fn get_first_version_bill(&self) -> BitcreditBill {
+    pub fn get_first_version_bill(&self) -> BitcreditBill {
         let first_block_data = &self.get_first_block();
         let bill_keys = read_keys_from_bill_file(&first_block_data.bill_name);
         let key: Rsa<Private> =

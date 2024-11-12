@@ -3,9 +3,9 @@ use std::net::Ipv4Addr;
 
 // General
 pub const BILLS_PREFIX: &str = "BILLS";
-pub const BILL_PREFIX: &str = "BILL_";
-pub const BILL_ATTACHMENT_PREFIX: &str = "BILLATT_";
-pub const KEY_PREFIX: &str = "KEY_";
+pub const BILL_PREFIX: &str = "BILL";
+pub const BILL_ATTACHMENT_PREFIX: &str = "BILLATT";
+pub const KEY_PREFIX: &str = "KEY";
 pub const SHUTDOWN_GRACE_PERIOD_MS: u64 = 1500;
 
 // Validation

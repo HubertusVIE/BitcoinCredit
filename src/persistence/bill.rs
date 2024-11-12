@@ -1,5 +1,5 @@
 use super::{file_storage_path, Result};
-use crate::bill::BillKeys;
+use crate::{bill::BillKeys, blockchain::Chain};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::{
@@ -13,6 +13,9 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BillStoreApi: Send + Sync {
+    /// Reads the blockchain of the given bill from disk
+    async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<Chain>;
+
     /// Writes the given encrypted bytes of an attached file to disk
     async fn save_attached_file(
         &self,
@@ -38,7 +41,6 @@ pub trait BillStoreApi: Send + Sync {
 
 #[derive(Clone)]
 pub struct FileBasedBillStore {
-    #[allow(dead_code)]
     folder: String,
     files_folder: String,
     keys_folder: String,
@@ -61,6 +63,12 @@ impl FileBasedBillStore {
         })
     }
 
+    pub fn get_path_for_bill(&self, bill_name: &str) -> PathBuf {
+        let mut path = PathBuf::from(self.folder.as_str()).join(bill_name);
+        path.set_extension("json");
+        path
+    }
+
     pub fn get_path_for_bill_keys(&self, key_name: &str) -> PathBuf {
         let mut path = PathBuf::from(self.keys_folder.as_str()).join(key_name);
         path.set_extension("json");
@@ -70,6 +78,12 @@ impl FileBasedBillStore {
 
 #[async_trait]
 impl BillStoreApi for FileBasedBillStore {
+    async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<Chain> {
+        let path = self.get_path_for_bill(bill_name);
+        let bytes = read(path).await.map_err(super::Error::Io)?;
+        serde_json::from_slice(&bytes).map_err(super::Error::Json)
+    }
+
     async fn save_attached_file(
         &self,
         encrypted_bytes: &[u8],
@@ -120,7 +134,7 @@ impl BillStoreApi for FileBasedBillStore {
 
     async fn read_bill_keys_from_file(&self, bill_name: &str) -> Result<BillKeys> {
         let input_path = self.get_path_for_bill_keys(bill_name);
-        let blockchain_from_file = read(&input_path).await.map_err(super::Error::Io)?;
-        serde_json::from_slice(blockchain_from_file.as_slice()).map_err(super::Error::Json)
+        let bytes = read(&input_path).await.map_err(super::Error::Io)?;
+        serde_json::from_slice(&bytes).map_err(super::Error::Json)
     }
 }

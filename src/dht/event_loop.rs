@@ -79,6 +79,7 @@ impl EventLoop {
                 KademliaEvent::OutboundQueryProgressed { result, id, .. },
             )) => match result {
                 QueryResult::StartProviding(Ok(kad::AddProviderOk { key: _ })) => {
+                    info!("Successfully started providing query id: {id:?}");
                     let sender: oneshot::Sender<()> = self
                         .pending_start_providing
                         .remove(&id)

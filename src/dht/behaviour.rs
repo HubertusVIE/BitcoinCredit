@@ -182,25 +182,25 @@ pub enum Event {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedInboundFileRequest {
     Bill(BillFileRequest),
     BillKeys(BillKeysFileRequest),
     BillAttachment(BillAttachmentFileRequest),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillFileRequest {
     pub bill_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillKeysFileRequest {
     pub node_id: String,
     pub key_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillAttachmentFileRequest {
     pub node_id: String,
     pub bill_name: String,
@@ -211,10 +211,20 @@ pub fn file_request_for_bill_attachment(node_id: &str, bill_name: &str, file_nam
     format!("{node_id}_{BILL_ATTACHMENT_PREFIX}_{bill_name}_{file_name}")
 }
 
+pub fn file_request_for_bill(node_id: &str, bill_name: &str) -> String {
+    format!("{node_id}_{BILL_PREFIX}_{bill_name}")
+}
+
+pub fn file_request_for_bill_keys(node_id: &str, bill_name: &str) -> String {
+    format!("{node_id}_{KEY_PREFIX}_{bill_name}")
+}
+
 pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequest> {
-    let parts = request.split("_").collect::<Vec<&str>>();
+    let parts = request.splitn(4, "_").collect::<Vec<&str>>();
     if parts.len() < 3 {
-        return Err(anyhow!("invalid file request {request}"));
+        return Err(anyhow!(
+            "invalid file request, need at least 3 parts in {request}"
+        ));
     }
 
     let node_id = parts[0].to_owned();
@@ -229,7 +239,9 @@ pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequ
         })),
         BILL_ATTACHMENT_PREFIX => {
             if parts.len() < 4 {
-                return Err(anyhow!("invalid file request {request}"));
+                return Err(anyhow!(
+                    "invalid file request, need at least 4 parts in {request}"
+                ));
             }
             Ok(ParsedInboundFileRequest::BillAttachment(
                 BillAttachmentFileRequest {
@@ -239,7 +251,9 @@ pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequ
                 },
             ))
         }
-        _ => Err(anyhow!("invalid file request {request}")),
+        _ => Err(anyhow!(
+            "invalid file request, no prefix matched in {request}"
+        )),
     }
 }
 
@@ -331,5 +345,99 @@ impl request_response::Codec for FileExchangeCodec {
         io.close().await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_inbound_file_request_too_short() {
+        assert!(parse_inbound_file_request("").is_err());
+        assert!(parse_inbound_file_request("a_b").is_err());
+        assert!(parse_inbound_file_request("_b").is_err());
+        assert!(parse_inbound_file_request("b_").is_err());
+    }
+
+    #[test]
+    fn parse_inbound_file_request_prefixes() {
+        assert!(parse_inbound_file_request("nodeid_BLA_TEST").is_err());
+        assert!(parse_inbound_file_request("nodeid_BLA_TEST_TEST").is_err());
+        assert!(parse_inbound_file_request("nodeid_BILL_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_KEY_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_BILLATT_TEST_TEST").is_ok());
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_bill() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_BILL_TEST").unwrap(),
+            ParsedInboundFileRequest::Bill(BillFileRequest {
+                bill_name: "TEST".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_bill() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_bill("nodeid", "TEST")).unwrap(),
+            ParsedInboundFileRequest::Bill(BillFileRequest {
+                bill_name: "TEST".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_key() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_KEY_TEST").unwrap(),
+            ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
+                node_id: "nodeid".to_string(),
+                key_name: "TEST".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_key() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_bill_keys("nodeid", "TEST")).unwrap(),
+            ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
+                node_id: "nodeid".to_string(),
+                key_name: "TEST".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_attachment_length() {
+        assert!(parse_inbound_file_request("nodeid_BILLATT_TEST").is_err(),);
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_attachment() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_BILLATT_TEST_FILE").unwrap(),
+            ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
+                node_id: "nodeid".to_string(),
+                bill_name: "TEST".to_string(),
+                file_name: "FILE".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_attachment() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_bill_attachment("nodeid", "TEST", "FILE"))
+                .unwrap(),
+            ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
+                node_id: "nodeid".to_string(),
+                bill_name: "TEST".to_string(),
+                file_name: "FILE".to_string(),
+            })
+        );
     }
 }

@@ -9,7 +9,7 @@ use crate::blockchain::{Chain, ChainToReturn, GossipsubEvent, GossipsubEventId, 
 use crate::constants::IDENTITY_FILE_PATH;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
-use crate::util::file::detect_content_type_for_bytes;
+use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
 use crate::{
     bill::{
         endorse_bitcredit_bill, get_bills_for_list,
@@ -48,10 +48,14 @@ pub async fn attachment(
         .open_and_decrypt_attached_file(bill_name, file_name, &keys.private_key_pem)
         .await?;
 
-    let content_type =
-        detect_content_type_for_bytes(&file_bytes).ok_or(service::Error::Validation(
-            String::from("Content Type of the requested file could not be determined"),
-        ))?;
+    let content_type = match detect_content_type_for_bytes(&file_bytes) {
+        None => None,
+        Some(t) => ContentType::parse_flexible(&t),
+    }
+    .ok_or(service::Error::Validation(String::from(
+        "Content Type of the requested file could not be determined",
+    )))?;
+
     Ok((content_type, file_bytes))
 }
 
@@ -233,17 +237,21 @@ pub async fn issue_bill(
         return Err(service::Error::PreconditionFailed);
     }
 
-    // Validate Files
     let files = &bill_form.files;
-    for file in files {
-        state.bill_service.validate_attached_file(file).await?;
+    let upload_file_handlers: Vec<&dyn UploadFileHandler> = files
+        .iter()
+        .map(|file| file as &dyn UploadFileHandler)
+        .collect();
+    // Validate Files
+    for file in &upload_file_handlers {
+        state.bill_service.validate_attached_file(*file).await?;
     }
 
-    let form_bill = bill_form.into_inner();
+    // let form_bill = &(bill_form.into_inner();
     let drawer = get_whole_identity();
 
     let (public_data_drawee, public_data_payee) =
-        match (form_bill.drawer_is_payee, form_bill.drawer_is_drawee) {
+        match (bill_form.drawer_is_payee, bill_form.drawer_is_drawee) {
             // Drawer is drawee and payee
             (true, true) => {
                 return Err(service::Error::Validation(String::from(
@@ -254,7 +262,7 @@ pub async fn issue_bill(
             (true, false) => {
                 let public_data_drawee = state
                     .contact_service
-                    .get_identity_by_name(&form_bill.drawee_name)
+                    .get_identity_by_name(&bill_form.drawee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get drawee identity."))
@@ -272,7 +280,7 @@ pub async fn issue_bill(
 
                 let public_data_payee = state
                     .contact_service
-                    .get_identity_by_name(&form_bill.payee_name)
+                    .get_identity_by_name(&bill_form.payee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get payee identity."))
@@ -284,7 +292,7 @@ pub async fn issue_bill(
             (false, false) => {
                 let public_data_drawee = state
                     .contact_service
-                    .get_identity_by_name(&form_bill.drawee_name)
+                    .get_identity_by_name(&bill_form.drawee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get drawee identity."))
@@ -292,7 +300,7 @@ pub async fn issue_bill(
 
                 let public_data_payee = state
                     .contact_service
-                    .get_identity_by_name(&form_bill.payee_name)
+                    .get_identity_by_name(&bill_form.payee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get payee identity."))
@@ -320,17 +328,17 @@ pub async fn issue_bill(
     let bill = state
         .bill_service
         .issue_new_bill(
-            form_bill.bill_jurisdiction,
-            form_bill.place_of_drawing,
-            form_bill.amount_numbers,
-            form_bill.place_of_payment,
-            form_bill.maturity_date,
-            form_bill.currency_code,
+            bill_form.bill_jurisdiction.to_owned(),
+            bill_form.place_of_drawing.to_owned(),
+            bill_form.amount_numbers.to_owned(),
+            bill_form.place_of_payment.to_owned(),
+            bill_form.maturity_date.to_owned(),
+            bill_form.currency_code.to_owned(),
             drawer,
-            form_bill.language,
+            bill_form.language.to_owned(),
             public_data_drawee,
             public_data_payee,
-            &form_bill.files,
+            upload_file_handlers,
         )
         .await?;
 

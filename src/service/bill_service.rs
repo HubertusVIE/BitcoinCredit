@@ -16,10 +16,7 @@ use chrono::Utc;
 use log::{error, info};
 use openssl::pkey::Private;
 use openssl::rsa::Rsa;
-use openssl::sha::sha256;
-use rocket::fs::TempFile;
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
 
 #[async_trait]
 pub trait BillServiceApi: Send + Sync {
@@ -43,8 +40,10 @@ pub trait BillServiceApi: Send + Sync {
         bill_public_key: &str,
     ) -> Result<BillFile>;
 
-    async fn validate_attached_file(&self, file: &TempFile) -> Result<()>;
+    /// validates the given uploaded file
+    async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()>;
 
+    /// issues a new bill
     async fn issue_new_bill(
         &self,
         bill_jurisdiction: String,
@@ -57,9 +56,10 @@ pub trait BillServiceApi: Send + Sync {
         language: String,
         public_data_drawee: IdentityPublicData,
         public_data_payee: IdentityPublicData,
-        files: &[TempFile],
+        files: Vec<&dyn util::file::UploadFileHandler>,
     ) -> Result<BitcreditBill>;
 
+    /// propagates the given bill to the DHT
     async fn propagate_bill(
         &self,
         bill_name: &str,
@@ -68,6 +68,7 @@ pub trait BillServiceApi: Send + Sync {
         payee_peer_id: &str,
     ) -> Result<()>;
 
+    /// accepts the given bill
     async fn accept_bill(&self, bill_name: &str) -> Result<()>;
 }
 
@@ -119,7 +120,7 @@ impl BillServiceApi for BillService {
             file.extension(),
         );
 
-        let file_hash = hex::encode(sha256(&read_file));
+        let file_hash = util::sha256_hash(&read_file);
         let encrypted = util::rsa::encrypt_bytes_with_public_key(&read_file, bill_public_key);
         self.store
             .save_attached_file(&encrypted, bill_name, &file_name)
@@ -131,7 +132,7 @@ impl BillServiceApi for BillService {
         })
     }
 
-    async fn validate_attached_file(&self, file: &TempFile) -> Result<()> {
+    async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()> {
         if file.len() > MAX_FILE_SIZE_BYTES as u64 {
             return Err(super::Error::Validation(format!(
                 "Maximum file size is {} bytes",
@@ -155,17 +156,10 @@ impl BillServiceApi for BillService {
             )));
         }
 
-        let mut buffer = vec![0; 256];
-        let mut opened = file.open().await.map_err(|e| {
-            error!("Error opening file during upload: {e}");
-            super::Error::Validation(String::from("File could not be opened"))
-        })?;
-        let bytes_read = opened.read(&mut buffer).await.map_err(|e| {
-            error!("Error reading file during upload: {e}");
-            super::Error::Validation(String::from("File could not be read"))
-        })?;
-
-        let detected_type = match infer::get(&buffer[..bytes_read]) {
+        let detected_type = match file.detect_content_type().await.map_err(|e| {
+            error!("Could not detect content type for file {name}: {e}");
+            super::Error::Validation(String::from("Could not detect content type for file"))
+        })? {
             Some(t) => t,
             None => {
                 return Err(super::Error::Validation(String::from(
@@ -173,7 +167,8 @@ impl BillServiceApi for BillService {
                 )))
             }
         };
-        if !VALID_FILE_MIME_TYPES.contains(&detected_type.mime_type()) {
+
+        if !VALID_FILE_MIME_TYPES.contains(&detected_type.as_str()) {
             return Err(super::Error::Validation(String::from(
                 "Invalid file type detected",
             )));
@@ -193,7 +188,7 @@ impl BillServiceApi for BillService {
         language: String,
         public_data_drawee: IdentityPublicData,
         public_data_payee: IdentityPublicData,
-        files: &[TempFile],
+        files: Vec<&dyn util::file::UploadFileHandler>,
     ) -> Result<BitcreditBill> {
         let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
         let s = bitcoin::secp256k1::Secp256k1::new();
@@ -204,7 +199,7 @@ impl BillServiceApi for BillService {
         );
         let public_key = private_key.public_key(&s);
 
-        let bill_name = hex::encode(sha256(&public_key.to_bytes()));
+        let bill_name = util::sha256_hash(&public_key.to_bytes());
 
         let private_key_bitcoin: String = private_key.to_string();
         let public_key_bitcoin: String = public_key.to_string();
@@ -320,9 +315,13 @@ impl BillServiceApi for BillService {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY};
+    use crate::{
+        bill::identity::Identity,
+        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
+    };
     use core::str;
     use futures::channel::mpsc;
+    use libp2p::{identity::Keypair, PeerId};
     use mockall::predicate::{always, eq};
     use persistence::bill::MockBillStoreApi;
     use std::sync::Arc;
@@ -334,6 +333,59 @@ mod test {
             Client::new(sender, Arc::new(MockBillStoreApi::new())),
             Arc::new(mock_storage),
         )
+    }
+
+    #[tokio::test]
+    async fn issue_bill_baseline() {
+        let expected_file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
+        let file_bytes = String::from("hello world").as_bytes().to_vec();
+
+        let mut storage = MockBillStoreApi::new();
+        storage
+            .expect_write_bill_keys_to_file()
+            .returning(|_, _, _| Ok(()));
+        storage
+            .expect_save_attached_file()
+            .returning(move |_, _, _| Ok(()));
+
+        let service = get_service(storage);
+
+        let mut file = MockUploadFileHandler::new();
+        file.expect_name()
+            .returning(|| Some(String::from("invoice")));
+        file.expect_extension()
+            .returning(|| Some(String::from("pdf")));
+        file.expect_get_contents()
+            .returning(move || Ok(file_bytes.clone()));
+
+        let mut identity = Identity::new_empty();
+        identity.public_key_pem = TEST_PUB_KEY.to_owned();
+        let drawer = IdentityWithAll {
+            identity,
+            peer_id: PeerId::random(),
+            key_pair: Keypair::generate_ed25519(),
+        };
+        let drawee = IdentityPublicData::new_empty();
+        let payee = IdentityPublicData::new_empty();
+
+        let bill = service
+            .issue_new_bill(
+                String::from("UK"),
+                String::from("Vienna"),
+                100,
+                String::from("London"),
+                String::from("2030-01-01"),
+                String::from("sa"),
+                drawer,
+                String::from("en"),
+                drawee,
+                payee,
+                vec![&file],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(bill.files.first().unwrap().name, expected_file_name);
     }
 
     #[tokio::test]
@@ -452,5 +504,150 @@ mod test {
             .open_and_decrypt_attached_file("test", "test", TEST_PRIVATE_KEY)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn get_bill_keys_calls_storage() {
+        let mut storage = MockBillStoreApi::new();
+        storage.expect_read_bill_keys_from_file().returning(|_| {
+            Ok(BillKeys {
+                private_key_pem: TEST_PRIVATE_KEY.to_owned(),
+                public_key_pem: TEST_PUB_KEY.to_owned(),
+            })
+        });
+        let service = get_service(storage);
+
+        assert!(service.get_bill_keys("test").await.is_ok());
+        assert_eq!(
+            service.get_bill_keys("test").await.unwrap().private_key_pem,
+            TEST_PRIVATE_KEY.to_owned()
+        );
+        assert_eq!(
+            service.get_bill_keys("test").await.unwrap().public_key_pem,
+            TEST_PUB_KEY.to_owned()
+        );
+    }
+
+    #[tokio::test]
+    async fn get_bill_keys_propagates_errors() {
+        let mut storage = MockBillStoreApi::new();
+        storage.expect_read_bill_keys_from_file().returning(|_| {
+            Err(persistence::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "test error",
+            )))
+        });
+        let service = get_service(storage);
+
+        assert!(service.get_bill_keys("test").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_size() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len()
+            .returning(move || MAX_FILE_SIZE_BYTES as u64 * 2);
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_name() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len().returning(move || 100);
+        file.expect_name().returning(move || None);
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_name_empty() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len().returning(move || 100);
+        file.expect_name().returning(move || Some(String::from("")));
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_name_length() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len().returning(move || 100);
+        file.expect_name()
+            .returning(move || Some(String::from("veryververyververyververyververyververyververyververyververyververyververyververyververyververyververyververyververyververyveryyyyyyyyyyyyyyyyyyveryverylongname")));
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_type_error() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len().returning(move || 100);
+        file.expect_name()
+            .returning(move || Some(String::from("goodname")));
+        file.expect_detect_content_type()
+            .returning(move || Err(std::io::Error::new(std::io::ErrorKind::Other, "test error")));
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_type_invalid() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len().returning(move || 100);
+        file.expect_name()
+            .returning(move || Some(String::from("goodname")));
+        file.expect_detect_content_type()
+            .returning(move || Ok(None));
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_file_type_not_in_list() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len().returning(move || 100);
+        file.expect_name()
+            .returning(move || Some(String::from("goodname")));
+        file.expect_detect_content_type()
+            .returning(move || Ok(Some(String::from("invalidfile"))));
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_attached_file_checks_valid() {
+        let mut file = MockUploadFileHandler::new();
+        file.expect_len().returning(move || 100);
+        file.expect_name()
+            .returning(move || Some(String::from("goodname")));
+        file.expect_detect_content_type()
+            .returning(move || Ok(Some(String::from("application/pdf"))));
+
+        let service = get_service(MockBillStoreApi::new());
+        let res = service.validate_attached_file(&file).await;
+
+        assert!(res.is_ok());
     }
 }
