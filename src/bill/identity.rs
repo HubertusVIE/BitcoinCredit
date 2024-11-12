@@ -46,6 +46,7 @@ pub struct Identity {
     pub private_key_pem: String,
     pub bitcoin_public_key: String,
     pub bitcoin_private_key: String,
+    pub nostr_npub: Option<String>,
 }
 
 macro_rules! update_field {
@@ -70,6 +71,7 @@ impl Identity {
             country_of_birth: "".to_string(),
             private_key_pem: "".to_string(),
             bitcoin_private_key: "".to_string(),
+            nostr_npub: None,
         }
     }
 
@@ -194,6 +196,7 @@ pub fn create_new_identity(
         private_key_pem,
         bitcoin_public_key: public_key,
         bitcoin_private_key: private_key.clone(),
+        nostr_npub: None,
     }
 }
 

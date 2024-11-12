@@ -138,6 +138,7 @@ pub struct IdentityPublicData {
     pub postal_address: String,
     pub email: String,
     pub rsa_public_key_pem: String,
+    pub nostr_npub: Option<String>,
 }
 
 impl IdentityPublicData {
@@ -150,6 +151,7 @@ impl IdentityPublicData {
             postal_address: identity.postal_address,
             email: identity.email,
             rsa_public_key_pem: identity.public_key_pem,
+            nostr_npub: identity.nostr_npub,
         }
     }
 
@@ -162,6 +164,7 @@ impl IdentityPublicData {
             postal_address: "".to_string(),
             email: "".to_string(),
             rsa_public_key_pem: "".to_string(),
+            nostr_npub: None,
         }
     }
 
@@ -174,6 +177,7 @@ impl IdentityPublicData {
             postal_address: "".to_string(),
             email: "".to_string(),
             rsa_public_key_pem: "".to_string(),
+            nostr_npub: None,
         }
     }
 }

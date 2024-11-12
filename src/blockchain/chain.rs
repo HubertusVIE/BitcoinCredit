@@ -127,6 +127,7 @@ impl Chain {
             postal_address: "".to_string(),
             email: "".to_string(),
             rsa_public_key_pem: "".to_string(),
+            nostr_npub: None,
         };
 
         if self.blocks.len() > 1

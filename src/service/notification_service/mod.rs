@@ -8,10 +8,11 @@ use thiserror::Error;
 pub mod test_utils;
 
 pub mod email;
-pub mod email_lettre;
-pub mod email_sendgrid;
+mod email_lettre;
+mod email_sendgrid;
 pub mod event;
 pub mod handler;
+mod nostr;
 pub mod transport;
 
 pub use email::NotificationEmailTransportApi;
@@ -45,6 +46,12 @@ pub enum Error {
     /// some transports require a http client where we use reqwest
     #[error("http client error: {0}")]
     HttpClient(#[from] reqwest::Error),
+
+    #[error("nostr key error: {0}")]
+    NostrKey(#[from] nostr_sdk::key::Error),
+
+    #[error("nostr client error: {0}")]
+    NostrClient(#[from] nostr_sdk::client::Error),
 }
 
 /// Send events via all channels required for the event type.
@@ -85,11 +92,11 @@ impl NotificationServiceApi for DefaultNotificationService {
         );
 
         self.notification_transport
-            .send(payer_event.clone().try_into()?)
+            .send(&bill.drawee, payer_event.clone().try_into()?)
             .await?;
 
         self.notification_transport
-            .send(payee_event.try_into()?)
+            .send(&bill.payee, payee_event.try_into()?)
             .await?;
 
         Ok(())
@@ -112,12 +119,24 @@ mod tests {
 
         let mut mock = MockNotificationJsonTransportApi::new();
         mock.expect_send()
-            .withf(|e| e.peer_id == "payer" && e.event_type == EventType::BillSigned)
-            .returning(|_| Ok(()));
+            .withf(|r, e| {
+                let valid_peer_id = r.peer_id == "payer" && e.peer_id == "payer";
+                let valid_event_type = e.event_type == EventType::BillSigned;
+                let event: Event<BillActionEventPayload> = e.clone().try_into().unwrap();
+                valid_peer_id
+                    && valid_event_type
+                    && event.data.action_type == ActionType::ApproveBill
+            })
+            .returning(|_, _| Ok(()));
 
         mock.expect_send()
-            .withf(|e| e.peer_id == "payee" && e.event_type == EventType::BillSigned)
-            .returning(|_| Ok(()));
+            .withf(|r, e| {
+                let valid_peer_id = r.peer_id == "payee" && e.peer_id == "payee";
+                let valid_event_type = e.event_type == EventType::BillSigned;
+                let event: Event<BillActionEventPayload> = e.clone().try_into().unwrap();
+                valid_peer_id && valid_event_type && event.data.action_type == ActionType::CheckBill
+            })
+            .returning(|_, _| Ok(()));
 
         let service = DefaultNotificationService {
             notification_transport: Box::new(mock),
