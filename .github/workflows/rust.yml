@@ -1,4 +1,4 @@
-name: Rust
+name: Rust CI
 
 on:
   push:
@@ -40,6 +40,9 @@ jobs:
 
       - name: Add clippy
         run: rustup component add clippy
+
+      - name: Check formatting
+        run: cargo fmt -- --check
 
       - name: Clippy
         run:
