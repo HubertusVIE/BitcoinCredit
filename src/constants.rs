@@ -18,7 +18,6 @@ pub const BILLS_FOLDER_PATH: &str = "bills";
 pub const BILLS_KEYS_FOLDER_PATH: &str = "bills_keys";
 pub const QUOTES_MAP_FOLDER_PATH: &str = "quotes";
 pub const BOOTSTRAP_FOLDER_PATH: &str = "bootstrap";
-pub const IDENTITY_PEER_ID_FILE_PATH: &str = "identity/peer_id";
 pub const QUOTE_MAP_FILE_PATH: &str = "quotes/quotes";
 pub const BOOTSTRAP_NODES_FILE_PATH: &str = "bootstrap/bootstrap_nodes.json";
 

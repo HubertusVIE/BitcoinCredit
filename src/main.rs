@@ -7,7 +7,7 @@ use config::Config;
 use constants::SHUTDOWN_GRACE_PERIOD_MS;
 use log::{error, info};
 use persistence::bill::FileBasedBillStore;
-use persistence::identity::FileBasedIdentityStore;
+use persistence::identity::{FileBasedIdentityStore, IdentityStoreApi};
 use service::create_service_context;
 use std::path::Path;
 use std::sync::Arc;
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let local_peer_id = bill::identity::read_peer_id_from_file();
+    let local_peer_id = identity_store.get_peer_id().await?;
     dht_client.check_new_bills(local_peer_id.to_string()).await;
     dht_client.upgrade_table(local_peer_id.to_string()).await;
     dht_client.subscribe_to_all_bills_topics().await;

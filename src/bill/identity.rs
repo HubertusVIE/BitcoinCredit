@@ -3,9 +3,6 @@ use libp2p::identity::Keypair;
 use libp2p::PeerId;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::FromForm;
-use std::fs;
-
-use crate::constants::IDENTITY_PEER_ID_FILE_PATH;
 
 #[derive(Clone)]
 pub struct IdentityWithAll {
@@ -88,11 +85,4 @@ impl Identity {
         update_field!(self, other, postal_address);
         update_field!(self, other, email);
     }
-}
-
-pub fn read_peer_id_from_file() -> PeerId {
-    let data: Vec<u8> =
-        fs::read(IDENTITY_PEER_ID_FILE_PATH).expect("Unable to read file with peer id");
-
-    PeerId::from_bytes(&data).expect("can deserialize peer id")
 }

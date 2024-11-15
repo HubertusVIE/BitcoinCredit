@@ -9,7 +9,6 @@ use std::{fs, path::PathBuf};
 use url::Url;
 
 use crate::bill::{
-    identity::read_peer_id_from_file,
     quotes::{
         add_bitcredit_quote_and_amount_in_quotes_map, add_bitcredit_token_in_quotes_map,
         add_in_quotes_map, get_quote_from_map, read_quotes_map,
@@ -48,7 +47,7 @@ pub async fn accept_mint_bitcredit(
 // Usage of tokio::main to spawn a new runtime is necessary here, because Wallet is'nt Send - but
 // this logic will be replaced soon
 #[tokio::main]
-pub async fn check_bitcredit_quote(bill_id: &str) {
+pub async fn check_bitcredit_quote(bill_id: &str, node_id: &str) {
     let dir = PathBuf::from("./data/wallet".to_string());
     let db_path = dir.join("wallet.db").to_str().unwrap().to_string();
     let localstore = SqliteLocalStore::with_path(db_path.clone())
@@ -63,10 +62,8 @@ pub async fn check_bitcredit_quote(bill_id: &str) {
         .await
         .expect("Could not create wallet");
 
-    let node_id = read_peer_id_from_file().to_string();
-
     let result = wallet
-        .check_bitcredit_quote(&mint_url, bill_id.to_owned(), node_id.clone())
+        .check_bitcredit_quote(&mint_url, bill_id.to_owned(), node_id.to_owned())
         .await;
 
     let quote = result.unwrap();

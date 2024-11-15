@@ -11,7 +11,7 @@ use crate::persistence::identity::IdentityStoreApi;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
 use crate::{
-    bill::{get_bills, identity::read_peer_id_from_file},
+    bill::get_bills,
     util::{
         file::is_not_hidden_or_directory,
         rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key},
@@ -343,9 +343,9 @@ impl Client {
             Vec::new()
         } else {
             //TODO: If it's me - don't continue.
+            let local_peer_id = self.identity_store.get_peer_id().await.unwrap().to_string();
             let requests = providers.into_iter().map(|peer| {
                 let mut network_client = self.clone();
-                let local_peer_id = read_peer_id_from_file().to_string();
 
                 let file_request = file_request_for_bill(&local_peer_id, &name);
                 async move { network_client.request_file(peer, file_request).await }.boxed()
@@ -387,7 +387,7 @@ impl Client {
             Some(file) => &file.hash,
         };
 
-        let local_peer_id = read_peer_id_from_file();
+        let local_peer_id = self.identity_store.get_peer_id().await?;
         let mut providers = self.get_providers(bill_name.to_owned()).await;
         providers.remove(&local_peer_id);
         if providers.is_empty() {
@@ -448,10 +448,10 @@ impl Client {
             error!("No providers was found.");
             Vec::new()
         } else {
+            let local_peer_id = self.identity_store.get_peer_id().await.unwrap().to_string();
             //TODO: If it's me - don't continue.
             let requests = providers.into_iter().map(|peer| {
                 let mut network_client = self.clone();
-                let local_peer_id = read_peer_id_from_file().to_string();
 
                 let file_request = file_request_for_bill_keys(&local_peer_id, &name);
                 async move { network_client.request_file(peer, file_request).await }.boxed()

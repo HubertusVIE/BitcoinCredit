@@ -7,18 +7,22 @@ use rocket::{get, put, State};
 use std::thread;
 
 #[get("/return/<id>")]
-pub async fn return_quote(id: String) -> Json<BitcreditEbillQuote> {
+pub async fn return_quote(
+    state: &State<ServiceContext>,
+    id: String,
+) -> Result<Json<BitcreditEbillQuote>> {
     let mut quote = get_quote_from_map(&id);
     let copy_id = id.clone();
+    let local_peer_id = state.identity_service.get_peer_id().await?.to_string();
     if !quote.bill_id.is_empty() && quote.quote_id.is_empty() {
         // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
         // thread, but this logic will be replaced soon
-        thread::spawn(move || check_bitcredit_quote(&copy_id))
+        thread::spawn(move || check_bitcredit_quote(&copy_id, &local_peer_id))
             .join()
             .expect("Thread panicked");
     }
     quote = get_quote_from_map(&id);
-    Json(quote)
+    Ok(Json(quote))
 }
 
 #[put("/accept/<id>")]
