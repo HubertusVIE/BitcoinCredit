@@ -4,11 +4,20 @@ use crate::{
     persistence::identity::IdentityStoreApi, util,
 };
 use async_trait::async_trait;
+use libp2p::PeerId;
 use openssl::{pkey::Private, rsa::Rsa};
 use std::sync::Arc;
 
 #[async_trait]
 pub trait IdentityServiceApi: Send + Sync {
+    /// Updates the identity
+    async fn update_identity(&self, identity: &Identity) -> Result<()>;
+    /// Gets the local identity
+    async fn get_identity(&self) -> Result<Identity>;
+    /// Gets the local peer_id
+    async fn get_peer_id(&self) -> Result<PeerId>;
+    /// Checks if the identity has been created
+    async fn identity_exists(&self) -> bool;
     /// Creates the identity and returns it with it's key pair and peer id
     async fn create_identity(
         &self,
@@ -38,6 +47,29 @@ impl IdentityService {
 
 #[async_trait]
 impl IdentityServiceApi for IdentityService {
+    async fn update_identity(&self, identity: &Identity) -> Result<()> {
+        self.store.save(identity).await?;
+        self.client
+            .clone()
+            .put_identity_public_data_in_dht()
+            .await?;
+        Ok(())
+    }
+
+    async fn get_identity(&self) -> Result<Identity> {
+        let identity = self.store.get().await?;
+        Ok(identity)
+    }
+
+    async fn get_peer_id(&self) -> Result<PeerId> {
+        let peer_id = self.store.get_peer_id().await?;
+        Ok(peer_id)
+    }
+
+    async fn identity_exists(&self) -> bool {
+        self.store.exists().await
+    }
+
     async fn create_identity(
         &self,
         name: String,

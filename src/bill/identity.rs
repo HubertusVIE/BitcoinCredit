@@ -1,4 +1,4 @@
-use borsh::{to_vec, BorshDeserialize};
+use borsh::BorshDeserialize;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use libp2p::identity::Keypair;
 use libp2p::PeerId;
@@ -116,11 +116,6 @@ pub fn get_whole_identity() -> IdentityWithAll {
     }
 }
 
-pub fn write_identity_to_file(identity: &Identity) {
-    let data: Vec<u8> = identity_to_byte_array(identity);
-    fs::write(IDENTITY_FILE_PATH, data).expect("Unable to write file identity");
-}
-
 pub fn read_identity_from_file() -> Identity {
     let data: Vec<u8> = fs::read(IDENTITY_FILE_PATH).expect("Unable to read file identity");
     identity_from_byte_array(&data)
@@ -137,10 +132,6 @@ pub fn read_peer_id_from_file() -> PeerId {
         fs::read(IDENTITY_PEER_ID_FILE_PATH).expect("Unable to read file with peer id");
 
     PeerId::from_bytes(&data).expect("can deserialize peer id")
-}
-
-fn identity_to_byte_array(identity: &Identity) -> Vec<u8> {
-    to_vec(identity).unwrap()
 }
 
 fn identity_from_byte_array(identity: &[u8]) -> Identity {
