@@ -1,10 +1,10 @@
 use super::{file_storage_path, Result};
-use crate::bill::identity::{Identity, IdentityWithAll};
 use async_trait::async_trait;
 use borsh::{to_vec, BorshDeserialize};
 use libp2p::{identity::Keypair, PeerId};
 use tokio::{fs, task};
 
+use crate::service::identity_service::{Identity, IdentityWithAll};
 #[cfg(test)]
 use mockall::automock;
 use std::path::Path;

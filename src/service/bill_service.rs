@@ -1,6 +1,6 @@
 use super::contact_service::IdentityPublicData;
+use super::identity_service::IdentityWithAll;
 use super::Result;
-use crate::bill::identity::IdentityWithAll;
 use crate::bill::{read_bill_from_file, read_keys_from_bill_file, BillFile, BillKeys};
 use crate::blockchain::{
     start_blockchain_for_new_bill, Block, Chain, GossipsubEvent, GossipsubEventId, OperationCode,
@@ -758,7 +758,7 @@ impl BillServiceApi for BillService {
 mod test {
     use super::*;
     use crate::{
-        bill::identity::Identity,
+        service::identity_service::Identity,
         tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
     };
     use core::str;

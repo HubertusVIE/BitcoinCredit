@@ -10,8 +10,6 @@ use rocket::FromForm;
 use std::fs;
 use std::path::PathBuf;
 
-pub mod contacts;
-pub mod identity;
 pub mod quotes;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

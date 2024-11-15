@@ -3,12 +3,12 @@ use super::super::data::{
     EndorseBitcreditBillForm, MintBitcreditBillForm, RequestToAcceptBitcreditBillForm,
     RequestToMintBitcreditBillForm, RequestToPayBitcreditBillForm, SellBitcreditBillForm,
 };
-use crate::bill::contacts::get_current_payee_private_key;
 use crate::bill::get_path_for_bill;
 use crate::blockchain::{Chain, ChainToReturn, GossipsubEvent, GossipsubEventId, OperationCode};
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
+use crate::util::get_current_payee_private_key;
 use crate::{
     bill::{get_bills_for_list, read_bill_from_file, BitcreditBill, BitcreditBillToReturn},
     service::ServiceContext,
