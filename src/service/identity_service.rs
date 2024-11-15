@@ -60,7 +60,8 @@ impl IdentityServiceApi for IdentityService {
         self.client
             .clone()
             .put_identity_public_data_in_dht()
-            .await?;
+            .await
+            .map_err(|e| super::Error::Dht(e.to_string()))?;
         Ok(())
     }
 
@@ -89,8 +90,10 @@ impl IdentityServiceApi for IdentityService {
         postal_address: String,
     ) -> Result<()> {
         let rsa: Rsa<Private> = util::rsa::generation_rsa_key();
-        let private_key_pem: String = util::rsa::pem_private_key_from_rsa(&rsa);
-        let public_key_pem: String = util::rsa::pem_public_key_from_rsa(&rsa);
+        let private_key_pem: String = util::rsa::pem_private_key_from_rsa(&rsa)
+            .map_err(|e| super::Error::Cryptography(e.to_string()))?;
+        let public_key_pem: String = util::rsa::pem_public_key_from_rsa(&rsa)
+            .map_err(|e| super::Error::Cryptography(e.to_string()))?;
 
         let s = bitcoin::secp256k1::Secp256k1::new();
         let private_key = bitcoin::PrivateKey::new(
@@ -119,7 +122,8 @@ impl IdentityServiceApi for IdentityService {
         self.client
             .clone()
             .put_identity_public_data_in_dht()
-            .await?;
+            .await
+            .map_err(|e| super::Error::Dht(e.to_string()))?;
 
         Ok(())
     }

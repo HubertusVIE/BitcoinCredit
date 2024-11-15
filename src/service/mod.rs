@@ -45,13 +45,17 @@ pub enum Error {
     #[error("Notification service error: {0}")]
     NotificationService(#[from] notification_service::Error),
 
+    /// errors stemming from cryptography, such as converting keys
+    #[error("Cryptography error: {0}")]
+    Cryptography(String),
+
+    /// errors stemming from interaction with the DHT
+    #[error("DHT error: {0}")]
+    Dht(String),
+
     /// errors that stem from validation
     #[error("Validation Error: {0}")]
     Validation(String),
-
-    /// errors that stem from dht logic
-    #[error("DHT error: {0}")]
-    DHT(#[from] anyhow::Error),
 
     #[error("External API error: {0}")]
     ExternalApi(#[from] external::Error),
@@ -63,9 +67,13 @@ pub enum Error {
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &rocket::Request) -> rocket::response::Result<'o> {
         match self {
-            // for now, DHT errors are InternalServerError, because they are basically and external
-            // API
-            Error::DHT(e) => {
+            // for now, DHT errors are InternalServerError
+            Error::Dht(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            // for now, Cryptography errors are InternalServerError
+            Error::Cryptography(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }

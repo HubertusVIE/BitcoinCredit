@@ -246,8 +246,10 @@ impl BillServiceApi for BillService {
         let public_key_bitcoin: String = public_key.to_string();
 
         let rsa: Rsa<Private> = util::rsa::generation_rsa_key();
-        let private_key_pem: String = util::rsa::pem_private_key_from_rsa(&rsa);
-        let public_key_pem: String = util::rsa::pem_public_key_from_rsa(&rsa);
+        let private_key_pem: String = util::rsa::pem_private_key_from_rsa(&rsa)
+            .map_err(|e| super::Error::Cryptography(e.to_string()))?;
+        let public_key_pem: String = util::rsa::pem_public_key_from_rsa(&rsa)
+            .map_err(|e| super::Error::Cryptography(e.to_string()))?;
         self.store
             .write_bill_keys_to_file(
                 bill_name.clone(),
