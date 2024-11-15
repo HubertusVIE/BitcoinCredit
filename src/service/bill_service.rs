@@ -1,9 +1,9 @@
 use super::contact_service::IdentityPublicData;
 use super::Result;
 use crate::bill::identity::IdentityWithAll;
-use crate::bill::{accept_bill, BillFile, BillKeys};
+use crate::bill::{read_bill_from_file, read_keys_from_bill_file, BillFile, BillKeys};
 use crate::blockchain::{
-    start_blockchain_for_new_bill, Chain, GossipsubEvent, GossipsubEventId, OperationCode,
+    start_blockchain_for_new_bill, Block, Chain, GossipsubEvent, GossipsubEventId, OperationCode,
 };
 use crate::constants::{
     COMPOUNDING_INTEREST_RATE_ZERO, MAX_FILE_NAME_CHARACTERS, MAX_FILE_SIZE_BYTES, USEDNET,
@@ -71,6 +71,37 @@ pub trait BillServiceApi: Send + Sync {
 
     /// accepts the given bill
     async fn accept_bill(&self, bill_name: &str) -> Result<()>;
+
+    /// request pay for a bill
+    async fn request_pay(&self, bill_name: &str, timestamp: i64) -> Result<bool>;
+
+    /// request acceptance for a bill
+    async fn request_acceptance(&self, bill_name: &str, timestamp: i64) -> Result<bool>;
+
+    /// mint bitcredit bill
+    async fn mint_bitcredit_bill(
+        &self,
+        bill_name: &str,
+        mintnode: IdentityPublicData,
+        timestamp: i64,
+    ) -> Result<bool>;
+
+    /// sell bitcredit bill
+    async fn sell_bitcredit_bill(
+        &self,
+        bill_name: &str,
+        buyer: IdentityPublicData,
+        timestamp: i64,
+        amount_numbers: u64,
+    ) -> Result<bool>;
+
+    /// endorse bitcredit bill
+    async fn endorse_bitcredit_bill(
+        &self,
+        bill_name: &str,
+        endorsee: IdentityPublicData,
+        timestamp: i64,
+    ) -> Result<bool>;
 }
 
 /// The bill service is responsible for all bill-related logic and for syncing them with the dht data.
@@ -78,7 +109,6 @@ pub trait BillServiceApi: Send + Sync {
 pub struct BillService {
     client: Client,
     store: Arc<dyn BillStoreApi>,
-    #[allow(dead_code)]
     identity_store: Arc<dyn IdentityStoreApi>,
 }
 
@@ -305,10 +335,65 @@ impl BillServiceApi for BillService {
     }
 
     async fn accept_bill(&self, bill_name: &str) -> Result<()> {
-        let mut client = self.client.clone();
-        let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+        let my_peer_id = self.identity_store.get_peer_id().await?.to_string();
+        let bill = read_bill_from_file(bill_name).await;
 
-        if accept_bill(bill_name, timestamp).await {
+        let mut blockchain_from_file = Chain::read_chain_from_file(bill_name);
+        let last_block = blockchain_from_file.get_latest_block();
+        let accepted = blockchain_from_file.exist_block_with_operation_code(OperationCode::Accept);
+
+        let correct = if bill.drawee.peer_id.eq(&my_peer_id) {
+            let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+            if !accepted {
+                let identity = self.identity_store.get_full().await?;
+
+                let my_identity_public = IdentityPublicData::new(
+                    identity.identity.clone(),
+                    identity.peer_id.to_string(),
+                );
+
+                let data_for_new_block_in_bytes = serde_json::to_vec(&my_identity_public)?;
+                let data_for_new_block =
+                    "Accepted by ".to_string() + &hex::encode(data_for_new_block_in_bytes);
+
+                let keys = read_keys_from_bill_file(bill_name);
+                let key: Rsa<Private> = Rsa::private_key_from_pem(keys.private_key_pem.as_bytes())
+                    .map_err(|_| super::Error::Validation(String::from("invalid bill key")))?;
+
+                let data_for_new_block_in_bytes = data_for_new_block.as_bytes().to_vec();
+                let data_for_new_block_encrypted =
+                    util::rsa::encrypt_bytes(&data_for_new_block_in_bytes, &key);
+                let data_for_new_block_encrypted_in_string_format =
+                    hex::encode(data_for_new_block_encrypted);
+
+                let new_block = Block::new(
+                    last_block.id + 1,
+                    last_block.hash.clone(),
+                    data_for_new_block_encrypted_in_string_format,
+                    bill_name.to_owned(),
+                    identity.identity.public_key_pem.clone(),
+                    OperationCode::Accept,
+                    identity.identity.private_key_pem.clone(),
+                    timestamp,
+                );
+
+                let try_add_block = blockchain_from_file.try_add_block(new_block.clone());
+                if try_add_block && blockchain_from_file.is_chain_valid() {
+                    blockchain_from_file.write_chain_to_file(&bill.name);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        let mut client = self.client.clone();
+
+        if correct {
             let chain: Chain = Chain::read_chain_from_file(bill_name);
             let block = chain.get_latest_block();
 
@@ -320,6 +405,352 @@ impl BillServiceApi for BillService {
                 .await;
         }
         Ok(())
+    }
+
+    async fn request_pay(&self, bill_name: &str, timestamp: i64) -> Result<bool> {
+        let my_peer_id = self.identity_store.get_peer_id().await?.to_string();
+        let bill = read_bill_from_file(bill_name).await;
+
+        let mut blockchain_from_file = Chain::read_chain_from_file(bill_name);
+        let last_block = blockchain_from_file.get_latest_block();
+
+        let exist_block_with_code_endorse =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Endorse);
+
+        let exist_block_with_code_mint =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Mint);
+
+        let exist_block_with_code_sell =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Sell);
+
+        if (my_peer_id.eq(&bill.payee.peer_id)
+            && !exist_block_with_code_endorse
+            && !exist_block_with_code_sell
+            && !exist_block_with_code_mint)
+            || (my_peer_id.eq(&bill.endorsee.peer_id))
+        {
+            let identity = self.identity_store.get_full().await?;
+
+            let my_identity_public =
+                IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string());
+
+            let data_for_new_block_in_bytes = serde_json::to_vec(&my_identity_public)?;
+            let data_for_new_block =
+                "Requested to pay by ".to_string() + &hex::encode(data_for_new_block_in_bytes);
+
+            let keys = read_keys_from_bill_file(bill_name);
+            let key: Rsa<Private> = Rsa::private_key_from_pem(keys.private_key_pem.as_bytes())
+                .map_err(|_| super::Error::Validation(String::from("invalid bill key")))?;
+
+            let data_for_new_block_in_bytes = data_for_new_block.as_bytes().to_vec();
+            let data_for_new_block_encrypted =
+                util::rsa::encrypt_bytes(&data_for_new_block_in_bytes, &key);
+            let data_for_new_block_encrypted_in_string_format =
+                hex::encode(data_for_new_block_encrypted);
+
+            let new_block = Block::new(
+                last_block.id + 1,
+                last_block.hash.clone(),
+                data_for_new_block_encrypted_in_string_format,
+                bill_name.to_owned(),
+                identity.identity.public_key_pem.clone(),
+                OperationCode::RequestToPay,
+                identity.identity.private_key_pem.clone(),
+                timestamp,
+            );
+
+            let try_add_block = blockchain_from_file.try_add_block(new_block.clone());
+            if try_add_block && blockchain_from_file.is_chain_valid() {
+                blockchain_from_file.write_chain_to_file(&bill.name);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn request_acceptance(&self, bill_name: &str, timestamp: i64) -> Result<bool> {
+        let my_peer_id = self.identity_store.get_peer_id().await?.to_string();
+        let bill = read_bill_from_file(bill_name).await;
+
+        let mut blockchain_from_file = Chain::read_chain_from_file(bill_name);
+        let last_block = blockchain_from_file.get_latest_block();
+
+        let exist_block_with_code_endorse =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Endorse);
+
+        let exist_block_with_code_sell =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Sell);
+
+        let exist_block_with_code_mint =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Mint);
+
+        if (my_peer_id.eq(&bill.payee.peer_id)
+            && !exist_block_with_code_endorse
+            && !exist_block_with_code_sell
+            && !exist_block_with_code_mint)
+            || (my_peer_id.eq(&bill.endorsee.peer_id))
+        {
+            let identity = self.identity_store.get_full().await?;
+
+            let my_identity_public =
+                IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string());
+
+            let data_for_new_block_in_bytes = serde_json::to_vec(&my_identity_public)?;
+            let data_for_new_block =
+                "Requested to accept by ".to_string() + &hex::encode(data_for_new_block_in_bytes);
+
+            let keys = read_keys_from_bill_file(bill_name);
+            let key: Rsa<Private> = Rsa::private_key_from_pem(keys.private_key_pem.as_bytes())
+                .map_err(|_| super::Error::Validation(String::from("invalid bill key")))?;
+
+            let data_for_new_block_in_bytes = data_for_new_block.as_bytes().to_vec();
+            let data_for_new_block_encrypted =
+                util::rsa::encrypt_bytes(&data_for_new_block_in_bytes, &key);
+            let data_for_new_block_encrypted_in_string_format =
+                hex::encode(data_for_new_block_encrypted);
+
+            let new_block = Block::new(
+                last_block.id + 1,
+                last_block.hash.clone(),
+                data_for_new_block_encrypted_in_string_format,
+                bill_name.to_owned(),
+                identity.identity.public_key_pem.clone(),
+                OperationCode::RequestToAccept,
+                identity.identity.private_key_pem.clone(),
+                timestamp,
+            );
+
+            let try_add_block = blockchain_from_file.try_add_block(new_block.clone());
+            if try_add_block && blockchain_from_file.is_chain_valid() {
+                blockchain_from_file.write_chain_to_file(&bill.name);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn mint_bitcredit_bill(
+        &self,
+        bill_name: &str,
+        mintnode: IdentityPublicData,
+        timestamp: i64,
+    ) -> Result<bool> {
+        let my_peer_id = self.identity_store.get_peer_id().await?.to_string();
+        let bill = read_bill_from_file(bill_name).await;
+
+        let mut blockchain_from_file = Chain::read_chain_from_file(bill_name);
+        let last_block = blockchain_from_file.get_latest_block();
+
+        let exist_block_with_code_endorse =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Endorse);
+
+        let exist_block_with_code_mint =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Mint);
+
+        let exist_block_with_code_sell =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Sell);
+
+        if (my_peer_id.eq(&bill.payee.peer_id)
+            && !exist_block_with_code_endorse
+            && !exist_block_with_code_sell
+            && !exist_block_with_code_mint)
+            || (my_peer_id.eq(&bill.endorsee.peer_id))
+        {
+            let identity = self.identity_store.get_full().await?;
+
+            let my_identity_public =
+                IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string());
+            let minted_by = serde_json::to_vec(&my_identity_public)?;
+
+            let data_for_new_block_in_bytes = serde_json::to_vec(&mintnode)?;
+            let data_for_new_block = "Endorsed to ".to_string()
+                + &hex::encode(data_for_new_block_in_bytes)
+                + " endorsed by "
+                + &hex::encode(minted_by);
+
+            let keys = read_keys_from_bill_file(bill_name);
+            let key: Rsa<Private> = Rsa::private_key_from_pem(keys.private_key_pem.as_bytes())
+                .map_err(|_| super::Error::Validation(String::from("invalid bill key")))?;
+
+            let data_for_new_block_in_bytes = data_for_new_block.as_bytes().to_vec();
+            let data_for_new_block_encrypted =
+                util::rsa::encrypt_bytes(&data_for_new_block_in_bytes, &key);
+            let data_for_new_block_encrypted_in_string_format =
+                hex::encode(data_for_new_block_encrypted);
+
+            let new_block = Block::new(
+                last_block.id + 1,
+                last_block.hash.clone(),
+                data_for_new_block_encrypted_in_string_format,
+                bill_name.to_owned(),
+                identity.identity.public_key_pem.clone(),
+                OperationCode::Mint,
+                identity.identity.private_key_pem.clone(),
+                timestamp,
+            );
+
+            let try_add_block = blockchain_from_file.try_add_block(new_block.clone());
+
+            if try_add_block && blockchain_from_file.is_chain_valid() {
+                let bill_id = bill.name.clone();
+
+                blockchain_from_file.write_chain_to_file(&bill_id);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn sell_bitcredit_bill(
+        &self,
+        bill_name: &str,
+        buyer: IdentityPublicData,
+        timestamp: i64,
+        amount_numbers: u64,
+    ) -> Result<bool> {
+        let my_peer_id = self.identity_store.get_peer_id().await?.to_string();
+        let bill = read_bill_from_file(bill_name).await;
+
+        let mut blockchain_from_file = Chain::read_chain_from_file(bill_name);
+        let last_block = blockchain_from_file.get_latest_block();
+
+        let exist_block_with_code_endorse =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Endorse);
+
+        let exist_block_with_code_sell =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Sell);
+
+        if (my_peer_id.eq(&bill.payee.peer_id)
+            && !exist_block_with_code_endorse
+            && !exist_block_with_code_sell)
+            || (my_peer_id.eq(&bill.endorsee.peer_id))
+        {
+            let identity = self.identity_store.get_full().await?;
+
+            let my_identity_public =
+                IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string());
+            let seller = serde_json::to_vec(&my_identity_public)?;
+
+            let buyer_u8 = serde_json::to_vec(&buyer)?;
+            let data_for_new_block = "Sold to ".to_string()
+                + &hex::encode(buyer_u8)
+                + " sold by "
+                + &hex::encode(seller)
+                + " amount: "
+                + &amount_numbers.to_string();
+
+            let keys = read_keys_from_bill_file(bill_name);
+            let key: Rsa<Private> = Rsa::private_key_from_pem(keys.private_key_pem.as_bytes())
+                .map_err(|_| super::Error::Validation(String::from("invalid bill key")))?;
+
+            let data_for_new_block_in_bytes = data_for_new_block.as_bytes().to_vec();
+            let data_for_new_block_encrypted =
+                util::rsa::encrypt_bytes(&data_for_new_block_in_bytes, &key);
+            let data_for_new_block_encrypted_in_string_format =
+                hex::encode(data_for_new_block_encrypted);
+
+            let new_block = Block::new(
+                last_block.id + 1,
+                last_block.hash.clone(),
+                data_for_new_block_encrypted_in_string_format,
+                bill_name.to_owned(),
+                identity.identity.public_key_pem.clone(),
+                OperationCode::Sell,
+                identity.identity.private_key_pem.clone(),
+                timestamp,
+            );
+
+            let try_add_block = blockchain_from_file.try_add_block(new_block.clone());
+            if try_add_block && blockchain_from_file.is_chain_valid() {
+                blockchain_from_file.write_chain_to_file(&bill.name);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn endorse_bitcredit_bill(
+        &self,
+        bill_name: &str,
+        endorsee: IdentityPublicData,
+        timestamp: i64,
+    ) -> Result<bool> {
+        let my_peer_id = self.identity_store.get_peer_id().await?.to_string();
+        let bill = read_bill_from_file(bill_name).await;
+
+        let mut blockchain_from_file = Chain::read_chain_from_file(bill_name);
+        let last_block = blockchain_from_file.get_latest_block();
+
+        let exist_block_with_code_endorse =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Endorse);
+
+        let exist_block_with_code_mint =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Mint);
+
+        let exist_block_with_code_sell =
+            blockchain_from_file.exist_block_with_operation_code(OperationCode::Sell);
+
+        if (my_peer_id.eq(&bill.payee.peer_id)
+            && !exist_block_with_code_endorse
+            && !exist_block_with_code_sell
+            && !exist_block_with_code_mint)
+            || (my_peer_id.eq(&bill.endorsee.peer_id))
+        {
+            let identity = self.identity_store.get_full().await?;
+
+            let my_identity_public =
+                IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string());
+            let endorsed_by = serde_json::to_vec(&my_identity_public)?;
+
+            let data_for_new_block_in_bytes = serde_json::to_vec(&endorsee)?;
+            let data_for_new_block = "Endorsed to ".to_string()
+                + &hex::encode(data_for_new_block_in_bytes)
+                + " endorsed by "
+                + &hex::encode(endorsed_by);
+
+            let keys = read_keys_from_bill_file(bill_name);
+            let key: Rsa<Private> = Rsa::private_key_from_pem(keys.private_key_pem.as_bytes())
+                .map_err(|_| super::Error::Validation(String::from("invalid bill key")))?;
+
+            let data_for_new_block_in_bytes = data_for_new_block.as_bytes().to_vec();
+            let data_for_new_block_encrypted =
+                util::rsa::encrypt_bytes(&data_for_new_block_in_bytes, &key);
+            let data_for_new_block_encrypted_in_string_format =
+                hex::encode(data_for_new_block_encrypted);
+
+            let new_block = Block::new(
+                last_block.id + 1,
+                last_block.hash.clone(),
+                data_for_new_block_encrypted_in_string_format,
+                bill_name.to_owned(),
+                identity.identity.public_key_pem.clone(),
+                OperationCode::Endorse,
+                identity.identity.private_key_pem.clone(),
+                timestamp,
+            );
+
+            let try_add_block = blockchain_from_file.try_add_block(new_block.clone());
+            if try_add_block && blockchain_from_file.is_chain_valid() {
+                blockchain_from_file.write_chain_to_file(&bill.name);
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
     }
 }
 

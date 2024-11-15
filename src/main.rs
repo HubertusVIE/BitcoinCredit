@@ -1,6 +1,5 @@
 use crate::constants::{
-    BILLS_FOLDER_PATH, BILLS_KEYS_FOLDER_PATH, BOOTSTRAP_FOLDER_PATH, IDENTITY_FOLDER_PATH,
-    QUOTES_MAP_FOLDER_PATH,
+    BILLS_FOLDER_PATH, BILLS_KEYS_FOLDER_PATH, BOOTSTRAP_FOLDER_PATH, QUOTES_MAP_FOLDER_PATH,
 };
 use anyhow::Result;
 use clap::Parser;
@@ -109,9 +108,6 @@ async fn main() -> Result<()> {
 fn init_folders() {
     if !Path::new(QUOTES_MAP_FOLDER_PATH).exists() {
         fs::create_dir(QUOTES_MAP_FOLDER_PATH).expect("Can't create folder quotes.");
-    }
-    if !Path::new(IDENTITY_FOLDER_PATH).exists() {
-        fs::create_dir(IDENTITY_FOLDER_PATH).expect("Can't create folder identity.");
     }
     if !Path::new(BILLS_FOLDER_PATH).exists() {
         fs::create_dir(BILLS_FOLDER_PATH).expect("Can't create folder bills.");

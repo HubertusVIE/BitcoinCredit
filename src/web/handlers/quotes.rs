@@ -1,4 +1,4 @@
-use crate::bill::{endorse_bitcredit_bill, quotes::get_quote_from_map, BitcreditEbillQuote};
+use crate::bill::{quotes::get_quote_from_map, BitcreditEbillQuote};
 use crate::external;
 use crate::external::mint::{check_bitcredit_quote, client_accept_bitcredit_quote};
 use crate::service::{Result, ServiceContext};
@@ -38,7 +38,10 @@ pub async fn accept_quote(
             .await
             .unwrap()
             .timestamp;
-        endorse_bitcredit_bill(&quote.bill_id, public_data_endorsee.clone(), timestamp).await;
+        state
+            .bill_service
+            .endorse_bitcredit_bill(&quote.bill_id, public_data_endorsee.clone(), timestamp)
+            .await?;
     }
 
     let copy_id = id.clone();

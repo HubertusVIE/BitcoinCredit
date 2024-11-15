@@ -1,4 +1,3 @@
-use borsh::BorshDeserialize;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use libp2p::identity::Keypair;
 use libp2p::PeerId;
@@ -6,9 +5,7 @@ use rocket::serde::{Deserialize, Serialize};
 use rocket::FromForm;
 use std::fs;
 
-use crate::constants::{
-    IDENTITY_ED_25529_KEYS_FILE_PATH, IDENTITY_FILE_PATH, IDENTITY_PEER_ID_FILE_PATH,
-};
+use crate::constants::IDENTITY_PEER_ID_FILE_PATH;
 
 #[derive(Clone)]
 pub struct IdentityWithAll {
@@ -93,36 +90,9 @@ impl Identity {
     }
 }
 
-pub fn get_whole_identity() -> IdentityWithAll {
-    let identity: Identity = read_identity_from_file();
-    let ed25519_keys: Keypair = read_ed25519_keypair_from_file();
-    let peer_id: PeerId = read_peer_id_from_file();
-
-    IdentityWithAll {
-        identity,
-        peer_id,
-        key_pair: ed25519_keys,
-    }
-}
-
-fn read_identity_from_file() -> Identity {
-    let data: Vec<u8> = fs::read(IDENTITY_FILE_PATH).expect("Unable to read file identity");
-    identity_from_byte_array(&data)
-}
-
-fn read_ed25519_keypair_from_file() -> Keypair {
-    let data: Vec<u8> =
-        fs::read(IDENTITY_ED_25529_KEYS_FILE_PATH).expect("Unable to read file keypair");
-    Keypair::from_protobuf_encoding(&data).expect("can deserialize Keypair")
-}
-
 pub fn read_peer_id_from_file() -> PeerId {
     let data: Vec<u8> =
         fs::read(IDENTITY_PEER_ID_FILE_PATH).expect("Unable to read file with peer id");
 
     PeerId::from_bytes(&data).expect("can deserialize peer id")
-}
-
-fn identity_from_byte_array(identity: &[u8]) -> Identity {
-    Identity::try_from_slice(identity).unwrap()
 }
