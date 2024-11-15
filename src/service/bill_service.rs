@@ -9,6 +9,7 @@ use crate::constants::{
     COMPOUNDING_INTEREST_RATE_ZERO, MAX_FILE_NAME_CHARACTERS, MAX_FILE_SIZE_BYTES, USEDNET,
     VALID_FILE_MIME_TYPES,
 };
+use crate::persistence::identity::IdentityStoreApi;
 use crate::{bill::BitcreditBill, dht::Client, persistence::bill::BillStoreApi};
 use crate::{external, persistence, util};
 use async_trait::async_trait;
@@ -77,11 +78,21 @@ pub trait BillServiceApi: Send + Sync {
 pub struct BillService {
     client: Client,
     store: Arc<dyn BillStoreApi>,
+    #[allow(dead_code)]
+    identity_store: Arc<dyn IdentityStoreApi>,
 }
 
 impl BillService {
-    pub fn new(client: Client, store: Arc<dyn BillStoreApi>) -> Self {
-        Self { client, store }
+    pub fn new(
+        client: Client,
+        store: Arc<dyn BillStoreApi>,
+        identity_store: Arc<dyn IdentityStoreApi>,
+    ) -> Self {
+        Self {
+            client,
+            store,
+            identity_store,
+        }
     }
 }
 
@@ -336,6 +347,7 @@ mod test {
                 Arc::new(MockIdentityStoreApi::new()),
             ),
             Arc::new(mock_storage),
+            Arc::new(MockIdentityStoreApi::new()),
         )
     }
 

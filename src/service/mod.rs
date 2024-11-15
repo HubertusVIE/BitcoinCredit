@@ -155,7 +155,7 @@ pub async fn create_service_context(
         FileBasedContactStore::new(&config.data_dir, "contacts", "contacts").await?;
     let contact_service = ContactService::new(client.clone(), Arc::new(contact_store));
 
-    let bill_service = BillService::new(client.clone(), bill_store);
+    let bill_service = BillService::new(client.clone(), bill_store, identity_store.clone());
 
     let identity_service = IdentityService::new(client.clone(), identity_store);
 

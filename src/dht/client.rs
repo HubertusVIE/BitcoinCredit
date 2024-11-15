@@ -11,10 +11,7 @@ use crate::persistence::identity::IdentityStoreApi;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
 use crate::{
-    bill::{
-        get_bills,
-        identity::{get_whole_identity, read_peer_id_from_file},
-    },
+    bill::{get_bills, identity::read_peer_id_from_file},
     util::{
         file::is_not_hidden_or_directory,
         rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key},
@@ -118,7 +115,13 @@ impl Client {
 
                     let key_bytes = self.get_key(bill_id.to_string().clone()).await;
                     if !key_bytes.is_empty() {
-                        let pr_key = get_whole_identity().identity.private_key_pem;
+                        let pr_key = self
+                            .identity_store
+                            .get_full()
+                            .await
+                            .unwrap()
+                            .identity
+                            .private_key_pem;
 
                         let key_bytes_decrypted =
                             decrypt_bytes_with_private_key(&key_bytes, pr_key);
@@ -408,7 +411,13 @@ impl Client {
             Ok(file_content) => {
                 let bytes = file_content.0;
                 let keys = self.bill_store.read_bill_keys_from_file(&bill_name).await?;
-                let pr_key = get_whole_identity().identity.private_key_pem;
+                let pr_key = self
+                    .identity_store
+                    .get_full()
+                    .await
+                    .unwrap()
+                    .identity
+                    .private_key_pem;
                 // decrypt file using identity private key and check hash
                 let decrypted_with_identity_key =
                     util::rsa::decrypt_bytes_with_private_key(&bytes, pr_key);

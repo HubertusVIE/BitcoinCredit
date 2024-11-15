@@ -9,17 +9,6 @@ use std::fs;
 use crate::constants::{
     IDENTITY_ED_25529_KEYS_FILE_PATH, IDENTITY_FILE_PATH, IDENTITY_PEER_ID_FILE_PATH,
 };
-#[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
-pub struct NodeId {
-    id: String,
-}
-
-impl NodeId {
-    pub fn new(peer_id: String) -> Self {
-        Self { id: peer_id }
-    }
-}
 
 #[derive(Clone)]
 pub struct IdentityWithAll {
@@ -116,12 +105,12 @@ pub fn get_whole_identity() -> IdentityWithAll {
     }
 }
 
-pub fn read_identity_from_file() -> Identity {
+fn read_identity_from_file() -> Identity {
     let data: Vec<u8> = fs::read(IDENTITY_FILE_PATH).expect("Unable to read file identity");
     identity_from_byte_array(&data)
 }
 
-pub fn read_ed25519_keypair_from_file() -> Keypair {
+fn read_ed25519_keypair_from_file() -> Keypair {
     let data: Vec<u8> =
         fs::read(IDENTITY_ED_25529_KEYS_FILE_PATH).expect("Unable to read file keypair");
     Keypair::from_protobuf_encoding(&data).expect("can deserialize Keypair")

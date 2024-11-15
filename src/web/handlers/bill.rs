@@ -12,8 +12,7 @@ use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
 use crate::{
     bill::{
-        endorse_bitcredit_bill, get_bills_for_list,
-        identity::{get_whole_identity, read_peer_id_from_file, IdentityWithAll},
+        endorse_bitcredit_bill, get_bills_for_list, identity::read_peer_id_from_file,
         mint_bitcredit_bill, read_bill_from_file, request_acceptance, request_pay,
         sell_bitcredit_bill, BitcreditBill, BitcreditBillToReturn,
     },
@@ -29,11 +28,11 @@ use std::path::Path;
 use std::{fs, thread};
 
 #[get("/holder/<id>")]
-pub async fn holder(id: String) -> Json<bool> {
-    let identity: IdentityWithAll = get_whole_identity();
+pub async fn holder(state: &State<ServiceContext>, id: String) -> Result<Json<bool>> {
+    let identity = state.identity_service.get_full_identity().await?;
     let bill: BitcreditBill = read_bill_from_file(&id).await;
     let am_i_holder = identity.peer_id.to_string().eq(&bill.payee.peer_id);
-    Json(am_i_holder)
+    Ok(Json(am_i_holder))
 }
 
 #[get("/attachment/<bill_name>/<file_name>")]
@@ -88,8 +87,11 @@ pub async fn find_bill_in_dht(state: &State<ServiceContext>, bill_id: String) {
 }
 
 #[get("/return/<id>")]
-pub async fn return_bill(id: String) -> Json<BitcreditBillToReturn> {
-    let identity: IdentityWithAll = get_whole_identity();
+pub async fn return_bill(
+    state: &State<ServiceContext>,
+    id: String,
+) -> Result<Json<BitcreditBillToReturn>> {
+    let identity = state.identity_service.get_full_identity().await?;
     let bill: BitcreditBill = read_bill_from_file(&id).await;
     let chain = Chain::read_chain_from_file(&bill.name);
     let drawer = chain.get_drawer();
@@ -212,7 +214,7 @@ pub async fn return_bill(id: String) -> Json<BitcreditBillToReturn> {
         pending,
         chain_of_blocks: chain_to_return,
     };
-    Json(full_bill)
+    Ok(Json(full_bill))
 }
 
 #[get("/dht")]
@@ -247,8 +249,7 @@ pub async fn issue_bill(
         state.bill_service.validate_attached_file(*file).await?;
     }
 
-    // let form_bill = &(bill_form.into_inner();
-    let drawer = get_whole_identity();
+    let drawer = state.identity_service.get_full_identity().await?;
 
     let (public_data_drawee, public_data_payee) =
         match (bill_form.drawer_is_payee, bill_form.drawer_is_drawee) {

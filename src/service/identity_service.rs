@@ -1,7 +1,10 @@
 use super::Result;
 use crate::{
-    bill::identity::Identity, constants::USEDNET, dht::Client,
-    persistence::identity::IdentityStoreApi, util,
+    bill::identity::{Identity, IdentityWithAll},
+    constants::USEDNET,
+    dht::Client,
+    persistence::identity::IdentityStoreApi,
+    util,
 };
 use async_trait::async_trait;
 use libp2p::PeerId;
@@ -12,6 +15,8 @@ use std::sync::Arc;
 pub trait IdentityServiceApi: Send + Sync {
     /// Updates the identity
     async fn update_identity(&self, identity: &Identity) -> Result<()>;
+    /// Gets the full local identity, including the key pair and peer id
+    async fn get_full_identity(&self) -> Result<IdentityWithAll>;
     /// Gets the local identity
     async fn get_identity(&self) -> Result<Identity>;
     /// Gets the local peer_id
@@ -47,6 +52,11 @@ impl IdentityService {
 
 #[async_trait]
 impl IdentityServiceApi for IdentityService {
+    async fn get_full_identity(&self) -> Result<IdentityWithAll> {
+        let identity = self.store.get_full().await?;
+        Ok(identity)
+    }
+
     async fn update_identity(&self, identity: &Identity) -> Result<()> {
         self.store.save(identity).await?;
         self.client

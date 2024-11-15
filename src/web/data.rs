@@ -1,3 +1,4 @@
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rocket::fs::TempFile;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::FromForm;
@@ -112,4 +113,16 @@ pub struct EditContactForm {
 #[serde(crate = "rocket::serde")]
 pub struct DeleteContactForm {
     pub name: String,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
+#[serde(crate = "rocket::serde")]
+pub struct NodeId {
+    id: String,
+}
+
+impl NodeId {
+    pub fn new(peer_id: String) -> Self {
+        Self { id: peer_id }
+    }
 }

@@ -1,10 +1,7 @@
 use super::super::data::IdentityForm;
 use crate::service::{self, Result};
-use crate::web::data::ChangeIdentityForm;
-use crate::{
-    bill::identity::{Identity, NodeId},
-    service::ServiceContext,
-};
+use crate::web::data::{ChangeIdentityForm, NodeId};
+use crate::{bill::identity::Identity, service::ServiceContext};
 use libp2p::PeerId;
 use rocket::form::Form;
 use rocket::http::Status;
