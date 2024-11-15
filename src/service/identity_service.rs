@@ -129,7 +129,7 @@ impl IdentityServiceApi for IdentityService {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IdentityWithAll {
     pub identity: Identity,
     pub peer_id: PeerId,
@@ -137,7 +137,9 @@ pub struct IdentityWithAll {
     pub key_pair: Keypair,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
+#[derive(
+    BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone, PartialEq, Eq,
+)]
 #[serde(crate = "rocket::serde")]
 pub struct Identity {
     pub name: String,
@@ -209,5 +211,181 @@ impl Identity {
         update_field!(self, other, company);
         update_field!(self, other, postal_address);
         update_field!(self, other, email);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::persistence::{self, bill::MockBillStoreApi, identity::MockIdentityStoreApi};
+    use futures::channel::mpsc;
+
+    fn get_service(mock_storage: MockIdentityStoreApi) -> IdentityService {
+        let (sender, _) = mpsc::channel(0);
+        let mut client_storage = MockIdentityStoreApi::new();
+        client_storage.expect_exists().returning(|| false);
+        IdentityService::new(
+            Client::new(
+                sender,
+                Arc::new(MockBillStoreApi::new()),
+                Arc::new(client_storage),
+            ),
+            Arc::new(mock_storage),
+        )
+    }
+
+    #[tokio::test]
+    async fn create_identity_baseline() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_save().returning(move |_| Ok(()));
+
+        let service = get_service(storage);
+        let res = service
+            .create_identity(
+                "name".to_string(),
+                "company".to_string(),
+                "date_of_birth".to_string(),
+                "city_of_birth".to_string(),
+                "country_of_birth".to_string(),
+                "email".to_string(),
+                "postal_address".to_string(),
+            )
+            .await;
+
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_peer_id_calls_storage() {
+        let peer_id = PeerId::random();
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_get_peer_id().returning(move || Ok(peer_id));
+
+        let service = get_service(storage);
+        let res = service.get_peer_id().await;
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), peer_id);
+    }
+
+    #[tokio::test]
+    async fn get_peer_id_propagates_errors() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_get_peer_id().returning(|| {
+            Err(persistence::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "test error",
+            )))
+        });
+
+        let service = get_service(storage);
+        let res = service.get_peer_id().await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn update_identity_calls_storage() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_save().returning(|_| Ok(()));
+
+        let service = get_service(storage);
+        let res = service.update_identity(&Identity::new_empty()).await;
+
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_identity_propagates_errors() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_save().returning(|_| {
+            Err(persistence::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "test error",
+            )))
+        });
+
+        let service = get_service(storage);
+        let res = service.update_identity(&Identity::new_empty()).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn identity_exists_calls_storage() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_exists().returning(|| true);
+
+        let service = get_service(storage);
+        let res = service.identity_exists().await;
+
+        assert!(res);
+    }
+
+    #[tokio::test]
+    async fn get_identity_calls_storage() {
+        let identity = Identity::new_empty();
+        let mut storage = MockIdentityStoreApi::new();
+        storage
+            .expect_get()
+            .returning(move || Ok(Identity::new_empty()));
+
+        let service = get_service(storage);
+        let res = service.get_identity().await;
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), identity);
+    }
+
+    #[tokio::test]
+    async fn get_identity_propagates_errors() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_get().returning(|| {
+            Err(persistence::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "test error",
+            )))
+        });
+
+        let service = get_service(storage);
+        let res = service.get_identity().await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn get_full_identity_calls_storage() {
+        let identity = IdentityWithAll {
+            identity: Identity::new_empty(),
+            peer_id: PeerId::random(),
+            key_pair: Keypair::generate_ed25519(),
+        };
+        let arced = Arc::new(identity.clone());
+        let mut storage = MockIdentityStoreApi::new();
+        storage
+            .expect_get_full()
+            .returning(move || Ok((*arced.clone()).clone()));
+
+        let service = get_service(storage);
+        let res = service.get_full_identity().await;
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap().identity, identity.identity);
+    }
+
+    #[tokio::test]
+    async fn get_full_identity_propagates_errors() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_get_full().returning(|| {
+            Err(persistence::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "test error",
+            )))
+        });
+
+        let service = get_service(storage);
+        let res = service.get_full_identity().await;
+
+        assert!(res.is_err());
     }
 }
