@@ -323,14 +323,18 @@ mod test {
     use futures::channel::mpsc;
     use libp2p::{identity::Keypair, PeerId};
     use mockall::predicate::{always, eq};
-    use persistence::bill::MockBillStoreApi;
+    use persistence::{bill::MockBillStoreApi, identity::MockIdentityStoreApi};
     use std::sync::Arc;
     use util::file::MockUploadFileHandler;
 
     fn get_service(mock_storage: MockBillStoreApi) -> BillService {
         let (sender, _) = mpsc::channel(0);
         BillService::new(
-            Client::new(sender, Arc::new(MockBillStoreApi::new())),
+            Client::new(
+                sender,
+                Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockIdentityStoreApi::new()),
+            ),
             Arc::new(mock_storage),
         )
     }

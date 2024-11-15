@@ -1,10 +1,6 @@
-use crate::bill::identity::{
-    generate_dht_logic, read_ed25519_keypair_from_file, read_peer_id_from_file,
-};
 use crate::config::Config;
 use crate::constants::{
-    IDENTITY_ED_25529_KEYS_FILE_PATH, IDENTITY_PEER_ID_FILE_PATH, RELAY_BOOTSTRAP_NODE_ONE_IP,
-    RELAY_BOOTSTRAP_NODE_ONE_PEER_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
+    RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
 use behaviour::{ComposedEvent, Event, MyBehaviour};
 use event_loop::EventLoop;
@@ -19,8 +15,6 @@ use libp2p::multiaddr::Protocol;
 use libp2p::multihash::Multihash;
 use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{identify, noise, relay, tcp, yamux, PeerId, Transport};
-use std::error::Error;
-use std::path::Path;
 use tokio::{spawn, sync::broadcast};
 
 mod behaviour;
@@ -28,7 +22,10 @@ mod client;
 mod event_loop;
 
 use crate::persistence::bill::BillStoreApi;
+use crate::persistence::identity::IdentityStoreApi;
+use anyhow::Result;
 pub use client::Client;
+use libp2p::identity::Keypair;
 use log::{error, info};
 use std::sync::Arc;
 
@@ -40,10 +37,12 @@ pub struct Dht {
 pub async fn dht_main(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
-) -> Result<Dht, Box<dyn Error + Send + Sync>> {
-    let (network_client, network_events, network_event_loop) = new(conf, bill_store)
-        .await
-        .expect("Can not to create network module in dht.");
+    identity_store: Arc<dyn IdentityStoreApi>,
+) -> Result<Dht> {
+    let (network_client, network_events, network_event_loop) =
+        new(conf, bill_store, identity_store)
+            .await
+            .expect("Can not to create network module in dht.");
 
     let (shutdown_sender, shutdown_receiver) = broadcast::channel::<bool>(100);
 
@@ -62,15 +61,17 @@ pub async fn dht_main(
 async fn new(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
-) -> Result<(Client, Receiver<Event>, EventLoop), Box<dyn Error>> {
-    if !Path::new(IDENTITY_PEER_ID_FILE_PATH).exists()
-        && !Path::new(IDENTITY_ED_25529_KEYS_FILE_PATH).exists()
-    {
-        generate_dht_logic();
+    identity_store: Arc<dyn IdentityStoreApi>,
+) -> Result<(Client, Receiver<Event>, EventLoop)> {
+    if !identity_store.exists().await {
+        let ed25519_keys = Keypair::generate_ed25519();
+        let peer_id = ed25519_keys.public().to_peer_id();
+        identity_store.save_peer_id(&peer_id).await?;
+        identity_store.save_key_pair(&ed25519_keys).await?;
     }
 
-    let local_public_key = read_ed25519_keypair_from_file();
-    let local_peer_id = read_peer_id_from_file();
+    let local_public_key = identity_store.get_key_pair().await?;
+    let local_peer_id = identity_store.get_peer_id().await?;
     info!("Local peer id: {local_peer_id:?}");
 
     let (relay_transport, client) = relay::client::new(local_peer_id);
@@ -200,7 +201,7 @@ async fn new(
     let event_loop = EventLoop::new(swarm, command_receiver, event_sender);
 
     Ok((
-        Client::new(command_sender, bill_store),
+        Client::new(command_sender, bill_store, identity_store),
         event_receiver,
         event_loop,
     ))

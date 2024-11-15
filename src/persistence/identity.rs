@@ -3,10 +3,17 @@ use crate::bill::identity::{Identity, IdentityWithAll};
 use async_trait::async_trait;
 use borsh::{to_vec, BorshDeserialize};
 use libp2p::{identity::Keypair, PeerId};
-use tokio::fs;
+use tokio::{fs, task};
 
+#[cfg(test)]
+use mockall::automock;
+use std::path::Path;
+
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait IdentityStoreApi: Send + Sync {
+    /// Checks if the identity has been created
+    async fn exists(&self) -> bool;
     /// Saves the given identity
     async fn save(&self, identity: &Identity) -> Result<()>;
     /// Gets the local identity
@@ -49,6 +56,19 @@ impl FileBasedIdentityStore {
 
 #[async_trait]
 impl IdentityStoreApi for FileBasedIdentityStore {
+    async fn exists(&self) -> bool {
+        let identity_path = self.identity_file.clone();
+        let peer_id_path = self.peer_id_file.clone();
+        let key_pair_path = self.key_pair_file.clone();
+        task::spawn_blocking(move || {
+            Path::new(&identity_path).exists()
+                && Path::new(&peer_id_path).exists()
+                && Path::new(&key_pair_path).exists()
+        })
+        .await
+        .unwrap_or(false)
+    }
+
     async fn get(&self) -> Result<Identity> {
         let data = fs::read(&self.identity_file).await?;
         let identity = Identity::try_from_slice(&data)?;

@@ -1,16 +1,13 @@
-use crate::util;
 use borsh::{to_vec, BorshDeserialize};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use libp2p::identity::Keypair;
 use libp2p::PeerId;
-use openssl::pkey::Private;
-use openssl::rsa::Rsa;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::FromForm;
 use std::fs;
 
 use crate::constants::{
-    IDENTITY_ED_25529_KEYS_FILE_PATH, IDENTITY_FILE_PATH, IDENTITY_PEER_ID_FILE_PATH, USEDNET,
+    IDENTITY_ED_25529_KEYS_FILE_PATH, IDENTITY_FILE_PATH, IDENTITY_PEER_ID_FILE_PATH,
 };
 #[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
@@ -119,103 +116,9 @@ pub fn get_whole_identity() -> IdentityWithAll {
     }
 }
 
-pub fn create_whole_identity(
-    name: String,
-    company: String,
-    date_of_birth: String,
-    city_of_birth: String,
-    country_of_birth: String,
-    email: String,
-    postal_address: String,
-) -> IdentityWithAll {
-    let identity = create_new_identity(
-        name,
-        company,
-        date_of_birth,
-        city_of_birth,
-        country_of_birth,
-        email,
-        postal_address,
-    );
-
-    let ed25519_keys = read_ed25519_keypair_from_file();
-    let peer_id = read_peer_id_from_file();
-
-    write_identity_to_file(&identity);
-
-    IdentityWithAll {
-        identity,
-        peer_id,
-        key_pair: ed25519_keys,
-    }
-}
-
-pub fn generate_dht_logic() {
-    let ed25519_keys = Keypair::generate_ed25519();
-    let peer_id = ed25519_keys.public().to_peer_id();
-
-    write_dht_logic(&peer_id, &ed25519_keys);
-}
-
-fn write_dht_logic(peer_id: &PeerId, ed25519_keys: &Keypair) {
-    write_peer_id_to_file(peer_id);
-    write_ed25519_keypair_to_file(ed25519_keys);
-}
-
-pub fn create_new_identity(
-    name: String,
-    company: String,
-    date_of_birth: String,
-    city_of_birth: String,
-    country_of_birth: String,
-    email: String,
-    postal_address: String,
-) -> Identity {
-    let rsa: Rsa<Private> = util::rsa::generation_rsa_key();
-    let private_key_pem: String = util::rsa::pem_private_key_from_rsa(&rsa);
-    let public_key_pem: String = util::rsa::pem_public_key_from_rsa(&rsa);
-
-    let s = bitcoin::secp256k1::Secp256k1::new();
-    let private_key = bitcoin::PrivateKey::new(
-        s.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
-            .0,
-        USEDNET,
-    );
-    let public_key = private_key.public_key(&s).to_string();
-    let private_key = private_key.to_string();
-
-    Identity {
-        name,
-        company,
-        date_of_birth,
-        city_of_birth,
-        country_of_birth,
-        email,
-        postal_address,
-        public_key_pem,
-        private_key_pem,
-        bitcoin_public_key: public_key,
-        bitcoin_private_key: private_key.clone(),
-        nostr_npub: None,
-    }
-}
-
 pub fn write_identity_to_file(identity: &Identity) {
     let data: Vec<u8> = identity_to_byte_array(identity);
     fs::write(IDENTITY_FILE_PATH, data).expect("Unable to write file identity");
-}
-
-fn write_ed25519_keypair_to_file(ed25519_keys: &Keypair) {
-    let data = ed25519_keys
-        .to_protobuf_encoding()
-        .expect("can serialize Keypair");
-    fs::write(IDENTITY_ED_25529_KEYS_FILE_PATH, data)
-        .expect("Unable to write keypair ed25519 in file");
-}
-
-fn write_peer_id_to_file(peer_id: &PeerId) {
-    let data = peer_id.to_bytes();
-    fs::write(IDENTITY_PEER_ID_FILE_PATH, data).expect("Unable to write peer id in file");
 }
 
 pub fn read_identity_from_file() -> Identity {

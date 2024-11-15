@@ -5,14 +5,15 @@ use super::behaviour::{
 };
 use crate::bill::{get_path_for_bill, get_path_for_bill_keys};
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
-use crate::constants::{BILLS_FOLDER_PATH, BILLS_PREFIX, IDENTITY_FILE_PATH};
+use crate::constants::{BILLS_FOLDER_PATH, BILLS_PREFIX};
 use crate::persistence::bill::BillStoreApi;
+use crate::persistence::identity::IdentityStoreApi;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
 use crate::{
     bill::{
         get_bills,
-        identity::{get_whole_identity, read_peer_id_from_file, IdentityWithAll},
+        identity::{get_whole_identity, read_peer_id_from_file},
     },
     util::{
         file::is_not_hidden_or_directory,
@@ -30,7 +31,6 @@ use log::{error, info};
 use std::collections::HashSet;
 use std::fs;
 use std::io::BufRead;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -38,11 +38,20 @@ use tokio::sync::broadcast;
 pub struct Client {
     pub(super) sender: mpsc::Sender<Command>,
     bill_store: Arc<dyn BillStoreApi>,
+    identity_store: Arc<dyn IdentityStoreApi>,
 }
 
 impl Client {
-    pub fn new(sender: mpsc::Sender<Command>, bill_store: Arc<dyn BillStoreApi>) -> Self {
-        Self { sender, bill_store }
+    pub fn new(
+        sender: mpsc::Sender<Command>,
+        bill_store: Arc<dyn BillStoreApi>,
+        identity_store: Arc<dyn IdentityStoreApi>,
+    ) -> Self {
+        Self {
+            sender,
+            bill_store,
+            identity_store,
+        }
     }
 
     pub async fn run(
@@ -249,9 +258,9 @@ impl Client {
         }
     }
 
-    pub async fn put_identity_public_data_in_dht(&mut self) {
-        if Path::new(IDENTITY_FILE_PATH).exists() {
-            let identity: IdentityWithAll = get_whole_identity();
+    pub async fn put_identity_public_data_in_dht(&mut self) -> Result<()> {
+        if self.identity_store.exists().await {
+            let identity = self.identity_store.get_full().await?;
             let identity_data = IdentityPublicData::new(
                 identity.identity.clone(),
                 identity.peer_id.to_string().clone(),
@@ -270,6 +279,7 @@ impl Client {
                 self.put_record(key, value).await;
             }
         }
+        Ok(())
     }
 
     pub async fn get_identity_public_data_from_dht(
