@@ -1,5 +1,6 @@
 pub mod bill_service;
 pub mod contact_service;
+pub mod identity_service;
 pub mod notification_service;
 
 use super::{dht::Client, Config};

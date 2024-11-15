@@ -1,0 +1,109 @@
+use super::{file_storage_path, Result};
+use crate::bill::identity::{Identity, IdentityWithAll};
+use async_trait::async_trait;
+use borsh::{to_vec, BorshDeserialize};
+use libp2p::{identity::Keypair, PeerId};
+use tokio::fs;
+
+#[async_trait]
+pub trait IdentityStoreApi: Send + Sync {
+    /// Saves the given identity
+    async fn save(&self, identity: &Identity) -> Result<()>;
+    /// Gets the local identity
+    async fn get(&self) -> Result<Identity>;
+    /// Gets the local identity with it's peer id and key pair
+    async fn get_full(&self) -> Result<IdentityWithAll>;
+    /// Saves the peer id
+    async fn save_peer_id(&self, peer_id: &PeerId) -> Result<()>;
+    /// Gets the local peer id
+    async fn get_peer_id(&self) -> Result<PeerId>;
+    /// Saves the given key pair
+    async fn save_key_pair(&self, key_pair: &Keypair) -> Result<()>;
+    /// Gets the local key pair
+    async fn get_key_pair(&self) -> Result<Keypair>;
+}
+
+#[derive(Clone)]
+pub struct FileBasedIdentityStore {
+    identity_file: String,
+    peer_id_file: String,
+    key_pair_file: String,
+}
+
+impl FileBasedIdentityStore {
+    pub async fn new(
+        data_dir: &str,
+        path: &str,
+        identity_file_name: &str,
+        peer_id_file_name: &str,
+        key_pair_file_name: &str,
+    ) -> Result<Self> {
+        let directory = file_storage_path(data_dir, path).await?;
+        Ok(Self {
+            identity_file: format!("{}/{}", directory, identity_file_name),
+            peer_id_file: format!("{}/{}", directory, peer_id_file_name),
+            key_pair_file: format!("{}/{}", directory, key_pair_file_name),
+        })
+    }
+}
+
+#[async_trait]
+impl IdentityStoreApi for FileBasedIdentityStore {
+    async fn get(&self) -> Result<Identity> {
+        let data = fs::read(&self.identity_file).await?;
+        let identity = Identity::try_from_slice(&data)?;
+        Ok(identity)
+    }
+
+    async fn get_full(&self) -> Result<IdentityWithAll> {
+        let results = tokio::join!(self.get(), self.get_peer_id(), self.get_key_pair());
+        match results {
+            (Ok(identity), Ok(peer_id), Ok(key_pair)) => Ok(IdentityWithAll {
+                identity,
+                peer_id,
+                key_pair,
+            }),
+            _ => {
+                if let Err(e) = results.0 {
+                    Err(e)
+                } else if let Err(e) = results.1 {
+                    Err(e)
+                } else if let Err(e) = results.2 {
+                    Err(e)
+                } else {
+                    unreachable!("one of the tasks has to have failed");
+                }
+            }
+        }
+    }
+
+    async fn save(&self, identity: &Identity) -> Result<()> {
+        let data = to_vec(identity)?;
+        fs::write(&self.identity_file, &data).await?;
+        Ok(())
+    }
+
+    async fn save_peer_id(&self, peer_id: &PeerId) -> Result<()> {
+        let data = peer_id.to_bytes();
+        fs::write(&self.peer_id_file, &data).await?;
+        Ok(())
+    }
+
+    async fn get_peer_id(&self) -> Result<PeerId> {
+        let data = fs::read(&self.peer_id_file).await?;
+        let peer_id = PeerId::from_bytes(&data)?;
+        Ok(peer_id)
+    }
+
+    async fn save_key_pair(&self, key_pair: &Keypair) -> Result<()> {
+        let data = key_pair.to_protobuf_encoding()?;
+        fs::write(&self.key_pair_file, &data).await?;
+        Ok(())
+    }
+
+    async fn get_key_pair(&self) -> Result<Keypair> {
+        let data = fs::read(&self.key_pair_file).await?;
+        let key_pair = Keypair::from_protobuf_encoding(&data)?;
+        Ok(key_pair)
+    }
+}

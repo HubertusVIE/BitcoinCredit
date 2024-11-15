@@ -75,6 +75,15 @@ pub struct AcceptBitcreditBillForm {
 
 #[derive(FromForm, Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
+pub struct ChangeIdentityForm {
+    pub name: String,
+    pub company: String,
+    pub email: String,
+    pub postal_address: String,
+}
+
+#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
 pub struct IdentityForm {
     pub name: String,
     pub company: String,

@@ -1,5 +1,6 @@
 use super::super::data::IdentityForm;
 use crate::constants::IDENTITY_FILE_PATH;
+use crate::web::data::ChangeIdentityForm;
 use crate::{
     bill::identity::{
         create_whole_identity, get_whole_identity, read_identity_from_file, read_peer_id_from_file,
@@ -56,10 +57,10 @@ pub async fn create_identity(
 
 #[put("/change", data = "<identity_form>")]
 pub async fn change_identity(
-    identity_form: Form<IdentityForm>,
+    identity_form: Form<ChangeIdentityForm>,
     state: &State<ServiceContext>,
 ) -> Status {
-    let identity_form: IdentityForm = identity_form.into_inner();
+    let identity_form = identity_form.into_inner();
     let mut identity_changes: Identity = Identity::new_empty();
     identity_changes.name = identity_form.name.trim().to_string();
     identity_changes.company = identity_form.company.trim().to_string();
