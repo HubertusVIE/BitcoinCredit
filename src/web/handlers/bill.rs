@@ -3,27 +3,25 @@ use super::super::data::{
     EndorseBitcreditBillForm, MintBitcreditBillForm, RequestToAcceptBitcreditBillForm,
     RequestToMintBitcreditBillForm, RequestToPayBitcreditBillForm, SellBitcreditBillForm,
 };
-use crate::bill::get_path_for_bill;
-use crate::blockchain::{Chain, ChainToReturn, GossipsubEvent, GossipsubEventId, OperationCode};
+use crate::blockchain::Chain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
-use crate::util::get_current_payee_private_key;
+use crate::{external, service};
 use crate::{
-    bill::{get_bills_for_list, read_bill_from_file, BitcreditBill, BitcreditBillToReturn},
+    service::bill_service::{BitcreditBill, BitcreditBillToReturn},
     service::ServiceContext,
 };
-use crate::{external, service};
 use rocket::form::Form;
 use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
-use std::{fs, thread};
+use std::thread;
 
 #[get("/holder/<id>")]
 pub async fn holder(state: &State<ServiceContext>, id: String) -> Result<Json<bool>> {
     let identity = state.identity_service.get_full_identity().await?;
-    let bill: BitcreditBill = read_bill_from_file(&id).await;
+    let bill = state.bill_service.get_bill(&id).await?;
     let am_i_holder = identity.peer_id.to_string().eq(&bill.payee.peer_id);
     Ok(Json(am_i_holder))
 }
@@ -52,31 +50,35 @@ pub async fn attachment(
 }
 
 #[get("/return")]
-pub async fn return_bills_list() -> Json<Vec<BitcreditBillToReturn>> {
-    let bills: Vec<BitcreditBillToReturn> = get_bills_for_list().await;
-    Json(bills)
+pub async fn return_bills_list(
+    state: &State<ServiceContext>,
+) -> Result<Json<Vec<BitcreditBillToReturn>>> {
+    let bills = state.bill_service.get_bills().await?;
+    Ok(Json(bills))
 }
 
 #[get("/return/basic/<id>")]
-pub async fn return_basic_bill(id: String) -> Json<BitcreditBill> {
-    let bill: BitcreditBill = read_bill_from_file(&id).await;
-    Json(bill)
+pub async fn return_basic_bill(
+    state: &State<ServiceContext>,
+    id: String,
+) -> Result<Json<BitcreditBill>> {
+    let bill = state.bill_service.get_bill(&id).await?;
+    Ok(Json(bill))
 }
 
 #[get("/chain/return/<id>")]
-pub async fn return_chain_of_blocks(id: String) -> Json<Chain> {
-    let chain = Chain::read_chain_from_file(&id);
-    Json(chain)
+pub async fn return_chain_of_blocks(
+    state: &State<ServiceContext>,
+    id: String,
+) -> Result<Json<Chain>> {
+    let chain = state.bill_service.get_blockchain_for_bill(&id).await?;
+    Ok(Json(chain))
 }
 
 #[get("/find/<bill_id>")]
-pub async fn find_bill_in_dht(state: &State<ServiceContext>, bill_id: String) {
-    let mut client = state.dht_client();
-    let bill_bytes = client.get_bill(bill_id.to_string().clone()).await;
-    if !bill_bytes.is_empty() {
-        let path = get_path_for_bill(&bill_id);
-        fs::write(path, bill_bytes.clone()).expect("Can't write file.");
-    }
+pub async fn find_bill_in_dht(state: &State<ServiceContext>, bill_id: String) -> Result<Status> {
+    state.bill_service.find_bill_in_dht(&bill_id).await?;
+    Ok(Status::Ok)
 }
 
 #[get("/return/<id>")]
@@ -84,129 +86,7 @@ pub async fn return_bill(
     state: &State<ServiceContext>,
     id: String,
 ) -> Result<Json<BitcreditBillToReturn>> {
-    let identity = state.identity_service.get_full_identity().await?;
-    let bill: BitcreditBill = read_bill_from_file(&id).await;
-    let chain = Chain::read_chain_from_file(&bill.name);
-    let drawer = chain.get_drawer();
-    let mut link_for_buy = "".to_string();
-    let chain_to_return = ChainToReturn::new(chain.clone());
-    let endorsed = chain.exist_block_with_operation_code(OperationCode::Endorse);
-    let accepted = chain.exist_block_with_operation_code(OperationCode::Accept);
-    let mut address_for_selling: String = String::new();
-    let mut amount_for_selling = 0;
-    let waiting_for_payment = chain.waiting_for_payment().await;
-    let mut payment_deadline_has_passed = false;
-    let mut waited_for_payment = waiting_for_payment.0;
-    if waited_for_payment {
-        payment_deadline_has_passed = chain.check_if_payment_deadline_has_passed().await;
-    }
-    if payment_deadline_has_passed {
-        waited_for_payment = false;
-    }
-    let mut buyer = waiting_for_payment.1;
-    let mut seller = waiting_for_payment.2;
-    if waited_for_payment
-        && (identity.peer_id.to_string().eq(&buyer.peer_id)
-            || identity.peer_id.to_string().eq(&seller.peer_id))
-    {
-        address_for_selling = waiting_for_payment.3;
-        amount_for_selling = waiting_for_payment.4;
-        let message: String = format!("Payment in relation to a bill {}", bill.name.clone());
-        link_for_buy = external::bitcoin::generate_link_to_pay(
-            address_for_selling.clone(),
-            amount_for_selling,
-            message,
-        )
-        .await;
-    } else {
-        buyer = IdentityPublicData::new_empty();
-        seller = IdentityPublicData::new_empty();
-    }
-    let requested_to_pay = chain.exist_block_with_operation_code(OperationCode::RequestToPay);
-    let requested_to_accept = chain.exist_block_with_operation_code(OperationCode::RequestToAccept);
-    let address_to_pay = external::bitcoin::get_address_to_pay(bill.clone());
-    //TODO: add last_sell_block_paid
-    // let check_if_already_paid =
-    //     external::bitcoin::check_if_paid(address_to_pay.clone(), bill.amount_numbers).await;
-    let mut check_if_already_paid = (false, 0u64);
-    if requested_to_pay {
-        check_if_already_paid =
-            external::bitcoin::check_if_paid(address_to_pay.clone(), bill.amount_numbers).await;
-    }
-    let paid = check_if_already_paid.0;
-    let mut number_of_confirmations: u64 = 0;
-    let mut pending = false;
-    if paid && check_if_already_paid.1.eq(&0) {
-        pending = true;
-    } else if paid && !check_if_already_paid.1.eq(&0) {
-        let transaction = external::bitcoin::get_transactions(address_to_pay.clone()).await;
-        let txid = external::bitcoin::Txid::get_first_transaction(transaction.clone()).await;
-        let height = external::bitcoin::get_last_block_height().await;
-        number_of_confirmations = height - txid.status.block_height + 1;
-    }
-    let address_to_pay = external::bitcoin::get_address_to_pay(bill.clone());
-    let message: String = format!("Payment in relation to a bill {}", bill.name.clone());
-    let link_to_pay = external::bitcoin::generate_link_to_pay(
-        address_to_pay.clone(),
-        bill.amount_numbers,
-        message,
-    )
-    .await;
-    let mut pr_key_bill = String::new();
-    if (!endorsed
-        && bill
-            .payee
-            .bitcoin_public_key
-            .clone()
-            .eq(&identity.identity.bitcoin_public_key))
-        || (endorsed
-            && bill
-                .endorsee
-                .bitcoin_public_key
-                .eq(&identity.identity.bitcoin_public_key))
-    {
-        pr_key_bill = get_current_payee_private_key(identity.identity.clone(), bill.clone());
-    }
-
-    let full_bill = BitcreditBillToReturn {
-        name: bill.name,
-        to_payee: bill.to_payee,
-        bill_jurisdiction: bill.bill_jurisdiction,
-        timestamp_at_drawing: bill.timestamp_at_drawing,
-        drawee: bill.drawee,
-        drawer,
-        payee: bill.payee,
-        endorsee: bill.endorsee,
-        place_of_drawing: bill.place_of_drawing,
-        currency_code: bill.currency_code,
-        amount_numbers: bill.amount_numbers,
-        amounts_letters: bill.amounts_letters,
-        maturity_date: bill.maturity_date,
-        date_of_issue: bill.date_of_issue,
-        compounding_interest_rate: bill.compounding_interest_rate,
-        type_of_interest_calculation: bill.type_of_interest_calculation,
-        place_of_payment: bill.place_of_payment,
-        public_key: bill.public_key,
-        private_key: bill.private_key,
-        language: bill.language,
-        accepted,
-        endorsed,
-        requested_to_pay,
-        requested_to_accept,
-        waited_for_payment,
-        address_for_selling,
-        amount_for_selling,
-        buyer,
-        seller,
-        paid,
-        link_for_buy,
-        link_to_pay,
-        address_to_pay,
-        pr_key_bill,
-        number_of_confirmations,
-        pending,
-        chain_of_blocks: chain_to_return,
-    };
+    let full_bill = state.bill_service.get_full_bill(&id).await?;
     Ok(Json(full_bill))
 }
 
@@ -318,6 +198,7 @@ pub async fn issue_bill(
         )));
     }
 
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     let bill = state
         .bill_service
         .issue_new_bill(
@@ -332,6 +213,7 @@ pub async fn issue_bill(
             public_data_drawee,
             public_data_payee,
             upload_file_handlers,
+            timestamp,
         )
         .await?;
 
@@ -347,7 +229,11 @@ pub async fn issue_bill(
 
     // If we're the drawee, we immediately accept the bill
     if bill.drawer == bill.drawee {
-        state.bill_service.accept_bill(&bill.name).await?;
+        let timestamp_accept = external::time::TimeApi::get_atomic_time().await?.timestamp;
+        state
+            .bill_service
+            .accept_bill(&bill.name, timestamp_accept)
+            .await?;
     }
 
     Ok(Status::Ok)
@@ -365,8 +251,7 @@ pub async fn sell_bill(
     let public_data_buyer = state
         .contact_service
         .get_identity_by_name(&sell_bill_form.buyer)
-        .await
-        .expect("Can not get buyer identity.");
+        .await?;
 
     if public_data_buyer.name.is_empty() {
         return Err(service::Error::PreconditionFailed);
@@ -383,23 +268,18 @@ pub async fn sell_bill(
         )
         .await?;
 
-    let block = chain.get_latest_block();
+    state
+        .bill_service
+        .propagate_block(&sell_bill_form.bill_name, chain.get_latest_block())
+        .await?;
 
-    let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-    let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-    let message = event.to_byte_array();
-
-    let mut client = state.dht_client();
-    client
-        .add_message_to_topic(message, sell_bill_form.bill_name.clone())
-        .await;
-
-    client
-        .add_bill_to_dht_for_node(
+    state
+        .bill_service
+        .propagate_bill_for_node(
             &sell_bill_form.bill_name,
-            &public_data_buyer.peer_id.to_string().clone(),
+            &public_data_buyer.peer_id.to_string(),
         )
-        .await;
+        .await?;
     Ok(Status::Ok)
 }
 
@@ -411,13 +291,11 @@ pub async fn endorse_bill(
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
-    let mut client = state.dht_client();
 
     let public_data_endorsee = state
         .contact_service
         .get_identity_by_name(&endorse_bill_form.endorsee)
-        .await
-        .expect("Can not get endorsee identity.");
+        .await?;
 
     if public_data_endorsee.name.is_empty() {
         return Err(service::Error::PreconditionFailed);
@@ -433,22 +311,18 @@ pub async fn endorse_bill(
         )
         .await?;
 
-    let block = chain.get_latest_block();
+    state
+        .bill_service
+        .propagate_block(&endorse_bill_form.bill_name, chain.get_latest_block())
+        .await?;
 
-    let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-    let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-    let message = event.to_byte_array();
-
-    client
-        .add_message_to_topic(message, endorse_bill_form.bill_name.clone())
-        .await;
-
-    client
-        .add_bill_to_dht_for_node(
+    state
+        .bill_service
+        .propagate_bill_for_node(
             &endorse_bill_form.bill_name,
-            &public_data_endorsee.peer_id.to_string().clone(),
+            &public_data_endorsee.peer_id.to_string(),
         )
-        .await;
+        .await?;
     Ok(Status::Ok)
 }
 
@@ -460,27 +334,20 @@ pub async fn request_to_pay_bill(
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
-    let mut client = state.dht_client();
-
-    let timestamp = external::time::TimeApi::get_atomic_time()
-        .await
-        .unwrap()
-        .timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
 
     let chain = state
         .bill_service
         .request_pay(&request_to_pay_bill_form.bill_name, timestamp)
         .await?;
 
-    let block = chain.get_latest_block();
-
-    let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-    let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-    let message = event.to_byte_array();
-
-    client
-        .add_message_to_topic(message, request_to_pay_bill_form.bill_name.clone())
-        .await;
+    state
+        .bill_service
+        .propagate_block(
+            &request_to_pay_bill_form.bill_name,
+            chain.get_latest_block(),
+        )
+        .await?;
     Ok(Status::Ok)
 }
 
@@ -492,27 +359,19 @@ pub async fn request_to_accept_bill(
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
-    let mut client = state.dht_client();
-
-    let timestamp = external::time::TimeApi::get_atomic_time()
-        .await
-        .unwrap()
-        .timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
 
     let chain = state
         .bill_service
         .request_acceptance(&request_to_accept_bill_form.bill_name, timestamp)
         .await?;
-
-    let block = chain.get_latest_block();
-
-    let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-    let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-    let message = event.to_byte_array();
-
-    client
-        .add_message_to_topic(message, request_to_accept_bill_form.bill_name.clone())
-        .await;
+    state
+        .bill_service
+        .propagate_block(
+            &request_to_accept_bill_form.bill_name,
+            chain.get_latest_block(),
+        )
+        .await?;
     Ok(Status::Ok)
 }
 
@@ -524,9 +383,14 @@ pub async fn accept_bill_form(
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let chain = state
+        .bill_service
+        .accept_bill(&accept_bill_form.bill_name, timestamp)
+        .await?;
     state
         .bill_service
-        .accept_bill(&accept_bill_form.bill_name)
+        .propagate_block(&accept_bill_form.bill_name, chain.get_latest_block())
         .await?;
     Ok(Status::Ok)
 }
@@ -568,20 +432,22 @@ pub async fn accept_bill_form(
 pub async fn request_to_mint_bill(
     state: &State<ServiceContext>,
     request_to_mint_bill_form: Form<RequestToMintBitcreditBillForm>,
-) -> Status {
-    let mut client = state.dht_client();
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
+    }
     let public_mint_node = state
         .contact_service
         .get_identity_by_name(&request_to_mint_bill_form.mint_node)
-        .await
-        .expect("could not get identity by name");
+        .await?;
     if !public_mint_node.name.is_empty() {
-        client
-            .add_bill_to_dht_for_node(
+        state
+            .bill_service
+            .propagate_bill_for_node(
                 &request_to_mint_bill_form.bill_name,
-                &public_mint_node.peer_id.to_string().clone(),
+                &public_mint_node.peer_id.to_string(),
             )
-            .await;
+            .await?;
     }
 
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
@@ -589,13 +455,22 @@ pub async fn request_to_mint_bill(
     thread::spawn(move || request_to_mint_bitcredit(request_to_mint_bill_form.clone()))
         .join()
         .expect("Thread panicked");
-    Status::Ok
+    Ok(Status::Ok)
 }
 
 //This is function for mint software
 #[put("/accept_mint", data = "<accept_mint_bill_form>")]
-pub async fn accept_mint_bill(accept_mint_bill_form: Form<AcceptMintBitcreditBillForm>) -> Status {
-    let bill = read_bill_from_file(&accept_mint_bill_form.bill_name.clone()).await;
+pub async fn accept_mint_bill(
+    state: &State<ServiceContext>,
+    accept_mint_bill_form: Form<AcceptMintBitcreditBillForm>,
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
+    }
+    let bill = state
+        .bill_service
+        .get_bill(&accept_mint_bill_form.bill_name)
+        .await?;
     let bill_amount = bill.amount_numbers;
     let holder_node_id = bill.payee.peer_id.clone();
 
@@ -612,7 +487,7 @@ pub async fn accept_mint_bill(accept_mint_bill_form: Form<AcceptMintBitcreditBil
     .join()
     .expect("Thread panicked");
 
-    Status::Ok
+    Ok(Status::Ok)
 }
 
 //After accept mint on client side
@@ -624,18 +499,12 @@ pub async fn mint_bill(
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
-    let mut client = state.dht_client();
-
-    let timestamp = external::time::TimeApi::get_atomic_time()
-        .await
-        .unwrap()
-        .timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
 
     let public_mint_node = state
         .contact_service
         .get_identity_by_name(&mint_bill_form.mint_node)
-        .await
-        .expect("could not get identity by name");
+        .await?;
 
     if public_mint_node.name.is_empty() {
         return Err(service::Error::PreconditionFailed);
@@ -649,22 +518,18 @@ pub async fn mint_bill(
         )
         .await?;
 
-    let block = chain.get_latest_block();
+    state
+        .bill_service
+        .propagate_block(&mint_bill_form.bill_name, chain.get_latest_block())
+        .await?;
 
-    let block_bytes = serde_json::to_vec(block)?;
-    let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-    let message = event.to_byte_array();
-
-    client
-        .add_message_to_topic(message, mint_bill_form.bill_name.clone())
-        .await;
-
-    client
-        .add_bill_to_dht_for_node(
+    state
+        .bill_service
+        .propagate_bill_for_node(
             &mint_bill_form.bill_name,
             &public_mint_node.peer_id.to_string(),
         )
-        .await;
+        .await?;
 
     Ok(Status::Ok)
 }

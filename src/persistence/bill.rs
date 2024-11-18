@@ -1,10 +1,15 @@
 use super::{file_storage_path, Result};
-use crate::{bill::BillKeys, blockchain::Chain};
+use crate::{
+    blockchain::Chain,
+    service::bill_service::{BillKeys, BitcreditBill},
+    util::file::is_not_hidden_or_directory_async,
+};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::{
-    fs::{self, create_dir_all, read, write, File},
+    fs::{create_dir_all, read, read_dir, write, File},
     io::AsyncReadExt,
+    task,
 };
 
 #[cfg(test)]
@@ -13,6 +18,21 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BillStoreApi: Send + Sync {
+    /// Checks if the given bill exists
+    async fn bill_exists(&self, bill_name: &str) -> bool;
+
+    /// Writes the given bill to file
+    async fn write_bill_to_file(&self, bill_name: &str, bytes: &[u8]) -> Result<()>;
+
+    /// Reads the given bill as bytes
+    async fn get_bill_as_bytes(&self, bill_name: &str) -> Result<Vec<u8>>;
+
+    /// Reads the keys for the given bill as bytes
+    async fn get_bill_keys_as_bytes(&self, bill_name: &str) -> Result<Vec<u8>>;
+
+    /// Gets all bills
+    async fn get_bills(&self) -> Result<Vec<BitcreditBill>>;
+
     /// Reads the blockchain of the given bill from disk
     async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<Chain>;
 
@@ -34,6 +54,9 @@ pub trait BillStoreApi: Send + Sync {
         private_key: String,
         public_key: String,
     ) -> Result<()>;
+
+    /// Writes bill keys to file as bytes
+    async fn write_bill_keys_to_file_as_bytes(&self, bill_name: &str, bytes: &[u8]) -> Result<()>;
 
     /// Writes the given pretty printed chain as JSON to a file
     async fn write_blockchain_to_file(
@@ -70,6 +93,10 @@ impl FileBasedBillStore {
         })
     }
 
+    pub fn get_path_for_bills(&self) -> PathBuf {
+        PathBuf::from(self.folder.as_str())
+    }
+
     pub fn get_path_for_bill(&self, bill_name: &str) -> PathBuf {
         let mut path = PathBuf::from(self.folder.as_str()).join(bill_name);
         path.set_extension("json");
@@ -85,6 +112,49 @@ impl FileBasedBillStore {
 
 #[async_trait]
 impl BillStoreApi for FileBasedBillStore {
+    async fn bill_exists(&self, bill_name: &str) -> bool {
+        let bill_path = self.get_path_for_bill(bill_name).clone();
+        task::spawn_blocking(move || Path::new(&bill_path).exists())
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn write_bill_to_file(&self, bill_name: &str, bytes: &[u8]) -> Result<()> {
+        let bill_path = self.get_path_for_bill(bill_name);
+        write(bill_path, bytes).await?;
+        Ok(())
+    }
+
+    async fn get_bill_as_bytes(&self, bill_name: &str) -> Result<Vec<u8>> {
+        let bill_path = self.get_path_for_bill(bill_name);
+        let bytes = read(bill_path).await?;
+        Ok(bytes)
+    }
+
+    async fn get_bill_keys_as_bytes(&self, bill_name: &str) -> Result<Vec<u8>> {
+        let keys_path = self.get_path_for_bill_keys(bill_name);
+        let bytes = read(keys_path).await?;
+        Ok(bytes)
+    }
+
+    async fn get_bills(&self) -> Result<Vec<BitcreditBill>> {
+        let mut bills = Vec::new();
+        let mut dir = read_dir(self.get_path_for_bills()).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            if is_not_hidden_or_directory_async(&entry).await {
+                let bill_path = entry.path();
+                if let Some(file_name) = bill_path.file_stem() {
+                    if let Some(file_name_str) = file_name.to_str() {
+                        let chain = self.read_bill_chain_from_file(file_name_str).await?;
+                        let bill_keys = self.read_bill_keys_from_file(file_name_str).await?;
+                        bills.push(chain.get_last_version_bill(&bill_keys).await);
+                    }
+                }
+            }
+        }
+        Ok(bills)
+    }
+
     async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<Chain> {
         let path = self.get_path_for_bill(bill_name);
         let bytes = read(path).await.map_err(super::Error::Io)?;
@@ -131,11 +201,17 @@ impl BillStoreApi for FileBasedBillStore {
         };
 
         let output_path = self.get_path_for_bill_keys(&bill_name);
-        fs::write(
+        write(
             output_path,
             serde_json::to_string_pretty(&keys).map_err(super::Error::Json)?,
         )
         .await?;
+        Ok(())
+    }
+
+    async fn write_bill_keys_to_file_as_bytes(&self, bill_name: &str, bytes: &[u8]) -> Result<()> {
+        let output_path = self.get_path_for_bill_keys(bill_name);
+        write(output_path, bytes).await?;
         Ok(())
     }
 
@@ -145,7 +221,7 @@ impl BillStoreApi for FileBasedBillStore {
         pretty_printed_chain_as_json: String,
     ) -> Result<()> {
         let path = self.get_path_for_bill(bill_name);
-        fs::write(path, pretty_printed_chain_as_json).await?;
+        write(path, pretty_printed_chain_as_json).await?;
         Ok(())
     }
 

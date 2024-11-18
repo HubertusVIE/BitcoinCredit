@@ -1,4 +1,4 @@
-use crate::bill::BitcreditBill;
+use crate::service::bill_service::BitcreditBill;
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;

@@ -13,8 +13,9 @@ use crate::bill::{
         add_bitcredit_quote_and_amount_in_quotes_map, add_bitcredit_token_in_quotes_map,
         add_in_quotes_map, get_quote_from_map, read_quotes_map,
     },
-    read_keys_from_bill_file, BitcreditEbillQuote,
+    read_keys_from_bill_file,
 };
+use crate::service::bill_service::BitcreditEbillQuote;
 use crate::web::RequestToMintBitcreditBillForm;
 
 // Usage of tokio::main to spawn a new runtime is necessary here, because Wallet is'nt Send - but

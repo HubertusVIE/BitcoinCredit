@@ -10,8 +10,9 @@ use thiserror::Error;
 use crate::blockchain::OperationCode::{
     Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell,
 };
+use crate::service::bill_service::{BillKeys, BitcreditBill};
 use crate::service::contact_service::IdentityPublicData;
-use crate::{bill::BitcreditBill, util::rsa::encrypt_bytes};
+use crate::util::rsa::encrypt_bytes;
 pub use block::Block;
 pub use chain::Chain;
 
@@ -47,9 +48,9 @@ impl ChainToReturn {
     /// # Returns
     /// A new instance of `Self`, with a `blocks` field containing the transformed `BlockToReturn` objects.
     ///
-    pub fn new(chain: Chain) -> Self {
+    pub fn new(chain: Chain, bill_keys: &BillKeys) -> Self {
         let mut blocks: Vec<BlockToReturn> = Vec::new();
-        let bill = chain.get_first_version_bill();
+        let bill = chain.get_first_version_bill_with_keys(bill_keys);
         for block in chain.blocks {
             blocks.push(BlockToReturn::new(block, bill.clone()));
         }

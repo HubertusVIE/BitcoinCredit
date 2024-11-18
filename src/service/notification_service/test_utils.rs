@@ -1,4 +1,4 @@
-use crate::{bill::BitcreditBill, service::contact_service::IdentityPublicData};
+use crate::{service::bill_service::BitcreditBill, service::contact_service::IdentityPublicData};
 use nostr_relay_builder::prelude::*;
 
 use super::{

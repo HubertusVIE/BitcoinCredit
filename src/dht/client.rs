@@ -3,19 +3,15 @@ use super::behaviour::{
     parse_inbound_file_request, BillAttachmentFileRequest, BillFileRequest, BillKeysFileRequest,
     Command, Event, FileResponse, ParsedInboundFileRequest,
 };
-use crate::bill::{get_path_for_bill, get_path_for_bill_keys};
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
 use crate::constants::{BILLS_FOLDER_PATH, BILLS_PREFIX};
 use crate::persistence::bill::BillStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
-use crate::{
-    bill::get_bills,
-    util::{
-        file::is_not_hidden_or_directory,
-        rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key},
-    },
+use crate::util::{
+    file::is_not_hidden_or_directory,
+    rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key},
 };
 use anyhow::{anyhow, Result};
 use futures::channel::mpsc::Receiver;
@@ -105,12 +101,13 @@ impl Client {
                 .to_string();
             let bills = record_for_saving_in_dht.split(',');
             for bill_id in bills {
-                let path = get_path_for_bill(bill_id);
-                let path_for_keys = get_path_for_bill_keys(bill_id);
-                if !path.exists() {
-                    let bill_bytes = self.get_bill(bill_id.to_string().clone()).await;
+                if !self.bill_store.bill_exists(bill_id).await {
+                    let bill_bytes = self.get_bill(bill_id.to_string()).await;
                     if !bill_bytes.is_empty() {
-                        fs::write(path, bill_bytes.clone()).expect("Can't write file.");
+                        self.bill_store
+                            .write_bill_to_file(bill_id, &bill_bytes)
+                            .await
+                            .expect("can't write bill file");
                     }
 
                     let key_bytes = self.get_key(bill_id.to_string().clone()).await;
@@ -119,14 +116,16 @@ impl Client {
                             .identity_store
                             .get_full()
                             .await
-                            .unwrap()
+                            .expect("identity can be fetched")
                             .identity
                             .private_key_pem;
 
                         let key_bytes_decrypted =
                             decrypt_bytes_with_private_key(&key_bytes, pr_key);
-
-                        fs::write(path_for_keys, key_bytes_decrypted).expect("Can't write file.");
+                        self.bill_store
+                            .write_bill_keys_to_file_as_bytes(bill_id, &key_bytes_decrypted)
+                            .await
+                            .expect("can't write bill keys file");
                     }
 
                     if !bill_bytes.is_empty() {
@@ -474,7 +473,7 @@ impl Client {
     }
 
     pub async fn put_bills_for_parties(&mut self) {
-        let bills = get_bills().await;
+        let bills = self.bill_store.get_bills().await.unwrap();
 
         for bill in bills {
             let chain = Chain::read_chain_from_file(&bill.name);
@@ -486,7 +485,7 @@ impl Client {
     }
 
     pub async fn subscribe_to_all_bills_topics(&mut self) {
-        let bills = get_bills().await;
+        let bills = self.bill_store.get_bills().await.unwrap();
 
         for bill in bills {
             self.subscribe_to_topic(bill.name).await;
@@ -494,7 +493,7 @@ impl Client {
     }
 
     pub async fn receive_updates_for_all_bills_topics(&mut self) {
-        let bills = get_bills().await;
+        let bills = self.bill_store.get_bills().await.unwrap();
 
         for bill in bills {
             let event = GossipsubEvent::new(GossipsubEventId::CommandGetChain, vec![0; 24]);
@@ -583,8 +582,7 @@ impl Client {
                     // We can send the bill to anyone requesting it, since the content is encrypted
                     // and is useless without the keys
                     ParsedInboundFileRequest::Bill(BillFileRequest { bill_name }) => {
-                        let path_to_bill = get_path_for_bill(&bill_name);
-                        match tokio::fs::read(&path_to_bill).await {
+                        match self.bill_store.get_bill_as_bytes(&bill_name).await {
                             Err(e) => {
                                 error!("Could not handle inbound request {request}: {e}")
                             }
@@ -606,8 +604,7 @@ impl Client {
                                 .await
                                 .rsa_public_key_pem;
 
-                            let path_to_key = get_path_for_bill_keys(&key_name);
-                            match tokio::fs::read(&path_to_key).await {
+                            match self.bill_store.get_bill_keys_as_bytes(&key_name).await {
                                 Err(e) => {
                                     error!("Could not handle inbound request {request}: {e}")
                                 }
