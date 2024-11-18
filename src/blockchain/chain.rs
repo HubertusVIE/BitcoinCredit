@@ -1,6 +1,7 @@
 use super::block::Block;
 use super::calculate_hash;
 use super::OperationCode;
+use super::Result;
 use crate::bill::get_path_for_bill;
 use crate::blockchain::OperationCode::{
     Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell,
@@ -56,6 +57,11 @@ impl Chain {
         let output_path = get_path_for_bill(bill_name);
 
         std::fs::write(output_path, serde_json::to_string_pretty(&self).unwrap()).unwrap();
+    }
+
+    pub fn to_pretty_printed_json(&self) -> Result<String> {
+        let res = serde_json::to_string_pretty(&self)?;
+        Ok(res)
     }
 
     /// Validates the integrity of the blockchain by checking the validity of each block in the chain.

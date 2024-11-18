@@ -3,7 +3,7 @@ use crate::{bill::BillKeys, blockchain::Chain};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::{
-    fs::{create_dir_all, read, write, File},
+    fs::{self, create_dir_all, read, write, File},
     io::AsyncReadExt,
 };
 
@@ -33,6 +33,13 @@ pub trait BillStoreApi: Send + Sync {
         bill_name: String,
         private_key: String,
         public_key: String,
+    ) -> Result<()>;
+
+    /// Writes the given pretty printed chain as JSON to a file
+    async fn write_blockchain_to_file(
+        &self,
+        bill_name: &str,
+        pretty_printed_chain_as_json: String,
     ) -> Result<()>;
 
     /// Reads bill keys from file
@@ -124,12 +131,22 @@ impl BillStoreApi for FileBasedBillStore {
         };
 
         let output_path = self.get_path_for_bill_keys(&bill_name);
-        tokio::fs::write(
-            output_path.clone(),
+        fs::write(
+            output_path,
             serde_json::to_string_pretty(&keys).map_err(super::Error::Json)?,
         )
-        .await
-        .map_err(super::Error::Io)
+        .await?;
+        Ok(())
+    }
+
+    async fn write_blockchain_to_file(
+        &self,
+        bill_name: &str,
+        pretty_printed_chain_as_json: String,
+    ) -> Result<()> {
+        let path = self.get_path_for_bill(bill_name);
+        fs::write(path, pretty_printed_chain_as_json).await?;
+        Ok(())
     }
 
     async fn read_bill_keys_from_file(&self, bill_name: &str) -> Result<BillKeys> {

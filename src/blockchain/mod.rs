@@ -5,6 +5,7 @@ use openssl::rsa::Rsa;
 use openssl::sha::Sha256;
 use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::blockchain::OperationCode::{
     Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell,
@@ -16,6 +17,20 @@ pub use chain::Chain;
 
 mod block;
 mod chain;
+
+/// Generic result type
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Generic error type
+#[derive(Debug, Error)]
+pub enum Error {
+    /// If a whole chain is not valid
+    #[error("Blockchain is invalid")]
+    BlockchainInvalid,
+
+    #[error("unable to serialize/deserialize to/from JSON {0}")]
+    Json(#[from] serde_json::Error),
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChainToReturn {

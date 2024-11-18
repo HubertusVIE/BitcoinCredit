@@ -45,6 +45,10 @@ pub enum Error {
     #[error("Notification service error: {0}")]
     NotificationService(#[from] notification_service::Error),
 
+    /// errors stemming from handling bills
+    #[error("Bill service error: {0}")]
+    BillService(#[from] bill_service::Error),
+
     /// errors stemming from cryptography, such as converting keys
     #[error("Cryptography error: {0}")]
     Cryptography(String),
@@ -89,14 +93,11 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             }
             Error::PreconditionFailed => Status::NotAcceptable.respond_to(req),
             Error::NotificationService(_) => Status::InternalServerError.respond_to(req),
-            Error::Validation(msg) => {
-                let body = json!({ "error": "validation_error", "message": msg }).to_string();
-                Response::build()
-                    .status(Status::BadRequest)
-                    .header(ContentType::JSON)
-                    .sized_body(body.len(), Cursor::new(body))
-                    .ok()
+            Error::BillService(e) => {
+                error!("{e}");
+                e.respond_to(req)
             }
+            Error::Validation(msg) => build_validation_response(msg),
             // If an external API errors, we can only tell the caller that something went wrong on
             // our end
             Error::ExternalApi(e) => {
@@ -105,6 +106,15 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             }
         }
     }
+}
+
+fn build_validation_response<'o>(msg: String) -> rocket::response::Result<'o> {
+    let body = json!({ "error": "validation_error", "message": msg }).to_string();
+    Response::build()
+        .status(Status::BadRequest)
+        .header(ContentType::JSON)
+        .sized_body(body.len(), Cursor::new(body))
+        .ok()
 }
 
 /// A dependency container for all services that are used by the application
