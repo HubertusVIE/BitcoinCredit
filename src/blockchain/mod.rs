@@ -44,6 +44,7 @@ impl ChainToReturn {
     /// # Parameters
     /// * `chain` - The `Chain` object to be transformed. It contains the list of blocks and the initial bill version
     ///   necessary for processing.
+    /// * `bill_keys` - The keys for the bill
     ///
     /// # Returns
     /// A new instance of `Self`, with a `blocks` field containing the transformed `BlockToReturn` objects.

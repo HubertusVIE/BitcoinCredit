@@ -9,9 +9,10 @@ use crate::blockchain::OperationCode::{
 use crate::constants::USEDNET;
 use crate::external;
 use crate::service::bill_service::BillKeys;
+use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
 use crate::{
-    bill::{bill_from_byte_array, read_keys_from_bill_file, BitcreditBill},
+    bill::{bill_from_byte_array, read_keys_from_bill_file},
     util::rsa::decrypt_bytes,
 };
 use borsh_derive::BorshDeserialize;
@@ -187,11 +188,14 @@ impl Chain {
 
     /// Retrieves the last version of the Bitcredit bill by decrypting and processing the relevant blocks.
     ///
+    /// # Arguments
+    /// * `bill_keys` - The keys for the bill.
+    ///
     /// # Returns
     /// A `BitcreditBill` object containing the most recent version of the bill, including the payee, endorsee,
     /// and other associated information.
     ///
-    pub async fn get_last_version_bill(&self) -> BitcreditBill {
+    pub async fn get_last_version_bill(&self, bill_keys: &BillKeys) -> BitcreditBill {
         let first_block = self.get_first_block();
 
         let key: Rsa<Private> =
@@ -596,8 +600,11 @@ impl Chain {
 
     /// This function extracts the first block's data, decrypts it using the private key
     /// associated with the bill, and then deserializes the decrypted data into a `BitcreditBill`
-    /// object. The function assumes that the first block contains the encrypted data for the
-    /// bill's first version.
+    /// object. The function assumes that the first block contains the encrypted data for the bill's first version.
+    ///
+    /// # Arguments
+    /// * `bill_keys` - The keys for the bill.
+    ///
     /// # Returns
     ///
     /// * `BitcreditBill` - The first version of the bill, decrypted and deserialized from
