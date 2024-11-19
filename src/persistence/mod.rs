@@ -1,6 +1,7 @@
 pub mod bill;
 pub mod contact;
 pub mod identity;
+pub mod surrealdb;
 
 use std::path::Path;
 

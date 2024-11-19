@@ -37,6 +37,8 @@ async fn main() -> Result<()> {
 
     // Parse command line arguments and env vars with clap
     let conf = Config::parse();
+    let surrealdb = persistence::surrealdb::get_db().await?;
+    surrealdb.use_db("test").await?;
 
     init_folders();
 
