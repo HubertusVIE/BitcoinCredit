@@ -42,6 +42,9 @@ impl Chain {
         Self { blocks }
     }
 
+    /// Reads a blockchain from a file and deserializes it into a `Chain` object.
+    /// # Returns
+    /// Returns an instance of `Self` (typically a `Chain`) that is deserialized from the blockchain file.
     pub fn read_chain_from_file(bill_name: &str) -> Self {
         let input_path = get_path_for_bill(bill_name);
 
@@ -55,6 +58,12 @@ impl Chain {
         std::fs::write(output_path, serde_json::to_string_pretty(&self).unwrap()).unwrap();
     }
 
+    /// Validates the integrity of the blockchain by checking the validity of each block in the chain.
+    ///
+    /// # Returns
+    /// * `true` - If all blocks in the chain are valid.
+    /// * `false` - If any block in the chain is found to be invalid.
+    ///
     pub fn is_chain_valid(&self) -> bool {
         for i in 0..self.blocks.len() {
             if i == 0 {
@@ -69,6 +78,17 @@ impl Chain {
         true
     }
 
+    /// This function checks whether the provided `block` is valid by comparing it with the latest block
+    /// in the current list of blocks. If the block is valid, it is added to the list and the function returns `true`.
+    /// If the block is not valid, it logs an error and returns `false`.
+    ///
+    /// # Arguments
+    /// * `block` - The `Block` to be added to the list.
+    ///
+    /// # Returns
+    /// * `true` if the block is successfully added to the list.
+    /// * `false` if the block is invalid and cannot be added.
+    ///
     pub fn try_add_block(&mut self, block: Block) -> bool {
         let latest_block = self.blocks.last().expect("there is at least one block");
         if is_block_valid(&block, latest_block) {
@@ -79,15 +99,28 @@ impl Chain {
             false
         }
     }
-
+    /// Retrieves the latest (most recent) block in the blocks list.
+    /// # Returns
+    /// * A reference to the latest block in the blocks list.
+    ///
     pub fn get_latest_block(&self) -> &Block {
         self.blocks.last().expect("there is at least one block")
     }
 
+    /// Retrieves the first block in the blocks list.
+    /// # Returns
+    /// * A reference to the first block in the blocks list.
     pub fn get_first_block(&self) -> &Block {
         self.blocks.first().expect("there is at least one block")
     }
 
+    /// Retrieves the last block with the specified operation code.
+    /// # Arguments
+    /// * `operation_code` - The `OperationCode` to search for in the blocks.
+    ///
+    /// # Returns
+    /// * A reference to the last block with the specified operation code, or the first block if none is found.
+    ///
     pub fn get_last_version_block_with_operation_code(
         &self,
         operation_code: OperationCode,
@@ -101,6 +134,14 @@ impl Chain {
         last_version_block
     }
 
+    /// Checks if there is any block with a given operation code in the current blocks list.
+    ///
+    /// # Arguments
+    /// * `operation_code` - The `OperationCode` to search for within the blocks.
+    ///
+    /// # Returns
+    /// * `true` if a block with the specified operation code exists in the blocks list, otherwise `false`.
+    ///
     pub fn exist_block_with_operation_code(&self, operation_code: OperationCode) -> bool {
         for block in &self.blocks {
             if block.operation_code == operation_code {
@@ -109,7 +150,12 @@ impl Chain {
         }
         false
     }
-
+    /// Retrieves the last version of the Bitcredit bill by decrypting and processing the relevant blocks.
+    ///
+    /// # Returns
+    /// A `BitcreditBill` object containing the most recent version of the bill, including the payee, endorsee,
+    /// and other associated information.
+    ///
     pub async fn get_last_version_bill(&self) -> BitcreditBill {
         let first_block = self.get_first_block();
 
@@ -261,6 +307,16 @@ impl Chain {
         }
     }
 
+    /// Checks if the payment for the latest sell block has been made, and returns relevant information about the buyer, seller, and the payment status.
+    ///
+    /// # Returns
+    /// A tuple with the following information:
+    /// - A boolean (`true` if payment is pending, `false` if already paid).
+    /// - The identity data of the buyer (`IdentityPublicData`).
+    /// - The identity data of the seller (`IdentityPublicData`).
+    /// - A string representing the address to which the payment should be made.
+    /// - The amount for the transaction (`u64`).
+    ///
     pub async fn waiting_for_payment(
         &self,
     ) -> (bool, IdentityPublicData, IdentityPublicData, String, u64) {
@@ -349,6 +405,13 @@ impl Chain {
         }
     }
 
+    /// This asynchronous function checks if the payment deadline associated with the most recent sell block
+    /// has passed.
+    /// # Returns
+    ///
+    /// - `true` if the payment deadline for the last sell block has passed.
+    /// - `false` if no sell block exists or the deadline has not passed.
+    ///
     pub async fn check_if_payment_deadline_has_passed(&self) -> bool {
         if self.exist_block_with_operation_code(Sell) {
             let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
@@ -361,6 +424,18 @@ impl Chain {
         }
     }
 
+    /// This asynchronous function checks whether the specified payment deadline, represented by a
+    /// timestamp, has passed based on the given number of days. It compares the current timestamp with
+    /// the provided timestamp and returns `true` if the difference exceeds the specified number of days.
+    ///
+    /// # Parameters
+    /// - `timestamp`: The timestamp of the payment deadline to compare against (in seconds).
+    /// - `day`: The number of days defining the deadline period.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the payment deadline has passed, otherwise `false`.
+    ///
     async fn payment_deadline_has_passed(timestamp: i64, day: i32) -> bool {
         let period: i64 = (86400 * day) as i64;
         let current_timestamp = external::time::TimeApi::get_atomic_time()
@@ -371,6 +446,14 @@ impl Chain {
         diference > period
     }
 
+    /// This asynchronous function verifies whether the last block that involves a "Sell" operation
+    /// has been paid. It decrypts the block's data to extract the amount and the recipient's payment address,
+    /// then checks the payment status by querying an external Bitcoin service.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the payment has been made, otherwise `false`. If no "Sell" block exists, it returns `false`.
+    ///
     async fn check_if_last_sell_block_is_paid(&self) -> bool {
         if self.exist_block_with_operation_code(Sell) {
             let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
@@ -419,6 +502,21 @@ impl Chain {
             false
         }
     }
+
+    /// This function computes the Bitcoin payment address associated with a specific block sell.
+    /// It decrypts and processes the data from the last version of the block sell, extracts
+    /// relevant seller information, and combines public keys to generate the final payment address.
+    ///
+    /// # Parameters
+    ///
+    /// - `last_version_block_sell`: The most recent block sell version, containing encrypted
+    ///   transaction data and the associated bill name.
+    /// - `bill`: The `BitcreditBill` containing the public key associated with the transaction.
+    ///
+    /// # Returns
+    ///
+    /// A `String` representing the Bitcoin payment address (P2PKH format) for the transaction.
+    ///
 
     fn get_address_to_pay_for_block_sell(
         last_version_block_sell: Block,
@@ -471,6 +569,14 @@ impl Chain {
         bitcoin::Address::p2pkh(pub_key_bill, USEDNET).to_string()
     }
 
+    /// This function extracts the first block's data, decrypts it using the private key
+    /// associated with the bill, and then deserializes the decrypted data into a `BitcreditBill`
+    /// object. The function assumes that the first block contains the encrypted data for the
+    /// bill's first version.
+    /// # Returns
+    ///
+    /// * `BitcreditBill` - The first version of the bill, decrypted and deserialized from
+    ///   the data in the first block.
     pub fn get_first_version_bill(&self) -> BitcreditBill {
         let first_block_data = &self.get_first_block();
         let bill_keys = read_keys_from_bill_file(&first_block_data.bill_name);
@@ -482,6 +588,17 @@ impl Chain {
         bill_first_version
     }
 
+    /// This function iterates over the list of blocks in the chain and returns the first block
+    /// that matches the provided `id`. If no block is found with the given ID, the function
+    /// returns a clone of the first block in the chain as a fallback.
+    /// # Arguments
+    ///
+    /// * `id` - A `u64` representing the ID of the block to retrieve.
+    ///
+    /// # Returns
+    ///
+    /// * `Block` - The block corresponding to the given `id`, or the first block in the chain
+    ///   if no match is found.
     pub fn get_block_by_id(&self, id: u64) -> Block {
         let mut block = self.get_first_block().clone();
         for b in &self.blocks {
@@ -492,6 +609,17 @@ impl Chain {
         block
     }
 
+    /// This function compares the latest block ID of the local chain (`self`) with that
+    /// of the `other_chain`. If the `other_chain` is ahead, it attempts to add missing
+    /// blocks from the `other_chain` to the local chain. If the addition of a block
+    /// fails or the resulting chain becomes invalid, the synchronization is aborted.
+    ///
+    /// # Parameters
+    /// - `other_chain: Chain`  
+    ///   The chain to compare and synchronize with.
+    /// - `bill_name: &str`  
+    ///   The name of the bill, used to persist the updated chain to a file if synchronization is successful.
+    ///
     pub fn compare_chain(&mut self, other_chain: Chain, bill_name: &str) {
         let local_chain_last_id = self.get_latest_block().id;
         let other_chain_last_id = other_chain.get_latest_block().id;
@@ -512,6 +640,14 @@ impl Chain {
         }
     }
 
+    /// This function iterates over all the blocks in the blockchain, extracts the nodes
+    /// from each block, and compiles a unique list of non-empty nodes. Duplicate nodes
+    /// are ignored.
+    ///
+    /// # Returns
+    /// `Vec<String>`:  
+    /// - A vector containing the unique identifiers of nodes associated with the bill.
+    ///
     pub fn get_all_nodes_from_bill(&self) -> Vec<String> {
         let mut nodes: Vec<String> = Vec::new();
 
@@ -527,6 +663,15 @@ impl Chain {
         nodes
     }
 
+    /// This function determines the drawer of the bill by evaluating the following conditions:
+    /// 1. If the drawer's name is not empty, it directly returns the drawer.
+    /// 2. If the bill is directed to the payee (`to_payee` is `true`), it assigns the payee as the drawer.
+    /// 3. Otherwise, the drawee is assigned as the drawer.
+    ///
+    /// # Returns
+    /// `IdentityPublicData`:  
+    /// - The identity data of the drawer, payee, or drawee depending on the evaluated conditions.
+    ///
     pub fn get_drawer(&self) -> IdentityPublicData {
         let drawer: IdentityPublicData;
         let bill = self.get_first_version_bill();
@@ -539,6 +684,20 @@ impl Chain {
         }
         drawer
     }
+
+    /// This function iterates through all blocks in a bill's blockchain and verifies
+    /// whether the node specified by `request_node_id` has participated in any operation
+    /// related to the bill. The involvement can be as a drawer, drawee, payee, endorser,
+    /// endorsee, minter, requester, accepter, buyer, or seller.
+    ///
+    /// # Parameters
+    /// - `request_node_id`: A string slice representing the unique identifier of the node
+    ///   to check for involvement.
+    ///
+    /// # Returns
+    /// `bool`:
+    /// - `true` if the specified node is involved in any operation related to the bill.
+    /// - `false` otherwise.
 
     pub fn bill_contains_node(&self, request_node_id: &str) -> bool {
         for block in &self.blocks {
@@ -775,6 +934,20 @@ impl Chain {
         false
     }
 }
+
+/// This function performs a series of checks to ensure the integrity of the current block
+/// in relation to the previous block in the blockchain. These checks include verifying
+/// the hash chain, sequential IDs, hash validity, and block signature.
+///
+/// # Parameters
+/// - `block`: A reference to the current `Block` that needs validation.
+/// - `previous_block`: A reference to the previous `Block` in the chain for comparison.
+///
+/// # Returns
+/// `bool`:
+/// - `true` if the block is valid.
+/// - `false` if any of the validation checks fail.
+///
 
 fn is_block_valid(block: &Block, previous_block: &Block) -> bool {
     if block.previous_hash != previous_block.hash {

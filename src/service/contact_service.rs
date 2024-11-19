@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use mockall::automock;
 use serde::{Deserialize, Serialize};
 
-use crate::{bill::identity::Identity, dht::Client, persistence::ContactStoreApi};
+use crate::{dht::Client, persistence::ContactStoreApi, service::identity_service::Identity};
 
 use super::Result;
 

@@ -3,20 +3,14 @@ use super::super::data::{
     EndorseBitcreditBillForm, MintBitcreditBillForm, RequestToAcceptBitcreditBillForm,
     RequestToMintBitcreditBillForm, RequestToPayBitcreditBillForm, SellBitcreditBillForm,
 };
-use crate::bill::contacts::get_current_payee_private_key;
 use crate::bill::get_path_for_bill;
 use crate::blockchain::{Chain, ChainToReturn, GossipsubEvent, GossipsubEventId, OperationCode};
-use crate::constants::IDENTITY_FILE_PATH;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
+use crate::util::get_current_payee_private_key;
 use crate::{
-    bill::{
-        endorse_bitcredit_bill, get_bills_for_list,
-        identity::{get_whole_identity, read_peer_id_from_file, IdentityWithAll},
-        mint_bitcredit_bill, read_bill_from_file, request_acceptance, request_pay,
-        sell_bitcredit_bill, BitcreditBill, BitcreditBillToReturn,
-    },
+    bill::{get_bills_for_list, read_bill_from_file, BitcreditBill, BitcreditBillToReturn},
     service::ServiceContext,
 };
 use crate::{external, service};
@@ -25,15 +19,14 @@ use rocket::form::Form;
 use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
-use std::path::Path;
 use std::{fs, thread};
 
 #[get("/holder/<id>")]
-pub async fn holder(id: String) -> Json<bool> {
-    let identity: IdentityWithAll = get_whole_identity();
+pub async fn holder(state: &State<ServiceContext>, id: String) -> Result<Json<bool>> {
+    let identity = state.identity_service.get_full_identity().await?;
     let bill: BitcreditBill = read_bill_from_file(&id).await;
     let am_i_holder = identity.peer_id.to_string().eq(&bill.payee.peer_id);
-    Json(am_i_holder)
+    Ok(Json(am_i_holder))
 }
 
 #[get("/attachment/<bill_name>/<file_name>")]
@@ -88,8 +81,11 @@ pub async fn find_bill_in_dht(state: &State<ServiceContext>, bill_id: String) {
 }
 
 #[get("/return/<id>")]
-pub async fn return_bill(id: String) -> Json<BitcreditBillToReturn> {
-    let identity: IdentityWithAll = get_whole_identity();
+pub async fn return_bill(
+    state: &State<ServiceContext>,
+    id: String,
+) -> Result<Json<BitcreditBillToReturn>> {
+    let identity = state.identity_service.get_full_identity().await?;
     let bill: BitcreditBill = read_bill_from_file(&id).await;
     let chain = Chain::read_chain_from_file(&bill.name);
     let drawer = chain.get_drawer();
@@ -212,20 +208,19 @@ pub async fn return_bill(id: String) -> Json<BitcreditBillToReturn> {
         pending,
         chain_of_blocks: chain_to_return,
     };
-    Json(full_bill)
+    Ok(Json(full_bill))
 }
 
 #[get("/dht")]
-pub async fn search_bill(state: &State<ServiceContext>) -> Status {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut client = state.dht_client();
-        let local_peer_id = read_peer_id_from_file();
-        client.check_new_bills(local_peer_id.to_string()).await;
-
-        Status::Ok
+pub async fn search_bill(state: &State<ServiceContext>) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
     }
+    let mut client = state.dht_client();
+    let local_peer_id = state.identity_service.get_peer_id().await?;
+    client.check_new_bills(local_peer_id.to_string()).await;
+
+    Ok(Status::Ok)
 }
 
 #[post("/issue", data = "<bill_form>")]
@@ -233,7 +228,7 @@ pub async fn issue_bill(
     state: &State<ServiceContext>,
     bill_form: Form<BitcreditBillForm<'_>>,
 ) -> Result<Status> {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
+    if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
 
@@ -247,8 +242,7 @@ pub async fn issue_bill(
         state.bill_service.validate_attached_file(*file).await?;
     }
 
-    // let form_bill = &(bill_form.into_inner();
-    let drawer = get_whole_identity();
+    let drawer = state.identity_service.get_full_identity().await?;
 
     let (public_data_drawee, public_data_payee) =
         match (bill_form.drawer_is_payee, bill_form.drawer_is_drawee) {
@@ -364,55 +358,56 @@ pub async fn issue_bill(
 pub async fn sell_bill(
     state: &State<ServiceContext>,
     sell_bill_form: Form<SellBitcreditBillForm>,
-) -> Status {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut client = state.dht_client();
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
+    }
+    let mut client = state.dht_client();
 
-        let public_data_buyer = state
-            .contact_service
-            .get_identity_by_name(&sell_bill_form.buyer)
+    let public_data_buyer = state
+        .contact_service
+        .get_identity_by_name(&sell_bill_form.buyer)
+        .await
+        .expect("Can not get buyer identity.");
+
+    if !public_data_buyer.name.is_empty() {
+        let timestamp = external::time::TimeApi::get_atomic_time()
             .await
-            .expect("Can not get buyer identity.");
+            .unwrap()
+            .timestamp;
 
-        if !public_data_buyer.name.is_empty() {
-            let timestamp = external::time::TimeApi::get_atomic_time()
-                .await
-                .unwrap()
-                .timestamp;
-
-            let correct = sell_bitcredit_bill(
+        let correct = state
+            .bill_service
+            .sell_bitcredit_bill(
                 &sell_bill_form.bill_name,
                 public_data_buyer.clone(),
                 timestamp,
                 sell_bill_form.amount_numbers,
             )
-            .await;
+            .await?;
 
-            if correct {
-                let chain: Chain = Chain::read_chain_from_file(&sell_bill_form.bill_name);
-                let block = chain.get_latest_block();
+        if correct {
+            let chain: Chain = Chain::read_chain_from_file(&sell_bill_form.bill_name);
+            let block = chain.get_latest_block();
 
-                let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-                let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-                let message = event.to_byte_array();
+            let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
+            let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
+            let message = event.to_byte_array();
 
-                client
-                    .add_message_to_topic(message, sell_bill_form.bill_name.clone())
-                    .await;
+            client
+                .add_message_to_topic(message, sell_bill_form.bill_name.clone())
+                .await;
 
-                client
-                    .add_bill_to_dht_for_node(
-                        &sell_bill_form.bill_name,
-                        &public_data_buyer.peer_id.to_string().clone(),
-                    )
-                    .await;
-            }
-            Status::Ok
-        } else {
-            Status::NotAcceptable
+            client
+                .add_bill_to_dht_for_node(
+                    &sell_bill_form.bill_name,
+                    &public_data_buyer.peer_id.to_string().clone(),
+                )
+                .await;
         }
+        Ok(Status::Ok)
+    } else {
+        Err(service::Error::PreconditionFailed)
     }
 }
 
@@ -420,55 +415,56 @@ pub async fn sell_bill(
 pub async fn endorse_bill(
     state: &State<ServiceContext>,
     endorse_bill_form: Form<EndorseBitcreditBillForm>,
-) -> Status {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut client = state.dht_client();
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
+    }
+    let mut client = state.dht_client();
 
-        let public_data_endorsee = state
-            .contact_service
-            .get_identity_by_name(&endorse_bill_form.endorsee)
+    let public_data_endorsee = state
+        .contact_service
+        .get_identity_by_name(&endorse_bill_form.endorsee)
+        .await
+        .expect("Can not get endorsee identity.");
+
+    if !public_data_endorsee.name.is_empty() {
+        let timestamp = external::time::TimeApi::get_atomic_time()
             .await
-            .expect("Can not get endorsee identity.");
+            .unwrap()
+            .timestamp;
 
-        if !public_data_endorsee.name.is_empty() {
-            let timestamp = external::time::TimeApi::get_atomic_time()
-                .await
-                .unwrap()
-                .timestamp;
-
-            let correct = endorse_bitcredit_bill(
+        let correct = state
+            .bill_service
+            .endorse_bitcredit_bill(
                 &endorse_bill_form.bill_name,
                 public_data_endorsee.clone(),
                 timestamp,
             )
-            .await;
+            .await?;
 
-            if correct {
-                let chain: Chain = Chain::read_chain_from_file(&endorse_bill_form.bill_name);
-                let block = chain.get_latest_block();
+        if correct {
+            let chain: Chain = Chain::read_chain_from_file(&endorse_bill_form.bill_name);
+            let block = chain.get_latest_block();
 
-                let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-                let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-                let message = event.to_byte_array();
+            let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
+            let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
+            let message = event.to_byte_array();
 
-                client
-                    .add_message_to_topic(message, endorse_bill_form.bill_name.clone())
-                    .await;
+            client
+                .add_message_to_topic(message, endorse_bill_form.bill_name.clone())
+                .await;
 
-                client
-                    .add_bill_to_dht_for_node(
-                        &endorse_bill_form.bill_name,
-                        &public_data_endorsee.peer_id.to_string().clone(),
-                    )
-                    .await;
-            }
-
-            Status::Ok
-        } else {
-            Status::NotAcceptable
+            client
+                .add_bill_to_dht_for_node(
+                    &endorse_bill_form.bill_name,
+                    &public_data_endorsee.peer_id.to_string().clone(),
+                )
+                .await;
         }
+
+        Ok(Status::Ok)
+    } else {
+        Err(service::Error::PreconditionFailed)
     }
 }
 
@@ -476,66 +472,70 @@ pub async fn endorse_bill(
 pub async fn request_to_pay_bill(
     state: &State<ServiceContext>,
     request_to_pay_bill_form: Form<RequestToPayBitcreditBillForm>,
-) -> Status {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut client = state.dht_client();
-
-        let timestamp = external::time::TimeApi::get_atomic_time()
-            .await
-            .unwrap()
-            .timestamp;
-
-        let correct = request_pay(&request_to_pay_bill_form.bill_name, timestamp).await;
-
-        if correct {
-            let chain: Chain = Chain::read_chain_from_file(&request_to_pay_bill_form.bill_name);
-            let block = chain.get_latest_block();
-
-            let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-            let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-            let message = event.to_byte_array();
-
-            client
-                .add_message_to_topic(message, request_to_pay_bill_form.bill_name.clone())
-                .await;
-        }
-        Status::Ok
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
     }
+    let mut client = state.dht_client();
+
+    let timestamp = external::time::TimeApi::get_atomic_time()
+        .await
+        .unwrap()
+        .timestamp;
+
+    let correct = state
+        .bill_service
+        .request_pay(&request_to_pay_bill_form.bill_name, timestamp)
+        .await?;
+
+    if correct {
+        let chain: Chain = Chain::read_chain_from_file(&request_to_pay_bill_form.bill_name);
+        let block = chain.get_latest_block();
+
+        let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
+        let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
+        let message = event.to_byte_array();
+
+        client
+            .add_message_to_topic(message, request_to_pay_bill_form.bill_name.clone())
+            .await;
+    }
+    Ok(Status::Ok)
 }
 
 #[put("/request_to_accept", data = "<request_to_accept_bill_form>")]
 pub async fn request_to_accept_bill(
     state: &State<ServiceContext>,
     request_to_accept_bill_form: Form<RequestToAcceptBitcreditBillForm>,
-) -> Status {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut client = state.dht_client();
-
-        let timestamp = external::time::TimeApi::get_atomic_time()
-            .await
-            .unwrap()
-            .timestamp;
-
-        let correct = request_acceptance(&request_to_accept_bill_form.bill_name, timestamp).await;
-
-        if correct {
-            let chain: Chain = Chain::read_chain_from_file(&request_to_accept_bill_form.bill_name);
-            let block = chain.get_latest_block();
-
-            let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-            let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-            let message = event.to_byte_array();
-
-            client
-                .add_message_to_topic(message, request_to_accept_bill_form.bill_name.clone())
-                .await;
-        }
-        Status::Ok
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
     }
+    let mut client = state.dht_client();
+
+    let timestamp = external::time::TimeApi::get_atomic_time()
+        .await
+        .unwrap()
+        .timestamp;
+
+    let correct = state
+        .bill_service
+        .request_acceptance(&request_to_accept_bill_form.bill_name, timestamp)
+        .await?;
+
+    if correct {
+        let chain: Chain = Chain::read_chain_from_file(&request_to_accept_bill_form.bill_name);
+        let block = chain.get_latest_block();
+
+        let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
+        let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
+        let message = event.to_byte_array();
+
+        client
+            .add_message_to_topic(message, request_to_accept_bill_form.bill_name.clone())
+            .await;
+    }
+    Ok(Status::Ok)
 }
 
 #[put("/accept", data = "<accept_bill_form>")]
@@ -543,7 +543,7 @@ pub async fn accept_bill_form(
     state: &State<ServiceContext>,
     accept_bill_form: Form<AcceptBitcreditBillForm>,
 ) -> Result<Status> {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
+    if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
     state
@@ -561,8 +561,8 @@ pub async fn accept_bill_form(
 //     state: &State<ServiceContext>,
 //     mint_bill_form: Form<MintBitcreditBillForm>,
 // ) -> Status {
-//     if !Path::new(IDENTITY_FILE_PATH).exists() {
-//         Status::NotAcceptable
+//     if !state.identity_service.identity_exists().await {
+//         Err(service::Error::PreconditionFailed)
 //     } else {
 //         let mut client = state.inner().clone();
 //
@@ -642,56 +642,57 @@ pub async fn accept_mint_bill(accept_mint_bill_form: Form<AcceptMintBitcreditBil
 pub async fn mint_bill(
     state: &State<ServiceContext>,
     mint_bill_form: Form<MintBitcreditBillForm>,
-) -> Status {
-    if !Path::new(IDENTITY_FILE_PATH).exists() {
-        Status::NotAcceptable
-    } else {
-        let mut client = state.dht_client();
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
+    }
+    let mut client = state.dht_client();
 
-        let timestamp = external::time::TimeApi::get_atomic_time()
-            .await
-            .unwrap()
-            .timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time()
+        .await
+        .unwrap()
+        .timestamp;
 
-        let public_mint_node = state
-            .contact_service
-            .get_identity_by_name(&mint_bill_form.mint_node)
-            .await
-            .expect("could not get identity by name");
+    let public_mint_node = state
+        .contact_service
+        .get_identity_by_name(&mint_bill_form.mint_node)
+        .await
+        .expect("could not get identity by name");
 
-        if !public_mint_node.name.is_empty() {
-            let correct = mint_bitcredit_bill(
+    if !public_mint_node.name.is_empty() {
+        let correct = state
+            .bill_service
+            .mint_bitcredit_bill(
                 &mint_bill_form.bill_name,
                 public_mint_node.clone(),
                 timestamp,
             )
-            .await;
+            .await?;
 
-            if correct {
-                let chain: Chain = Chain::read_chain_from_file(&mint_bill_form.bill_name);
-                let block = chain.get_latest_block();
+        if correct {
+            let chain: Chain = Chain::read_chain_from_file(&mint_bill_form.bill_name);
+            let block = chain.get_latest_block();
 
-                let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
-                let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
-                let message = event.to_byte_array();
+            let block_bytes = serde_json::to_vec(block).expect("Error serializing block");
+            let event = GossipsubEvent::new(GossipsubEventId::Block, block_bytes);
+            let message = event.to_byte_array();
 
-                client
-                    .add_message_to_topic(message, mint_bill_form.bill_name.clone())
-                    .await;
+            client
+                .add_message_to_topic(message, mint_bill_form.bill_name.clone())
+                .await;
 
-                client
-                    .add_bill_to_dht_for_node(
-                        &mint_bill_form.bill_name,
-                        &public_mint_node.peer_id.to_string().clone(),
-                    )
-                    .await;
-            } else {
-                warn!("Can't mint");
-            }
-
-            Status::Ok
+            client
+                .add_bill_to_dht_for_node(
+                    &mint_bill_form.bill_name,
+                    &public_mint_node.peer_id.to_string().clone(),
+                )
+                .await;
         } else {
-            Status::NotAcceptable
+            warn!("Can't mint");
         }
+
+        Ok(Status::Ok)
+    } else {
+        Err(service::Error::PreconditionFailed)
     }
 }

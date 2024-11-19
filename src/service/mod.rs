@@ -1,14 +1,17 @@
 pub mod bill_service;
 pub mod contact_service;
+pub mod identity_service;
 pub mod notification_service;
 
 use super::{dht::Client, Config};
 use crate::external;
 use crate::persistence::bill::BillStoreApi;
+use crate::persistence::identity::IdentityStoreApi;
 use crate::persistence::FileBasedContactStore;
 use crate::persistence::{self};
 use bill_service::{BillService, BillServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
+use identity_service::{IdentityService, IdentityServiceApi};
 use log::error;
 use rocket::http::ContentType;
 use rocket::Response;
@@ -42,6 +45,14 @@ pub enum Error {
     #[error("Notification service error: {0}")]
     NotificationService(#[from] notification_service::Error),
 
+    /// errors stemming from cryptography, such as converting keys
+    #[error("Cryptography error: {0}")]
+    Cryptography(String),
+
+    /// errors stemming from interaction with the DHT
+    #[error("DHT error: {0}")]
+    Dht(String),
+
     /// errors that stem from validation
     #[error("Validation Error: {0}")]
     Validation(String),
@@ -56,6 +67,16 @@ pub enum Error {
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &rocket::Request) -> rocket::response::Result<'o> {
         match self {
+            // for now, DHT errors are InternalServerError
+            Error::Dht(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            // for now, Cryptography errors are InternalServerError
+            Error::Cryptography(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
             // for now handle all persistence errors as InternalServerError, there
             // will be cases where we want to handle them differently (eg. 409 Conflict)
             Error::Persistence(e) => {
@@ -93,6 +114,7 @@ pub struct ServiceContext {
     dht_client: Client,
     pub contact_service: Arc<dyn ContactServiceApi>,
     pub bill_service: Arc<dyn BillServiceApi>,
+    pub identity_service: Arc<dyn IdentityServiceApi>,
     pub shutdown_sender: broadcast::Sender<bool>,
 }
 
@@ -102,6 +124,7 @@ impl ServiceContext {
         client: Client,
         contact_service: ContactService,
         bill_service: BillService,
+        identity_service: IdentityService,
         shutdown_sender: broadcast::Sender<bool>,
     ) -> Self {
         Self {
@@ -109,6 +132,7 @@ impl ServiceContext {
             dht_client: client,
             contact_service: Arc::new(contact_service),
             bill_service: Arc::new(bill_service),
+            identity_service: Arc::new(identity_service),
             shutdown_sender,
         }
     }
@@ -133,18 +157,22 @@ pub async fn create_service_context(
     client: Client,
     shutdown_sender: broadcast::Sender<bool>,
     bill_store: Arc<dyn BillStoreApi>,
+    identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<ServiceContext> {
     let contact_store =
         FileBasedContactStore::new(&config.data_dir, "contacts", "contacts").await?;
     let contact_service = ContactService::new(client.clone(), Arc::new(contact_store));
 
-    let bill_service = BillService::new(client.clone(), bill_store);
+    let bill_service = BillService::new(client.clone(), bill_store, identity_store.clone());
+
+    let identity_service = IdentityService::new(client.clone(), identity_store);
 
     Ok(ServiceContext::new(
         config,
         client,
         contact_service,
         bill_service,
+        identity_service,
         shutdown_sender,
     ))
 }

@@ -1,6 +1,5 @@
 use crate::constants::{
-    BILLS_FOLDER_PATH, BILLS_KEYS_FOLDER_PATH, BOOTSTRAP_FOLDER_PATH, IDENTITY_FOLDER_PATH,
-    QUOTES_MAP_FOLDER_PATH,
+    BILLS_FOLDER_PATH, BILLS_KEYS_FOLDER_PATH, BOOTSTRAP_FOLDER_PATH, QUOTES_MAP_FOLDER_PATH,
 };
 use anyhow::Result;
 use clap::Parser;
@@ -8,6 +7,7 @@ use config::Config;
 use constants::SHUTDOWN_GRACE_PERIOD_MS;
 use log::{error, info};
 use persistence::bill::FileBasedBillStore;
+use persistence::identity::{FileBasedIdentityStore, IdentityStoreApi};
 use service::create_service_context;
 use std::path::Path;
 use std::sync::Arc;
@@ -44,7 +44,18 @@ async fn main() -> Result<()> {
 
     let bill_store =
         Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);
-    let dht = dht::dht_main(&conf, bill_store.clone())
+    let identity_store = Arc::new(
+        FileBasedIdentityStore::new(
+            &conf.data_dir,
+            "identity",
+            "identity",
+            "peer_id",
+            "ed25519_keys",
+        )
+        .await?,
+    );
+
+    let dht = dht::dht_main(&conf, bill_store.clone(), identity_store.clone())
         .await
         .expect("DHT failed to start");
     let mut dht_client = dht.client;
@@ -61,14 +72,14 @@ async fn main() -> Result<()> {
         }
     });
 
-    let local_peer_id = bill::identity::read_peer_id_from_file();
+    let local_peer_id = identity_store.get_peer_id().await?;
     dht_client.check_new_bills(local_peer_id.to_string()).await;
     dht_client.upgrade_table(local_peer_id.to_string()).await;
     dht_client.subscribe_to_all_bills_topics().await;
     dht_client.put_bills_for_parties().await;
     dht_client.start_provide().await;
     dht_client.receive_updates_for_all_bills_topics().await;
-    dht_client.put_identity_public_data_in_dht().await;
+    dht_client.put_identity_public_data_in_dht().await?;
 
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
     let service_context = create_service_context(
@@ -76,6 +87,7 @@ async fn main() -> Result<()> {
         dht_client.clone(),
         dht.shutdown_sender,
         bill_store,
+        identity_store,
     )
     .await?;
 
@@ -96,9 +108,6 @@ async fn main() -> Result<()> {
 fn init_folders() {
     if !Path::new(QUOTES_MAP_FOLDER_PATH).exists() {
         fs::create_dir(QUOTES_MAP_FOLDER_PATH).expect("Can't create folder quotes.");
-    }
-    if !Path::new(IDENTITY_FOLDER_PATH).exists() {
-        fs::create_dir(IDENTITY_FOLDER_PATH).expect("Can't create folder identity.");
     }
     if !Path::new(BILLS_FOLDER_PATH).exists() {
         fs::create_dir(BILLS_FOLDER_PATH).expect("Can't create folder bills.");

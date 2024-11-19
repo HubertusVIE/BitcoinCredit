@@ -1,5 +1,6 @@
 pub mod bill;
 pub mod contact;
+pub mod identity;
 
 use std::path::Path;
 
@@ -16,6 +17,12 @@ pub enum Error {
 
     #[error("unable to serialize/deserialize to/from JSON {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("unable to serialize/deserialize PeerId {0}")]
+    PeerId(#[from] libp2p::multihash::Error),
+
+    #[error("unable to serialize/deserialize Keypair {0}")]
+    Keypair(#[from] libp2p::identity::DecodingError),
 
     #[error("no such {0} entity {1}")]
     NoSuchEntity(String, String),

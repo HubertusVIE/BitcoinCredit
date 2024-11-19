@@ -5,15 +5,13 @@ use super::behaviour::{
 };
 use crate::bill::{get_path_for_bill, get_path_for_bill_keys};
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
-use crate::constants::{BILLS_FOLDER_PATH, BILLS_PREFIX, IDENTITY_FILE_PATH};
+use crate::constants::{BILLS_FOLDER_PATH, BILLS_PREFIX};
 use crate::persistence::bill::BillStoreApi;
+use crate::persistence::identity::IdentityStoreApi;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
 use crate::{
-    bill::{
-        get_bills,
-        identity::{get_whole_identity, read_peer_id_from_file, IdentityWithAll},
-    },
+    bill::get_bills,
     util::{
         file::is_not_hidden_or_directory,
         rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key},
@@ -30,7 +28,6 @@ use log::{error, info};
 use std::collections::HashSet;
 use std::fs;
 use std::io::BufRead;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -38,11 +35,20 @@ use tokio::sync::broadcast;
 pub struct Client {
     pub(super) sender: mpsc::Sender<Command>,
     bill_store: Arc<dyn BillStoreApi>,
+    identity_store: Arc<dyn IdentityStoreApi>,
 }
 
 impl Client {
-    pub fn new(sender: mpsc::Sender<Command>, bill_store: Arc<dyn BillStoreApi>) -> Self {
-        Self { sender, bill_store }
+    pub fn new(
+        sender: mpsc::Sender<Command>,
+        bill_store: Arc<dyn BillStoreApi>,
+        identity_store: Arc<dyn IdentityStoreApi>,
+    ) -> Self {
+        Self {
+            sender,
+            bill_store,
+            identity_store,
+        }
     }
 
     pub async fn run(
@@ -109,7 +115,13 @@ impl Client {
 
                     let key_bytes = self.get_key(bill_id.to_string().clone()).await;
                     if !key_bytes.is_empty() {
-                        let pr_key = get_whole_identity().identity.private_key_pem;
+                        let pr_key = self
+                            .identity_store
+                            .get_full()
+                            .await
+                            .unwrap()
+                            .identity
+                            .private_key_pem;
 
                         let key_bytes_decrypted =
                             decrypt_bytes_with_private_key(&key_bytes, pr_key);
@@ -249,9 +261,9 @@ impl Client {
         }
     }
 
-    pub async fn put_identity_public_data_in_dht(&mut self) {
-        if Path::new(IDENTITY_FILE_PATH).exists() {
-            let identity: IdentityWithAll = get_whole_identity();
+    pub async fn put_identity_public_data_in_dht(&mut self) -> Result<()> {
+        if self.identity_store.exists().await {
+            let identity = self.identity_store.get_full().await?;
             let identity_data = IdentityPublicData::new(
                 identity.identity.clone(),
                 identity.peer_id.to_string().clone(),
@@ -270,6 +282,7 @@ impl Client {
                 self.put_record(key, value).await;
             }
         }
+        Ok(())
     }
 
     pub async fn get_identity_public_data_from_dht(
@@ -330,9 +343,9 @@ impl Client {
             Vec::new()
         } else {
             //TODO: If it's me - don't continue.
+            let local_peer_id = self.identity_store.get_peer_id().await.unwrap().to_string();
             let requests = providers.into_iter().map(|peer| {
                 let mut network_client = self.clone();
-                let local_peer_id = read_peer_id_from_file().to_string();
 
                 let file_request = file_request_for_bill(&local_peer_id, &name);
                 async move { network_client.request_file(peer, file_request).await }.boxed()
@@ -374,7 +387,7 @@ impl Client {
             Some(file) => &file.hash,
         };
 
-        let local_peer_id = read_peer_id_from_file();
+        let local_peer_id = self.identity_store.get_peer_id().await?;
         let mut providers = self.get_providers(bill_name.to_owned()).await;
         providers.remove(&local_peer_id);
         if providers.is_empty() {
@@ -398,7 +411,13 @@ impl Client {
             Ok(file_content) => {
                 let bytes = file_content.0;
                 let keys = self.bill_store.read_bill_keys_from_file(&bill_name).await?;
-                let pr_key = get_whole_identity().identity.private_key_pem;
+                let pr_key = self
+                    .identity_store
+                    .get_full()
+                    .await
+                    .unwrap()
+                    .identity
+                    .private_key_pem;
                 // decrypt file using identity private key and check hash
                 let decrypted_with_identity_key =
                     util::rsa::decrypt_bytes_with_private_key(&bytes, pr_key);
@@ -429,10 +448,10 @@ impl Client {
             error!("No providers was found.");
             Vec::new()
         } else {
+            let local_peer_id = self.identity_store.get_peer_id().await.unwrap().to_string();
             //TODO: If it's me - don't continue.
             let requests = providers.into_iter().map(|peer| {
                 let mut network_client = self.clone();
-                let local_peer_id = read_peer_id_from_file().to_string();
 
                 let file_request = file_request_for_bill_keys(&local_peer_id, &name);
                 async move { network_client.request_file(peer, file_request).await }.boxed()

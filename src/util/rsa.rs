@@ -1,4 +1,5 @@
 #![allow(clippy::needless_range_loop)]
+use anyhow::{anyhow, Result};
 use openssl::pkey::{Private, Public};
 use openssl::rsa;
 use openssl::rsa::{Padding, Rsa};
@@ -7,14 +8,16 @@ pub fn generation_rsa_key() -> Rsa<Private> {
     Rsa::generate(2048).unwrap()
 }
 
-pub fn pem_private_key_from_rsa(rsa: &Rsa<Private>) -> String {
-    let private_key: Vec<u8> = rsa.private_key_to_pem().unwrap();
-    String::from_utf8(private_key).unwrap()
+pub fn pem_private_key_from_rsa(rsa: &Rsa<Private>) -> Result<String> {
+    let private_key: Vec<u8> = rsa.private_key_to_pem()?;
+    String::from_utf8(private_key)
+        .map_err(|e| anyhow!("Could not create string from private key: {e}"))
 }
 
-pub fn pem_public_key_from_rsa(rsa: &Rsa<Private>) -> String {
-    let public_key: Vec<u8> = rsa.public_key_to_pem().unwrap();
-    String::from_utf8(public_key).unwrap()
+pub fn pem_public_key_from_rsa(rsa: &Rsa<Private>) -> Result<String> {
+    let public_key: Vec<u8> = rsa.public_key_to_pem()?;
+    String::from_utf8(public_key)
+        .map_err(|e| anyhow!("Could not create string from private key: {e}"))
 }
 
 pub fn private_key_from_pem_u8(private_key_u8: &[u8]) -> Rsa<Private> {

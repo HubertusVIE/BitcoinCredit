@@ -32,6 +32,26 @@ pub struct Block {
 }
 
 impl Block {
+    /// Creates a new instance of the struct with the provided details, calculates the block hash,
+    /// and generates a signature for the block.
+    ///
+    /// # Arguments
+    ///
+    /// - `id`: The unique identifier of the block (`u64`).
+    /// - `previous_hash`: A `String` representing the hash of the previous block in the chain.
+    /// - `data`: A `String` containing the data to be stored in the block.
+    /// - `bill_name`: A `String` representing the name of the bill associated with the block.
+    /// - `public_key`: A `String` containing the public RSA key in PEM format.
+    /// - `operation_code`: An `OperationCode` indicating the operation type associated with the block.
+    /// - `private_key`: A `String` containing the private RSA key in PEM format, used to sign the block.
+    /// - `timestamp`: An `i64` timestamp representing the time the block was created.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of the struct populated with the provided data, a calculated block hash,
+    /// and a signature.
+    ///
+
     pub fn new(
         id: u64,
         previous_hash: String,
@@ -65,7 +85,21 @@ impl Block {
             operation_code,
         }
     }
-
+    /// Extracts the list of unique peer IDs (nodes) involved in a block operation.
+    ///
+    /// This function identifies and returns a list of peer IDs based on the operation code
+    /// associated with the block (`Issue`, `Endorse`, `Mint`, `RequestToAccept`, `Accept`,
+    /// `RequestToPay`, or `Sell`). The extracted peer IDs represent participants involved
+    /// in the operation, such as drawers, payees, endorsers, or buyers.
+    ///
+    /// # Parameters
+    /// - `bill`: A `BitcreditBill` instance containing information about the drawer, payee, and drawee
+    ///   as well as metadata needed for decryption and validation.
+    ///
+    /// # Returns
+    /// A `Vec<String>` containing the unique peer IDs involved in the block. Peer IDs are included
+    /// only if they are non-empty and not already part of the list.
+    ///
     pub fn get_nodes_from_block(&self, bill: BitcreditBill) -> Vec<String> {
         let mut nodes = Vec::new();
         match self.operation_code {
@@ -304,6 +338,15 @@ impl Block {
         nodes
     }
 
+    /// Generates a human-readable history label for a `BitcreditBill` based on the operation code.
+    ///
+    /// # Parameters
+    /// - `bill`: A `BitcreditBill` object containing the details of the bill, including
+    ///   drawer, payee, drawee, and place of drawing.
+    ///
+    /// # Returns
+    /// A `String` representing the history label for the given bill.
+    ///
     pub fn get_history_label(&self, bill: BitcreditBill) -> String {
         match self.operation_code {
             Issue => {
@@ -501,6 +544,16 @@ impl Block {
         }
     }
 
+    /// Verifies the signature of the data associated with the current object using the stored public key.
+    ///
+    /// This method checks if the signature matches the hash of the data, ensuring data integrity and authenticity.
+    ///
+    /// # Returns
+    ///
+    /// A `bool` indicating whether the signature is valid:
+    /// - `true` if the signature is valid.
+    /// - `false` if the signature is invalid.
+    ///
     pub fn verifier(&self) -> bool {
         let public_key_bytes = self.public_key.as_bytes();
         let public_key_rsa = public_key_from_pem_u8(public_key_bytes);
@@ -515,6 +568,23 @@ impl Block {
         verifier.verify(signature_bytes.as_slice()).unwrap()
     }
 }
+
+/// Mines a block by calculating its hash and returning the result as a hexadecimal string.
+///
+/// # Arguments
+///
+/// - `id`: A reference to the unique identifier (`u64`) of the block.
+/// - `bill_name`: A reference to a string slice representing the name of the bill associated with the block.
+/// - `previous_hash`: A reference to a string slice containing the hash of the previous block in the chain.
+/// - `data`: A reference to a string slice containing the data to be stored in the block.
+/// - `timestamp`: A reference to an `i64` timestamp indicating when the block is being mined.
+/// - `public_key`: A reference to a string slice representing the public key associated with the block.
+/// - `operation_code`: A reference to an `OperationCode` that specifies the operation associated with the block.
+///
+/// # Returns
+///
+/// A `String` containing the hexadecimal representation of the calculated block hash.
+///
 
 fn mine_block(
     id: &u64,
@@ -543,6 +613,16 @@ fn mine_block(
     hex::encode(hash)
 }
 
+/// Signs a hash using a private RSA key and returns the resulting signature as a hexadecimal string
+/// # Arguments
+///
+/// - `hash`: A string representing the data hash to be signed. This is typically the output of a hashing algorithm like SHA-256.
+/// - `private_key_pem`: A string containing the private RSA key in PEM format. This key is used to generate the signature.
+///
+/// # Returns
+///
+/// A `String` containing the hexadecimal representation of the digital signature.
+///
 fn signature(hash: String, private_key_pem: String) -> String {
     let private_key_bytes = private_key_pem.as_bytes();
     let private_key_rsa = private_key_from_pem_u8(private_key_bytes);
