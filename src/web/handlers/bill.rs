@@ -1,12 +1,14 @@
-use super::super::data::{
-    AcceptBitcreditBillForm, AcceptMintBitcreditBillForm, BitcreditBillForm,
-    EndorseBitcreditBillForm, MintBitcreditBillForm, RequestToAcceptBitcreditBillForm,
-    RequestToMintBitcreditBillForm, RequestToPayBitcreditBillForm, SellBitcreditBillForm,
-};
 use crate::blockchain::Chain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
+use crate::service::bill_service::UploadBillFilesResponse;
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
+use crate::web::data::{
+    AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BitcreditBillPayload,
+    EndorseBitcreditBillPayload, MintBitcreditBillPayload, RequestToAcceptBitcreditBillPayload,
+    RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, SellBitcreditBillPayload,
+    UploadBillFilesForm,
+};
 use crate::{external, service};
 use crate::{
     service::bill_service::{BitcreditBill, BitcreditBillToReturn},
@@ -102,29 +104,51 @@ pub async fn search_bill(state: &State<ServiceContext>) -> Result<Status> {
     Ok(Status::Ok)
 }
 
-#[post("/issue", data = "<bill_form>")]
-pub async fn issue_bill(
+#[post("/issue", data = "<files_upload_form>")]
+pub async fn upload_files(
     state: &State<ServiceContext>,
-    bill_form: Form<BitcreditBillForm<'_>>,
-) -> Result<Status> {
+    files_upload_form: Form<UploadBillFilesForm<'_>>,
+) -> Result<Json<UploadBillFilesResponse>> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
 
-    let files = &bill_form.files;
+    if files_upload_form.files.is_empty() {
+        return Err(service::Error::PreconditionFailed);
+    }
+
+    let files = &files_upload_form.files;
     let upload_file_handlers: Vec<&dyn UploadFileHandler> = files
         .iter()
         .map(|file| file as &dyn UploadFileHandler)
         .collect();
+
     // Validate Files
     for file in &upload_file_handlers {
         state.bill_service.validate_attached_file(*file).await?;
     }
 
+    let file_upload_response = state
+        .bill_service
+        .upload_files(upload_file_handlers)
+        .await?;
+
+    Ok(Json(file_upload_response))
+}
+
+#[post("/issue", format = "json", data = "<bill_payload>")]
+pub async fn issue_bill(
+    state: &State<ServiceContext>,
+    bill_payload: Json<BitcreditBillPayload>,
+) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
+    }
+
     let drawer = state.identity_service.get_full_identity().await?;
 
     let (public_data_drawee, public_data_payee) =
-        match (bill_form.drawer_is_payee, bill_form.drawer_is_drawee) {
+        match (bill_payload.drawer_is_payee, bill_payload.drawer_is_drawee) {
             // Drawer is drawee and payee
             (true, true) => {
                 return Err(service::Error::Validation(String::from(
@@ -135,7 +159,7 @@ pub async fn issue_bill(
             (true, false) => {
                 let public_data_drawee = state
                     .contact_service
-                    .get_identity_by_name(&bill_form.drawee_name)
+                    .get_identity_by_name(&bill_payload.drawee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get drawee identity."))
@@ -153,7 +177,7 @@ pub async fn issue_bill(
 
                 let public_data_payee = state
                     .contact_service
-                    .get_identity_by_name(&bill_form.payee_name)
+                    .get_identity_by_name(&bill_payload.payee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get payee identity."))
@@ -165,7 +189,7 @@ pub async fn issue_bill(
             (false, false) => {
                 let public_data_drawee = state
                     .contact_service
-                    .get_identity_by_name(&bill_form.drawee_name)
+                    .get_identity_by_name(&bill_payload.drawee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get drawee identity."))
@@ -173,7 +197,7 @@ pub async fn issue_bill(
 
                 let public_data_payee = state
                     .contact_service
-                    .get_identity_by_name(&bill_form.payee_name)
+                    .get_identity_by_name(&bill_payload.payee_name)
                     .await
                     .map_err(|_| {
                         service::Error::Validation(String::from("Can not get payee identity."))
@@ -202,17 +226,17 @@ pub async fn issue_bill(
     let bill = state
         .bill_service
         .issue_new_bill(
-            bill_form.bill_jurisdiction.to_owned(),
-            bill_form.place_of_drawing.to_owned(),
-            bill_form.amount_numbers.to_owned(),
-            bill_form.place_of_payment.to_owned(),
-            bill_form.maturity_date.to_owned(),
-            bill_form.currency_code.to_owned(),
+            bill_payload.bill_jurisdiction.to_owned(),
+            bill_payload.place_of_drawing.to_owned(),
+            bill_payload.amount_numbers.to_owned(),
+            bill_payload.place_of_payment.to_owned(),
+            bill_payload.maturity_date.to_owned(),
+            bill_payload.currency_code.to_owned(),
             drawer,
-            bill_form.language.to_owned(),
+            bill_payload.language.to_owned(),
             public_data_drawee,
             public_data_payee,
-            upload_file_handlers,
+            bill_payload.file_upload_id.to_owned(),
             timestamp,
         )
         .await?;
@@ -239,10 +263,10 @@ pub async fn issue_bill(
     Ok(Status::Ok)
 }
 
-#[put("/sell", data = "<sell_bill_form>")]
+#[put("/sell", format = "json", data = "<sell_bill_payload>")]
 pub async fn sell_bill(
     state: &State<ServiceContext>,
-    sell_bill_form: Form<SellBitcreditBillForm>,
+    sell_bill_payload: Json<SellBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
@@ -250,7 +274,7 @@ pub async fn sell_bill(
 
     let public_data_buyer = state
         .contact_service
-        .get_identity_by_name(&sell_bill_form.buyer)
+        .get_identity_by_name(&sell_bill_payload.buyer)
         .await?;
 
     if public_data_buyer.name.is_empty() {
@@ -261,32 +285,32 @@ pub async fn sell_bill(
     let chain = state
         .bill_service
         .sell_bitcredit_bill(
-            &sell_bill_form.bill_name,
+            &sell_bill_payload.bill_name,
             public_data_buyer.clone(),
             timestamp,
-            sell_bill_form.amount_numbers,
+            sell_bill_payload.amount_numbers,
         )
         .await?;
 
     state
         .bill_service
-        .propagate_block(&sell_bill_form.bill_name, chain.get_latest_block())
+        .propagate_block(&sell_bill_payload.bill_name, chain.get_latest_block())
         .await?;
 
     state
         .bill_service
         .propagate_bill_for_node(
-            &sell_bill_form.bill_name,
+            &sell_bill_payload.bill_name,
             &public_data_buyer.peer_id.to_string(),
         )
         .await?;
     Ok(Status::Ok)
 }
 
-#[put("/endorse", data = "<endorse_bill_form>")]
+#[put("/endorse", format = "json", data = "<endorse_bill_payload>")]
 pub async fn endorse_bill(
     state: &State<ServiceContext>,
-    endorse_bill_form: Form<EndorseBitcreditBillForm>,
+    endorse_bill_payload: Json<EndorseBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
@@ -294,7 +318,7 @@ pub async fn endorse_bill(
 
     let public_data_endorsee = state
         .contact_service
-        .get_identity_by_name(&endorse_bill_form.endorsee)
+        .get_identity_by_name(&endorse_bill_payload.endorsee)
         .await?;
 
     if public_data_endorsee.name.is_empty() {
@@ -305,7 +329,7 @@ pub async fn endorse_bill(
     let chain = state
         .bill_service
         .endorse_bitcredit_bill(
-            &endorse_bill_form.bill_name,
+            &endorse_bill_payload.bill_name,
             public_data_endorsee.clone(),
             timestamp,
         )
@@ -313,23 +337,27 @@ pub async fn endorse_bill(
 
     state
         .bill_service
-        .propagate_block(&endorse_bill_form.bill_name, chain.get_latest_block())
+        .propagate_block(&endorse_bill_payload.bill_name, chain.get_latest_block())
         .await?;
 
     state
         .bill_service
         .propagate_bill_for_node(
-            &endorse_bill_form.bill_name,
+            &endorse_bill_payload.bill_name,
             &public_data_endorsee.peer_id.to_string(),
         )
         .await?;
     Ok(Status::Ok)
 }
 
-#[put("/request_to_pay", data = "<request_to_pay_bill_form>")]
+#[put(
+    "/request_to_pay",
+    format = "json",
+    data = "<request_to_pay_bill_payload>"
+)]
 pub async fn request_to_pay_bill(
     state: &State<ServiceContext>,
-    request_to_pay_bill_form: Form<RequestToPayBitcreditBillForm>,
+    request_to_pay_bill_payload: Json<RequestToPayBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
@@ -338,23 +366,27 @@ pub async fn request_to_pay_bill(
 
     let chain = state
         .bill_service
-        .request_pay(&request_to_pay_bill_form.bill_name, timestamp)
+        .request_pay(&request_to_pay_bill_payload.bill_name, timestamp)
         .await?;
 
     state
         .bill_service
         .propagate_block(
-            &request_to_pay_bill_form.bill_name,
+            &request_to_pay_bill_payload.bill_name,
             chain.get_latest_block(),
         )
         .await?;
     Ok(Status::Ok)
 }
 
-#[put("/request_to_accept", data = "<request_to_accept_bill_form>")]
+#[put(
+    "/request_to_accept",
+    format = "json",
+    data = "<request_to_accept_bill_payload>"
+)]
 pub async fn request_to_accept_bill(
     state: &State<ServiceContext>,
-    request_to_accept_bill_form: Form<RequestToAcceptBitcreditBillForm>,
+    request_to_accept_bill_payload: Json<RequestToAcceptBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
@@ -363,22 +395,22 @@ pub async fn request_to_accept_bill(
 
     let chain = state
         .bill_service
-        .request_acceptance(&request_to_accept_bill_form.bill_name, timestamp)
+        .request_acceptance(&request_to_accept_bill_payload.bill_name, timestamp)
         .await?;
     state
         .bill_service
         .propagate_block(
-            &request_to_accept_bill_form.bill_name,
+            &request_to_accept_bill_payload.bill_name,
             chain.get_latest_block(),
         )
         .await?;
     Ok(Status::Ok)
 }
 
-#[put("/accept", data = "<accept_bill_form>")]
-pub async fn accept_bill_form(
+#[put("/accept", format = "json", data = "<accept_bill_payload>")]
+pub async fn accept_bill(
     state: &State<ServiceContext>,
-    accept_bill_form: Form<AcceptBitcreditBillForm>,
+    accept_bill_payload: Json<AcceptBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
@@ -386,11 +418,11 @@ pub async fn accept_bill_form(
     let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     let chain = state
         .bill_service
-        .accept_bill(&accept_bill_form.bill_name, timestamp)
+        .accept_bill(&accept_bill_payload.bill_name, timestamp)
         .await?;
     state
         .bill_service
-        .propagate_block(&accept_bill_form.bill_name, chain.get_latest_block())
+        .propagate_block(&accept_bill_payload.bill_name, chain.get_latest_block())
         .await?;
     Ok(Status::Ok)
 }
@@ -398,10 +430,10 @@ pub async fn accept_bill_form(
 // Mint
 
 //PUT
-// #[post("/try_mint", data = "<mint_bill_form>")]
+// #[post("/try_mint", format = "json", data = "<mint_bill_payload>")]
 // pub async fn try_mint_bill(
 //     state: &State<ServiceContext>,
-//     mint_bill_form: Form<MintBitcreditBillForm>,
+//     mint_bill_payload: Json<MintBitcreditBillPayload>,
 // ) -> Status {
 //     if !state.identity_service.identity_exists().await {
 //         Err(service::Error::PreconditionFailed)
@@ -409,12 +441,12 @@ pub async fn accept_bill_form(
 //         let mut client = state.inner().clone();
 //
 //         let public_mint_node =
-//             get_identity_public_data(mint_bill_form.mint_node.clone(), client.clone()).await;
+//             get_identity_public_data(mint_bill_payload.mint_node.clone(), client.clone()).await;
 //
 //         if !public_mint_node.name.is_empty() {
 //             client
 //                 .add_bill_to_dht_for_node(
-//                     &mint_bill_form.bill_name,
+//                     &mint_bill_payload.bill_name,
 //                     &public_mint_node.peer_id.to_string().clone(),
 //                 )
 //                 .await;
@@ -428,23 +460,27 @@ pub async fn accept_bill_form(
 
 //PUT
 //TODO: add try_mint_bill here?
-#[put("/request_to_mint", data = "<request_to_mint_bill_form>")]
+#[put(
+    "/request_to_mint",
+    format = "json",
+    data = "<request_to_mint_bill_payload>"
+)]
 pub async fn request_to_mint_bill(
     state: &State<ServiceContext>,
-    request_to_mint_bill_form: Form<RequestToMintBitcreditBillForm>,
+    request_to_mint_bill_payload: Json<RequestToMintBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
     let public_mint_node = state
         .contact_service
-        .get_identity_by_name(&request_to_mint_bill_form.mint_node)
+        .get_identity_by_name(&request_to_mint_bill_payload.mint_node)
         .await?;
     if !public_mint_node.name.is_empty() {
         state
             .bill_service
             .propagate_bill_for_node(
-                &request_to_mint_bill_form.bill_name,
+                &request_to_mint_bill_payload.bill_name,
                 &public_mint_node.peer_id.to_string(),
             )
             .await?;
@@ -452,24 +488,24 @@ pub async fn request_to_mint_bill(
 
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
     // thread, but this logic will be replaced soon
-    thread::spawn(move || request_to_mint_bitcredit(request_to_mint_bill_form.clone()))
+    thread::spawn(move || request_to_mint_bitcredit(request_to_mint_bill_payload.into_inner()))
         .join()
         .expect("Thread panicked");
     Ok(Status::Ok)
 }
 
 //This is function for mint software
-#[put("/accept_mint", data = "<accept_mint_bill_form>")]
+#[put("/accept_mint", format = "json", data = "<accept_mint_bill_payload>")]
 pub async fn accept_mint_bill(
     state: &State<ServiceContext>,
-    accept_mint_bill_form: Form<AcceptMintBitcreditBillForm>,
+    accept_mint_bill_payload: Json<AcceptMintBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }
     let bill = state
         .bill_service
-        .get_bill(&accept_mint_bill_form.bill_name)
+        .get_bill(&accept_mint_bill_payload.bill_name)
         .await?;
     let bill_amount = bill.amount_numbers;
     let holder_node_id = bill.payee.peer_id.clone();
@@ -480,7 +516,7 @@ pub async fn accept_mint_bill(
     thread::spawn(move || {
         accept_mint_bitcredit(
             bill_amount,
-            accept_mint_bill_form.bill_name.clone(),
+            accept_mint_bill_payload.bill_name.clone(),
             holder_node_id,
         )
     })
@@ -491,10 +527,10 @@ pub async fn accept_mint_bill(
 }
 
 //After accept mint on client side
-#[put("/mint", data = "<mint_bill_form>")]
+#[put("/mint", format = "json", data = "<mint_bill_payload>")]
 pub async fn mint_bill(
     state: &State<ServiceContext>,
-    mint_bill_form: Form<MintBitcreditBillForm>,
+    mint_bill_payload: Json<MintBitcreditBillPayload>,
 ) -> Result<Status> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
@@ -503,7 +539,7 @@ pub async fn mint_bill(
 
     let public_mint_node = state
         .contact_service
-        .get_identity_by_name(&mint_bill_form.mint_node)
+        .get_identity_by_name(&mint_bill_payload.mint_node)
         .await?;
 
     if public_mint_node.name.is_empty() {
@@ -512,7 +548,7 @@ pub async fn mint_bill(
     let chain = state
         .bill_service
         .mint_bitcredit_bill(
-            &mint_bill_form.bill_name,
+            &mint_bill_payload.bill_name,
             public_mint_node.clone(),
             timestamp,
         )
@@ -520,13 +556,13 @@ pub async fn mint_bill(
 
     state
         .bill_service
-        .propagate_block(&mint_bill_form.bill_name, chain.get_latest_block())
+        .propagate_block(&mint_bill_payload.bill_name, chain.get_latest_block())
         .await?;
 
     state
         .bill_service
         .propagate_bill_for_node(
-            &mint_bill_form.bill_name,
+            &mint_bill_payload.bill_name,
             &public_mint_node.peer_id.to_string(),
         )
         .await?;

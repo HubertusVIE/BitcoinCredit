@@ -3,8 +3,8 @@ use rocket::fs::TempFile;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::FromForm;
 
-#[derive(FromForm, Debug)]
-pub struct BitcreditBillForm<'r> {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BitcreditBillPayload {
     pub bill_jurisdiction: String,
     pub place_of_drawing: String,
     pub currency_code: String,
@@ -16,76 +16,81 @@ pub struct BitcreditBillForm<'r> {
     pub maturity_date: String,
     pub drawer_is_payee: bool,
     pub drawer_is_drawee: bool,
+    pub file_upload_id: Option<String>,
+}
+
+#[derive(Debug, FromForm)]
+pub struct UploadBillFilesForm<'r> {
     pub files: Vec<TempFile<'r>>,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct EndorseBitcreditBillForm {
+pub struct EndorseBitcreditBillPayload {
     pub endorsee: String,
     pub bill_name: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct MintBitcreditBillForm {
+pub struct MintBitcreditBillPayload {
     pub mint_node: String,
     pub bill_name: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct AcceptMintBitcreditBillForm {
+pub struct AcceptMintBitcreditBillPayload {
     pub interest: u64,
     pub bill_name: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
-pub struct RequestToMintBitcreditBillForm {
+pub struct RequestToMintBitcreditBillPayload {
     pub mint_node: String,
     pub bill_name: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct SellBitcreditBillForm {
+pub struct SellBitcreditBillPayload {
     pub buyer: String,
     pub bill_name: String,
     pub amount_numbers: u64,
     pub currency_code: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct RequestToAcceptBitcreditBillForm {
+pub struct RequestToAcceptBitcreditBillPayload {
     pub bill_name: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct RequestToPayBitcreditBillForm {
+pub struct RequestToPayBitcreditBillPayload {
     pub bill_name: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct AcceptBitcreditBillForm {
+pub struct AcceptBitcreditBillPayload {
     pub bill_name: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct ChangeIdentityForm {
+pub struct ChangeIdentityPayload {
     pub name: String,
     pub company: String,
     pub email: String,
     pub postal_address: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct IdentityForm {
+pub struct IdentityPayload {
     pub name: String,
     pub company: String,
     pub date_of_birth: String,
@@ -109,7 +114,7 @@ pub struct EditContactPayload {
     pub name: String,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
 pub struct NodeId {
     id: String,

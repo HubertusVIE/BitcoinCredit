@@ -9,7 +9,7 @@ mod data;
 mod handlers;
 
 use crate::constants::MAX_FILE_SIZE_BYTES;
-pub use data::RequestToMintBitcreditBillForm;
+pub use data::RequestToMintBitcreditBillPayload;
 use rocket::data::ByteUnit;
 use rocket::figment::Figment;
 
@@ -55,10 +55,11 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::holder,
                 handlers::bill::attachment,
                 handlers::bill::issue_bill,
+                handlers::bill::upload_files,
                 handlers::bill::endorse_bill,
                 handlers::bill::search_bill,
                 handlers::bill::request_to_accept_bill,
-                handlers::bill::accept_bill_form,
+                handlers::bill::accept_bill,
                 handlers::bill::request_to_pay_bill,
                 handlers::bill::return_bill,
                 handlers::bill::return_chain_of_blocks,

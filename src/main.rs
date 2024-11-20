@@ -42,8 +42,19 @@ async fn main() -> Result<()> {
 
     external::mint::init_wallet().await;
 
-    let bill_store =
-        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);
+    let bill_store = Arc::new(
+        FileBasedBillStore::new(
+            &conf.data_dir,
+            "bills",
+            "files",
+            "temp_upload",
+            "bills_keys",
+        )
+        .await?,
+    );
+    if let Err(e) = bill_store.cleanup_temp_uploads().await {
+        error!("Error cleaning up temp upload folder for bill: {e}");
+    }
     let identity_store = Arc::new(
         FileBasedIdentityStore::new(
             &conf.data_dir,

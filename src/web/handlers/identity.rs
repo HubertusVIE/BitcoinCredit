@@ -1,9 +1,7 @@
-use super::super::data::IdentityForm;
 use crate::service::{self, Result};
-use crate::web::data::{ChangeIdentityForm, NodeId};
+use crate::web::data::{ChangeIdentityPayload, IdentityPayload, NodeId};
 use crate::{service::identity_service::Identity, service::ServiceContext};
 use libp2p::PeerId;
-use rocket::form::Form;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
@@ -25,12 +23,12 @@ pub async fn return_peer_id(state: &State<ServiceContext>) -> Result<Json<NodeId
     Ok(Json(node_id))
 }
 
-#[post("/create", data = "<identity_form>")]
+#[post("/create", format = "json", data = "<identity_payload>")]
 pub async fn create_identity(
-    identity_form: Form<IdentityForm>,
     state: &State<ServiceContext>,
+    identity_payload: Json<IdentityPayload>,
 ) -> Result<Status> {
-    let identity: IdentityForm = identity_form.into_inner();
+    let identity = identity_payload.into_inner();
     state
         .identity_service
         .create_identity(
@@ -46,17 +44,17 @@ pub async fn create_identity(
     Ok(Status::Ok)
 }
 
-#[put("/change", data = "<identity_form>")]
+#[put("/change", format = "json", data = "<identity_payload>")]
 pub async fn change_identity(
-    identity_form: Form<ChangeIdentityForm>,
     state: &State<ServiceContext>,
+    identity_payload: Json<ChangeIdentityPayload>,
 ) -> Result<Status> {
-    let identity_form = identity_form.into_inner();
+    let identity_payload = identity_payload.into_inner();
     let mut identity_changes: Identity = Identity::new_empty();
-    identity_changes.name = identity_form.name.trim().to_string();
-    identity_changes.company = identity_form.company.trim().to_string();
-    identity_changes.email = identity_form.email.trim().to_string();
-    identity_changes.postal_address = identity_form.postal_address.trim().to_string();
+    identity_changes.name = identity_payload.name.trim().to_string();
+    identity_changes.company = identity_payload.company.trim().to_string();
+    identity_changes.email = identity_payload.email.trim().to_string();
+    identity_changes.postal_address = identity_payload.postal_address.trim().to_string();
 
     let mut my_identity: Identity;
     if !state.identity_service.identity_exists().await {

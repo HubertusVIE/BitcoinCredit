@@ -18,7 +18,7 @@ pub async fn remove_contact(state: &State<ServiceContext>, contact_name: &str) -
     }
     state
         .contact_service
-        .delete_identity_by_name(&contact_name)
+        .delete_identity_by_name(contact_name)
         .await?;
     Ok(Status::Ok)
 }
