@@ -10,3 +10,10 @@ services:
     ports:
       - "8001:8001"
       - "1909:1909"
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    command:
+      - start
+      - --unauthenticated
+    ports:
+      - "8800:8000"

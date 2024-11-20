@@ -40,7 +40,8 @@ npm run build
 
 ### Development
 
-Start the app in development mode with frontend and backend hot reloading (requires two terminals):
+Start the app in development mode with frontend and backend hot reloading
+(requires two terminals):
 
 ```bash
 # Terminal 1
@@ -65,8 +66,9 @@ RUST_LOG=info cargo test -- --nocapture
 
 ### Docker
 
-The docker build requires no dependencies other than docker or podman. It can also be used
-to run multiple instances of the app on different ports for testing the P2P functionality.
+The docker build requires no dependencies other than docker or podman. It can
+also be used to run multiple instances of the app on different ports for testing
+the P2P functionality.
 
 #### Build a standalone docker image
 
@@ -87,7 +89,8 @@ You should be able to open the app at [http://127.0.0.1:8000/bitcredit/]([http:/
 
 #### Run with docker-compose
 
-Build and launch the app with docker-compose running on a different port than the default 8000:
+Build and launch the app with docker-compose running on a different port than
+the default 8000:
 
 ```bash
 # run in foreground, can be stopped using CTRL+C
@@ -100,6 +103,41 @@ docker-compose up -d
 docker-compose build
 ```
 
-If you use the above commands, the application state (identity, bills, contacts) will persist between sessions. However, if you use `docker-compose down`, or `docker-compose rm`, the existing container gets removed, along with it's state.
+If you use the above commands, the application state (identity, bills, contacts)
+will persist between sessions. However, if you use `docker-compose down`, or
+`docker-compose rm`, the existing container gets removed, along with it's state.
 Of course, rebuilding the image also removes the application state.
 
+### SurrealDB
+
+For development it is advised to use a local SurrealDB instance running as a
+separate service as compile times are quite long. In production builds SurrealDB
+will be available as an embedded database in the application. SurrealDB listens
+on port 8000 by default which is the same as the default port for the application
+so make sure to change the SurrealDB port or application port before running the
+services.
+
+#### Connect to SurrealDB
+
+When the application has been built with the `embedded-db` feature, it allows to
+use the application with a `rocksdb://path/to/db` connection string otherwise you
+need to connect the the database via web-socket like: `ws://localhost:8800`.
+
+#### Run SurrealDB for development
+
+```bash
+# build the application with surrealdb embedded
+cargo build --features embedded-db
+
+# start surrealdb container included in docker-compose.yml (listening 8800)
+docker-compose up -d surrealdb
+
+# with surrealdb installed on your local machine (listening on port 8800)
+surrealdb start --unauthenticated --bind 127.0.0.1:8800
+```
+
+#### Explore the database with Surrealist
+
+To work with and explore the database, you can use
+[Surrealist](https://surrealdb.com/surrealist) which is an interactive interface
+for SurrealDB.

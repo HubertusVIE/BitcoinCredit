@@ -1,10 +1,9 @@
 pub mod bill;
 pub mod contact;
+pub mod db;
 pub mod identity;
-pub mod surrealdb;
 
 use std::path::Path;
-
 use thiserror::Error;
 
 /// Generic persistence result type
@@ -15,6 +14,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("io error {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("SurrealDB connection error {0}")]
+    SurrealConnection(#[from] surrealdb::Error),
 
     #[error("unable to serialize/deserialize to/from JSON {0}")]
     Json(#[from] serde_json::Error),
