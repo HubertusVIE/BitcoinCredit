@@ -104,7 +104,7 @@ pub async fn search_bill(state: &State<ServiceContext>) -> Result<Status> {
     Ok(Status::Ok)
 }
 
-#[post("/issue", data = "<files_upload_form>")]
+#[post("/upload_files", data = "<files_upload_form>")]
 pub async fn upload_files(
     state: &State<ServiceContext>,
     files_upload_form: Form<UploadBillFilesForm<'_>>,

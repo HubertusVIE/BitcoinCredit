@@ -7,7 +7,7 @@ use crate::{
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::{
-    fs::{create_dir_all, read, read_dir, write, File},
+    fs::{create_dir_all, read, read_dir, remove_dir_all, write, File},
     io::AsyncReadExt,
     task,
 };
@@ -124,7 +124,7 @@ impl FileBasedBillStore {
             let path = entry.path();
             if path.is_dir() {
                 log::info!("deleting temp upload folder for bill at {path:?}");
-                // remove_dir_all(path).await?;
+                remove_dir_all(path).await?;
             }
         }
         Ok(())
@@ -280,7 +280,7 @@ impl BillStoreApi for FileBasedBillStore {
         let dest_dir = Path::new(&self.temp_upload_folder).join(file_upload_id);
         if dest_dir.exists() {
             log::info!("deleting temp upload folder for bill at {dest_dir:?}");
-            // remove_dir_all(dest_dir).await.map_err(super::Error::Io)?;
+            remove_dir_all(dest_dir).await.map_err(super::Error::Io)?;
         }
         Ok(())
     }

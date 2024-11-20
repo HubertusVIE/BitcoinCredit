@@ -631,9 +631,7 @@ impl BillServiceApi for BillService {
                 .write_temp_upload_file(&file_upload_id, &file_name, &read_file)
                 .await?;
         }
-        Ok(UploadBillFilesResponse {
-            file_upload_id: "test".to_string(),
-        })
+        Ok(UploadBillFilesResponse { file_upload_id })
     }
 
     async fn issue_new_bill(
