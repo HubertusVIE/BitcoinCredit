@@ -2,12 +2,6 @@
 
 Core for Bitcredit project.
 
-![Bitcredit drawio](https://github.com/BitcoinCredit/E-Bills/assets/57773598/1fd8021d-cc41-408e-8c7e-c256c3bf4f3a)
-
-## Contribute
-
-Check out the project [documentation](./docs/index.md).
-
 ### Backend
 
 Make sure to have a recent version of the Rust toolchain installed.
@@ -99,6 +93,10 @@ docker-compose up -d
 # rebuild the image
 docker-compose build
 ```
+
+## Contribute
+
+Check out the project [contributing guide](./CONTRIBUTING.md).
 
 If you use the above commands, the application state (identity, bills, contacts) will persist between sessions. However, if you use `docker-compose down`, or `docker-compose rm`, the existing container gets removed, along with it's state.
 Of course, rebuilding the image also removes the application state.
