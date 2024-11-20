@@ -95,23 +95,17 @@ pub struct IdentityForm {
     pub postal_address: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct NewContactForm {
+pub struct NewContactPayload {
     pub name: String,
     pub node_id: String,
 }
 
-#[derive(FromForm, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct EditContactForm {
+pub struct EditContactPayload {
     pub old_name: String,
-    pub name: String,
-}
-
-#[derive(FromForm, Debug, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
-pub struct DeleteContactForm {
     pub name: String,
 }
 

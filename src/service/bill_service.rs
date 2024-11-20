@@ -1007,32 +1007,6 @@ impl BitcreditEbillQuote {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
-pub struct BitcreditBillForList {
-    name: String,
-    to_payee: bool,
-    bill_jurisdiction: String,
-    timestamp_at_drawing: i64,
-    drawee: IdentityPublicData,
-    drawer: IdentityPublicData,
-    payee: IdentityPublicData,
-    endorsee: IdentityPublicData,
-    place_of_drawing: String,
-    currency_code: String,
-    amount_numbers: u64,
-    amounts_letters: String,
-    maturity_date: String,
-    date_of_issue: String,
-    compounding_interest_rate: u64,
-    type_of_interest_calculation: bool,
-    place_of_payment: String,
-    public_key: String,
-    private_key: String,
-    language: String,
-    chain_of_blocks: ChainToReturn,
-}
-
 #[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
 pub struct BitcreditBill {
