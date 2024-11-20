@@ -1220,6 +1220,117 @@ mod test {
     }
 
     #[tokio::test]
+    async fn upload_files_baseline() {
+        let file_bytes = String::from("hello world").as_bytes().to_vec();
+        let mut storage = MockBillStoreApi::new();
+        storage
+            .expect_write_temp_upload_file()
+            .returning(|_, _, _| Ok(()));
+        storage
+            .expect_create_temp_upload_folder()
+            .returning(|_| Ok(()));
+        let mut file = MockUploadFileHandler::new();
+        file.expect_name()
+            .returning(|| Some(String::from("invoice")));
+        file.expect_extension()
+            .returning(|| Some(String::from("pdf")));
+        file.expect_get_contents()
+            .returning(move || Ok(file_bytes.clone()));
+        let service = get_service(storage);
+
+        let res = service.upload_files(vec![&file]).await;
+        assert!(res.is_ok());
+        assert_eq!(
+            res.unwrap().file_upload_id,
+            "00000000-0000-0000-0000-000000000000".to_owned()
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_files_baseline_fails_on_folder_creation() {
+        let file_bytes = String::from("hello world").as_bytes().to_vec();
+        let mut storage = MockBillStoreApi::new();
+        storage.expect_create_temp_upload_folder().returning(|_| {
+            Err(persistence::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "test error",
+            )))
+        });
+        let mut file = MockUploadFileHandler::new();
+        file.expect_name()
+            .returning(|| Some(String::from("invoice")));
+        file.expect_extension()
+            .returning(|| Some(String::from("pdf")));
+        file.expect_get_contents()
+            .returning(move || Ok(file_bytes.clone()));
+        let service = get_service(storage);
+
+        let res = service.upload_files(vec![&file]).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn upload_files_baseline_fails_on_file_creation() {
+        let mut storage = MockBillStoreApi::new();
+        storage
+            .expect_create_temp_upload_folder()
+            .returning(|_| Ok(()));
+        let mut file = MockUploadFileHandler::new();
+        file.expect_name()
+            .returning(|| Some(String::from("invoice")));
+        file.expect_extension()
+            .returning(|| Some(String::from("pdf")));
+        file.expect_get_contents()
+            .returning(|| Err(std::io::Error::new(std::io::ErrorKind::Other, "test error")));
+        let service = get_service(storage);
+
+        let res = service.upload_files(vec![&file]).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn upload_files_baseline_fails_on_file_name_errors() {
+        let mut storage = MockBillStoreApi::new();
+        storage
+            .expect_create_temp_upload_folder()
+            .returning(|_| Ok(()));
+        let mut file = MockUploadFileHandler::new();
+        file.expect_name().returning(|| None);
+        let service = get_service(storage);
+
+        let res = service.upload_files(vec![&file]).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn upload_files_baseline_fails_on_file_read_errors() {
+        let file_bytes = String::from("hello world").as_bytes().to_vec();
+        let mut storage = MockBillStoreApi::new();
+        storage
+            .expect_write_temp_upload_file()
+            .returning(|_, _, _| {
+                Err(persistence::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "test error",
+                )))
+            });
+        storage
+            .expect_create_temp_upload_folder()
+            .returning(|_| Ok(()));
+        let mut file = MockUploadFileHandler::new();
+        file.expect_name()
+            .returning(|| Some(String::from("invoice")));
+        file.expect_extension()
+            .returning(|| Some(String::from("pdf")));
+        file.expect_get_contents()
+            .returning(move || Ok(file_bytes.clone()));
+        let service = get_service(storage);
+
+        let res = service.upload_files(vec![&file]).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
     async fn issue_bill_baseline() {
         let expected_file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
         let file_bytes = String::from("hello world").as_bytes().to_vec();
