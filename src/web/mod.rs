@@ -5,11 +5,10 @@ use rocket::fs::FileServer;
 use rocket::http::Header;
 use rocket::{catch, catchers, routes, Build, Config, Request, Response, Rocket};
 
-mod data;
+pub mod data;
 mod handlers;
 
 use crate::constants::MAX_FILE_SIZE_BYTES;
-pub use data::RequestToMintBitcreditBillPayload;
 use rocket::data::ByteUnit;
 use rocket::figment::Figment;
 
@@ -47,6 +46,14 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::contacts::edit_contact,
                 handlers::contacts::remove_contact,
                 handlers::contacts::return_contacts
+            ],
+        )
+        .mount(
+            "/company",
+            routes![
+                handlers::company::list,
+                handlers::company::detail,
+                handlers::company::upload_file,
             ],
         )
         .mount(

@@ -1,5 +1,4 @@
 use borsh_derive::{self, BorshDeserialize, BorshSerialize};
-use rocket::FromForm;
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
@@ -136,9 +135,7 @@ fn as_contacts(identities: HashMap<String, IdentityPublicData>) -> Vec<Contact> 
         .collect()
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone, Eq, PartialEq,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 #[serde(crate = "rocket::serde")]
 pub struct IdentityPublicData {
     pub peer_id: String,

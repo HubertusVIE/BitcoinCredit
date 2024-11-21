@@ -1,4 +1,5 @@
 pub mod bill_service;
+pub mod company_service;
 pub mod contact_service;
 pub mod identity_service;
 pub mod notification_service;
@@ -8,6 +9,7 @@ use crate::external;
 use crate::persistence::DbContext;
 use crate::persistence::{self};
 use bill_service::{BillService, BillServiceApi};
+use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
 use identity_service::{IdentityService, IdentityServiceApi};
 use log::error;
@@ -123,6 +125,7 @@ pub struct ServiceContext {
     pub contact_service: Arc<dyn ContactServiceApi>,
     pub bill_service: Arc<dyn BillServiceApi>,
     pub identity_service: Arc<dyn IdentityServiceApi>,
+    pub company_service: Arc<dyn CompanyServiceApi>,
     pub shutdown_sender: broadcast::Sender<bool>,
 }
 
@@ -133,6 +136,7 @@ impl ServiceContext {
         contact_service: ContactService,
         bill_service: BillService,
         identity_service: IdentityService,
+        company_service: CompanyService,
         shutdown_sender: broadcast::Sender<bool>,
     ) -> Self {
         Self {
@@ -141,6 +145,7 @@ impl ServiceContext {
             contact_service: Arc::new(contact_service),
             bill_service: Arc::new(bill_service),
             identity_service: Arc::new(identity_service),
+            company_service: Arc::new(company_service),
             shutdown_sender,
         }
     }
@@ -170,12 +175,17 @@ pub async fn create_service_context(
     let bill_service = BillService::new(client.clone(), db.bill_store, db.identity_store.clone());
     let identity_service = IdentityService::new(client.clone(), db.identity_store);
 
+    let company_store =
+        FileBasedCompanyStore::new(&config.data_dir, "company", "data", "keys").await?;
+    let company_service = CompanyService::new(Arc::new(company_store));
+
     Ok(ServiceContext::new(
         config,
         client,
         contact_service,
         bill_service,
         identity_service,
+        company_service,
         shutdown_sender,
     ))
 }

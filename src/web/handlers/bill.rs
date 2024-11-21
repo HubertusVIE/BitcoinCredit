@@ -1,13 +1,12 @@
 use crate::blockchain::Chain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
-use crate::service::bill_service::UploadBillFilesResponse;
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
 use crate::web::data::{
     AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BitcreditBillPayload,
     EndorseBitcreditBillPayload, MintBitcreditBillPayload, RequestToAcceptBitcreditBillPayload,
     RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, SellBitcreditBillPayload,
-    UploadBillFilesForm,
+    UploadBillFilesForm, UploadFilesResponse,
 };
 use crate::{external, service};
 use crate::{
@@ -108,7 +107,7 @@ pub async fn search_bill(state: &State<ServiceContext>) -> Result<Status> {
 pub async fn upload_files(
     state: &State<ServiceContext>,
     files_upload_form: Form<UploadBillFilesForm<'_>>,
-) -> Result<Json<UploadBillFilesResponse>> {
+) -> Result<Json<UploadFilesResponse>> {
     if !state.identity_service.identity_exists().await {
         return Err(service::Error::PreconditionFailed);
     }

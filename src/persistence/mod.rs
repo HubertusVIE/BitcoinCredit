@@ -1,4 +1,5 @@
 pub mod bill;
+pub mod company;
 pub mod contact;
 pub mod db;
 pub mod identity;

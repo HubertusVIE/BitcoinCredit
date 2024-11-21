@@ -6,7 +6,6 @@ use libp2p::identity::Keypair;
 use libp2p::PeerId;
 use openssl::{pkey::Private, rsa::Rsa};
 use rocket::serde::{Deserialize, Serialize};
-use rocket::FromForm;
 use std::sync::Arc;
 
 #[async_trait]
@@ -138,9 +137,7 @@ pub struct IdentityWithAll {
     pub key_pair: Keypair,
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone, PartialEq, Eq,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(crate = "rocket::serde")]
 pub struct Identity {
     pub name: String,

@@ -21,7 +21,6 @@ use log::error;
 use log::warn;
 use openssl::pkey::Private;
 use openssl::rsa::Rsa;
-use rocket::FromForm;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -30,7 +29,7 @@ pub struct Chain {
     pub blocks: Vec<Block>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
 pub struct BlockForHistory {
     id: u64,
     text: String,

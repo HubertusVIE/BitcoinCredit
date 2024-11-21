@@ -3,7 +3,6 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use openssl::pkey::Private;
 use openssl::rsa::Rsa;
 use openssl::sha::Sha256;
-use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -59,7 +58,7 @@ impl ChainToReturn {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, FromFormField)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum OperationCode {
     Issue,
     Accept,

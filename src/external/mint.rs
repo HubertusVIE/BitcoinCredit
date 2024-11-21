@@ -17,7 +17,7 @@ use crate::{
         },
         read_keys_from_bill_file,
     },
-    web::RequestToMintBitcreditBillPayload,
+    web::data::RequestToMintBitcreditBillPayload,
 };
 
 // Usage of tokio::main to spawn a new runtime is necessary here, because Wallet is'nt Send - but

@@ -4,6 +4,7 @@ use rocket::serde::json::Json;
 use rocket::{get, Shutdown, State};
 
 pub mod bill;
+pub mod company;
 pub mod contacts;
 pub mod identity;
 pub mod quotes;

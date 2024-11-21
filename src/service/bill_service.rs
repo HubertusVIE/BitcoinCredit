@@ -11,6 +11,7 @@ use crate::constants::{
 };
 use crate::persistence::identity::IdentityStoreApi;
 use crate::util::get_current_payee_private_key;
+use crate::web::data::{File, UploadFilesResponse};
 use crate::{dht::Client, persistence::bill::BillStoreApi};
 use crate::{external, persistence, util};
 use async_trait::async_trait;
@@ -20,7 +21,6 @@ use log::{error, info};
 use openssl::pkey::Private;
 use openssl::rsa::Rsa;
 use rocket::serde::{Deserialize, Serialize};
-use rocket::FromForm;
 use rocket::{http::Status, response::Responder};
 use std::sync::Arc;
 use thiserror::Error;
@@ -136,7 +136,7 @@ pub trait BillServiceApi: Send + Sync {
         file_bytes: &[u8],
         bill_name: &str,
         bill_public_key: &str,
-    ) -> Result<BillFile>;
+    ) -> Result<File>;
 
     /// validates the given uploaded file
     async fn validate_attached_file(&self, file: &dyn util::file::UploadFileHandler) -> Result<()>;
@@ -145,7 +145,7 @@ pub trait BillServiceApi: Send + Sync {
     async fn upload_files(
         &self,
         files: Vec<&dyn util::file::UploadFileHandler>,
-    ) -> Result<UploadBillFilesResponse>;
+    ) -> Result<UploadFilesResponse>;
 
     /// issues a new bill
     async fn issue_new_bill(
@@ -551,14 +551,14 @@ impl BillServiceApi for BillService {
         file_bytes: &[u8],
         bill_name: &str,
         bill_public_key: &str,
-    ) -> Result<BillFile> {
+    ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
         let encrypted = util::rsa::encrypt_bytes_with_public_key(file_bytes, bill_public_key);
         self.store
             .save_attached_file(&encrypted, bill_name, file_name)
             .await?;
         info!("Saved file {file_name} with hash {file_hash} for bill {bill_name}");
-        Ok(BillFile {
+        Ok(File {
             name: file_name.to_owned(),
             hash: file_hash,
         })
@@ -609,7 +609,7 @@ impl BillServiceApi for BillService {
     async fn upload_files(
         &self,
         files: Vec<&dyn util::file::UploadFileHandler>,
-    ) -> Result<UploadBillFilesResponse> {
+    ) -> Result<UploadFilesResponse> {
         // create a new random id
         let file_upload_id = util::get_uuid_v4().to_string();
         // create a folder to store the files
@@ -631,7 +631,7 @@ impl BillServiceApi for BillService {
                 .write_temp_upload_file(&file_upload_id, &file_name, &read_file)
                 .await?;
         }
-        Ok(UploadBillFilesResponse { file_upload_id })
+        Ok(UploadFilesResponse { file_upload_id })
     }
 
     async fn issue_new_bill(
@@ -685,7 +685,7 @@ impl BillServiceApi for BillService {
 
         let to_payee = public_data_drawer == public_data_payee;
 
-        let mut bill_files: Vec<BillFile> = vec![];
+        let mut bill_files: Vec<File> = vec![];
         if let Some(ref upload_id) = file_upload_id {
             let files = self.store.read_temp_upload_files(upload_id).await?;
             for (file_name, file_bytes) in files {
@@ -1047,13 +1047,7 @@ impl BitcreditEbillQuote {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
-pub struct UploadBillFilesResponse {
-    pub file_upload_id: String,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, FromForm, Debug, Serialize, Deserialize, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]
 pub struct BitcreditBill {
     pub name: String,
@@ -1081,14 +1075,7 @@ pub struct BitcreditBill {
     pub public_key: String,
     pub private_key: String,
     pub language: String,
-    pub files: Vec<BillFile>,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, FromForm, Debug, Clone)]
-#[serde(crate = "rocket::serde")]
-pub struct BillFile {
-    pub name: String,
-    pub hash: String,
+    pub files: Vec<File>,
 }
 
 #[cfg(test)]

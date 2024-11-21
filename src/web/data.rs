@@ -24,6 +24,11 @@ pub struct UploadBillFilesForm<'r> {
     pub files: Vec<TempFile<'r>>,
 }
 
+#[derive(Debug, FromForm)]
+pub struct UploadFileForm<'r> {
+    pub file: TempFile<'r>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct EndorseBitcreditBillPayload {
@@ -124,4 +129,17 @@ impl NodeId {
     pub fn new(peer_id: String) -> Self {
         Self { id: peer_id }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(crate = "rocket::serde")]
+pub struct UploadFilesResponse {
+    pub file_upload_id: String,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
+#[serde(crate = "rocket::serde")]
+pub struct File {
+    pub name: String,
+    pub hash: String,
 }

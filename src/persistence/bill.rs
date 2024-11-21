@@ -151,7 +151,7 @@ impl FileBasedBillStore {
 impl BillStoreApi for FileBasedBillStore {
     async fn bill_exists(&self, bill_name: &str) -> bool {
         let bill_path = self.get_path_for_bill(bill_name).clone();
-        task::spawn_blocking(move || Path::new(&bill_path).exists())
+        task::spawn_blocking(move || bill_path.exists())
             .await
             .unwrap_or(false)
     }
@@ -194,7 +194,7 @@ impl BillStoreApi for FileBasedBillStore {
 
     async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<Chain> {
         let path = self.get_path_for_bill(bill_name);
-        let bytes = read(path).await.map_err(super::Error::Io)?;
+        let bytes = read(path).await?;
         serde_json::from_slice(&bytes).map_err(super::Error::Json)
     }
 
@@ -206,12 +206,11 @@ impl BillStoreApi for FileBasedBillStore {
     ) -> Result<()> {
         let dest_dir = Path::new(&self.files_folder).join(bill_name);
         if !dest_dir.exists() {
-            create_dir_all(&dest_dir).await.map_err(super::Error::Io)?;
+            create_dir_all(&dest_dir).await?;
         }
         let dest_file = dest_dir.join(file_name);
-        write(dest_file, encrypted_bytes)
-            .await
-            .map_err(super::Error::Io)
+        write(dest_file, encrypted_bytes).await?;
+        Ok(())
     }
 
     async fn open_attached_file(&self, bill_name: &str, file_name: &str) -> Result<Vec<u8>> {
@@ -219,10 +218,10 @@ impl BillStoreApi for FileBasedBillStore {
             .join(bill_name)
             .join(file_name);
 
-        let mut file = File::open(&folder).await.map_err(super::Error::Io)?;
+        let mut file = File::open(&folder).await?;
         let mut buf = Vec::new();
 
-        file.read_to_end(&mut buf).await.map_err(super::Error::Io)?;
+        file.read_to_end(&mut buf).await?;
         Ok(buf)
     }
 
@@ -264,14 +263,14 @@ impl BillStoreApi for FileBasedBillStore {
 
     async fn read_bill_keys_from_file(&self, bill_name: &str) -> Result<BillKeys> {
         let input_path = self.get_path_for_bill_keys(bill_name);
-        let bytes = read(&input_path).await.map_err(super::Error::Io)?;
+        let bytes = read(&input_path).await?;
         serde_json::from_slice(&bytes).map_err(super::Error::Json)
     }
 
     async fn create_temp_upload_folder(&self, file_upload_id: &str) -> Result<()> {
         let dest_dir = Path::new(&self.temp_upload_folder).join(file_upload_id);
         if !dest_dir.exists() {
-            create_dir_all(&dest_dir).await.map_err(super::Error::Io)?;
+            create_dir_all(&dest_dir).await?;
         }
         Ok(())
     }
@@ -280,7 +279,7 @@ impl BillStoreApi for FileBasedBillStore {
         let dest_dir = Path::new(&self.temp_upload_folder).join(file_upload_id);
         if dest_dir.exists() {
             log::info!("deleting temp upload folder for bill at {dest_dir:?}");
-            remove_dir_all(dest_dir).await.map_err(super::Error::Io)?;
+            remove_dir_all(dest_dir).await?;
         }
         Ok(())
     }
