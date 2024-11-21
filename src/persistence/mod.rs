@@ -2,6 +2,7 @@ pub mod bill;
 pub mod company;
 pub mod contact;
 pub mod db;
+pub mod file_upload;
 pub mod identity;
 
 use bill::FileBasedBillStore;

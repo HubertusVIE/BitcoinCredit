@@ -1,6 +1,7 @@
 pub mod bill_service;
 pub mod company_service;
 pub mod contact_service;
+pub mod file_upload_service;
 pub mod identity_service;
 pub mod notification_service;
 
@@ -11,6 +12,7 @@ use crate::persistence::{self};
 use bill_service::{BillService, BillServiceApi};
 use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
+use file_upload_service::{FileUploadService, FileUploadServiceApi};
 use identity_service::{IdentityService, IdentityServiceApi};
 use log::error;
 use rocket::http::ContentType;
@@ -126,6 +128,7 @@ pub struct ServiceContext {
     pub bill_service: Arc<dyn BillServiceApi>,
     pub identity_service: Arc<dyn IdentityServiceApi>,
     pub company_service: Arc<dyn CompanyServiceApi>,
+    pub file_upload_service: Arc<dyn FileUploadServiceApi>,
     pub shutdown_sender: broadcast::Sender<bool>,
 }
 
@@ -137,6 +140,7 @@ impl ServiceContext {
         bill_service: BillService,
         identity_service: IdentityService,
         company_service: CompanyService,
+        file_upload_service: FileUploadService,
         shutdown_sender: broadcast::Sender<bool>,
     ) -> Self {
         Self {
@@ -146,6 +150,7 @@ impl ServiceContext {
             bill_service: Arc::new(bill_service),
             identity_service: Arc::new(identity_service),
             company_service: Arc::new(company_service),
+            file_upload_service: Arc::new(file_upload_service),
             shutdown_sender,
         }
     }
@@ -177,7 +182,8 @@ pub async fn create_service_context(
 
     let company_store =
         FileBasedCompanyStore::new(&config.data_dir, "company", "data", "keys").await?;
-    let company_service = CompanyService::new(Arc::new(company_store));
+    let company_service = CompanyService::new(Arc::new(company_store), file_upload_store.clone());
+    let file_upload_service = FileUploadService::new(file_upload_store);
 
     Ok(ServiceContext::new(
         config,
@@ -186,6 +192,7 @@ pub async fn create_service_context(
         bill_service,
         identity_service,
         company_service,
+        file_upload_service,
         shutdown_sender,
     ))
 }

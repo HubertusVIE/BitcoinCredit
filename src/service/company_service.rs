@@ -1,4 +1,4 @@
-use crate::web::data::File;
+use crate::{persistence::file_upload::FileUploadStoreApi, web::data::File};
 use borsh_derive::{self, BorshDeserialize, BorshSerialize};
 use std::sync::Arc;
 
@@ -16,11 +16,18 @@ pub trait CompanyServiceApi: Send + Sync {}
 #[derive(Clone)]
 pub struct CompanyService {
     store: Arc<dyn CompanyStoreApi>,
+    file_upload_store: Arc<dyn FileUploadStoreApi>,
 }
 
 impl CompanyService {
-    pub fn new(store: Arc<dyn CompanyStoreApi>) -> Self {
-        Self { store }
+    pub fn new(
+        store: Arc<dyn CompanyStoreApi>,
+        file_upload_store: Arc<dyn FileUploadStoreApi>,
+    ) -> Self {
+        Self {
+            store,
+            file_upload_store,
+        }
     }
 }
 

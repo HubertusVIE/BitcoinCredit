@@ -124,11 +124,14 @@ pub async fn upload_files(
 
     // Validate Files
     for file in &upload_file_handlers {
-        state.bill_service.validate_attached_file(*file).await?;
+        state
+            .file_upload_service
+            .validate_attached_file(*file)
+            .await?;
     }
 
     let file_upload_response = state
-        .bill_service
+        .file_upload_service
         .upload_files(upload_file_handlers)
         .await?;
 
