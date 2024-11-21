@@ -571,13 +571,7 @@ impl BillServiceApi for BillService {
         file_upload_id: Option<String>,
         timestamp: i64,
     ) -> Result<BitcreditBill> {
-        let s = bitcoin::secp256k1::Secp256k1::new();
-        let private_key = bitcoin::PrivateKey::new(
-            s.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
-                .0,
-            USEDNET,
-        );
-        let public_key = private_key.public_key(&s);
+        let (private_key, public_key) = util::create_bitcoin_keypair(USEDNET);
 
         let bill_name = util::sha256_hash(&public_key.to_bytes());
 

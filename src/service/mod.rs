@@ -182,7 +182,12 @@ pub async fn create_service_context(
 
     let company_store =
         FileBasedCompanyStore::new(&config.data_dir, "company", "data", "keys").await?;
-    let company_service = CompanyService::new(Arc::new(company_store), file_upload_store.clone());
+    let company_service = CompanyService::new(
+        Arc::new(company_store),
+        file_upload_store.clone(),
+        identity_store.clone(),
+        contact_store.clone(),
+    );
     let file_upload_service = FileUploadService::new(file_upload_store);
 
     Ok(ServiceContext::new(

@@ -177,11 +177,11 @@ impl BillStoreApi for FileBasedBillStore {
     }
 
     async fn open_attached_file(&self, bill_name: &str, file_name: &str) -> Result<Vec<u8>> {
-        let folder = Path::new(&self.files_folder)
+        let path = Path::new(&self.files_folder)
             .join(bill_name)
             .join(file_name);
 
-        let mut file = File::open(&folder).await?;
+        let mut file = File::open(&path).await?;
         let mut buf = Vec::new();
 
         file.read_to_end(&mut buf).await?;

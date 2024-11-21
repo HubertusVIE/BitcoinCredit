@@ -1,21 +1,4 @@
-use crate::web::data::File;
 use rocket::serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
-pub struct CompanyToReturn {
-    pub id: String,
-    pub legal_name: String,
-    pub country_of_registration: String,
-    pub city_of_registration: String,
-    pub postal_address: String,
-    pub legal_email: String,
-    pub registration_number: String,
-    pub registration_date: String,
-    pub proof_of_registration_file: Option<File>,
-    pub logo_file: Option<File>,
-    pub public_key: String,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(crate = "rocket::serde")]

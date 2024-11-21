@@ -53,7 +53,12 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             routes![
                 handlers::company::list,
                 handlers::company::detail,
+                handlers::company::get_file,
                 handlers::company::upload_file,
+                handlers::company::create,
+                handlers::company::edit,
+                handlers::company::add_signatory,
+                handlers::company::remove_signatory,
             ],
         )
         .mount(
