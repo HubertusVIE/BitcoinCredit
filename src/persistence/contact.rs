@@ -22,6 +22,7 @@ pub struct FileBasedContactStore {
 }
 
 /// Just some shortcuts for read and write here
+#[allow(dead_code)]
 impl FileBasedContactStore {
     pub async fn new(data_dir: &str, path: &str, file_name: &str) -> Result<Self> {
         let directory = file_storage_path(data_dir, path).await?;

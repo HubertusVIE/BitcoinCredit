@@ -6,11 +6,9 @@ use clap::Parser;
 use config::Config;
 use constants::SHUTDOWN_GRACE_PERIOD_MS;
 use log::{error, info};
-use persistence::bill::FileBasedBillStore;
-use persistence::identity::{FileBasedIdentityStore, IdentityStoreApi};
+use persistence::get_db_context;
 use service::create_service_context;
 use std::path::Path;
-use std::sync::Arc;
 use std::{env, fs};
 use tokio::spawn;
 
@@ -42,20 +40,10 @@ async fn main() -> Result<()> {
 
     external::mint::init_wallet().await;
 
-    let bill_store =
-        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);
-    let identity_store = Arc::new(
-        FileBasedIdentityStore::new(
-            &conf.data_dir,
-            "identity",
-            "identity",
-            "peer_id",
-            "ed25519_keys",
-        )
-        .await?,
-    );
+    // Initialize the database context
+    let db = get_db_context(&conf).await?;
 
-    let dht = dht::dht_main(&conf, bill_store.clone(), identity_store.clone())
+    let dht = dht::dht_main(&conf, db.bill_store.clone(), db.identity_store.clone())
         .await
         .expect("DHT failed to start");
     let mut dht_client = dht.client;
@@ -72,7 +60,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let local_peer_id = identity_store.get_peer_id().await?;
+    let local_peer_id = db.identity_store.get_peer_id().await?;
     dht_client.check_new_bills(local_peer_id.to_string()).await;
     dht_client.upgrade_table(local_peer_id.to_string()).await;
     dht_client.subscribe_to_all_bills_topics().await;
@@ -82,14 +70,8 @@ async fn main() -> Result<()> {
     dht_client.put_identity_public_data_in_dht().await?;
 
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
-    let service_context = create_service_context(
-        conf.clone(),
-        dht_client.clone(),
-        dht.shutdown_sender,
-        bill_store,
-        identity_store,
-    )
-    .await?;
+    let service_context =
+        create_service_context(conf.clone(), dht_client.clone(), dht.shutdown_sender, db).await?;
 
     if let Err(e) = web::rocket_main(service_context).launch().await {
         error!("Web server stopped with error: {e}, shutting down the rest of the application...");

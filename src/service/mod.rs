@@ -5,9 +5,7 @@ pub mod notification_service;
 
 use super::{dht::Client, Config};
 use crate::external;
-use crate::persistence::bill::BillStoreApi;
-use crate::persistence::identity::IdentityStoreApi;
-use crate::persistence::FileBasedContactStore;
+use crate::persistence::DbContext;
 use crate::persistence::{self};
 use bill_service::{BillService, BillServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
@@ -156,16 +154,11 @@ pub async fn create_service_context(
     config: Config,
     client: Client,
     shutdown_sender: broadcast::Sender<bool>,
-    bill_store: Arc<dyn BillStoreApi>,
-    identity_store: Arc<dyn IdentityStoreApi>,
+    db: DbContext,
 ) -> Result<ServiceContext> {
-    let contact_store =
-        FileBasedContactStore::new(&config.data_dir, "contacts", "contacts").await?;
-    let contact_service = ContactService::new(client.clone(), Arc::new(contact_store));
-
-    let bill_service = BillService::new(client.clone(), bill_store, identity_store.clone());
-
-    let identity_service = IdentityService::new(client.clone(), identity_store);
+    let contact_service = ContactService::new(client.clone(), db.contact_store);
+    let bill_service = BillService::new(client.clone(), db.bill_store, db.identity_store.clone());
+    let identity_service = IdentityService::new(client.clone(), db.identity_store);
 
     Ok(ServiceContext::new(
         config,

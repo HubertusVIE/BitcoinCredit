@@ -20,6 +20,8 @@ pub struct Config {
     pub http_address: String,
     #[arg(default_value_t = String::from("."), long, env = "DATA_DIR")]
     pub data_dir: String,
+    #[arg(default_value_t = String::from("ws://localhost:8800"), long, env = "SURREAL_DB_CONNECTION")]
+    pub surreal_db_connection: String,
 }
 
 impl Config {

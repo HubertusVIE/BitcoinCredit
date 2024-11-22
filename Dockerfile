@@ -38,7 +38,7 @@ COPY ./ .
 
 COPY --from=frontend-builder /frontend_build ./frontend_build
 
-RUN cargo build --release
+RUN cargo build --release --features embedded-db
 
 ##############################
 ## Create image

@@ -24,6 +24,9 @@ RUST_LOG=info cargo run -- --http-port 8001 --http-address 0.0.0.0
 # Configuration can also be set via environment variables
 export P2P_PORT=1909
 export P2P_ADDRESS=0.0.0.0
+
+# Run with embedded database feature, data stored in data/surreal
+cargo run --features embedded-db -- --surreal-db-connection rocksdb://data/surreal
 ```
 
 ### Frontend
