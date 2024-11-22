@@ -5,17 +5,33 @@ use openssl::rsa::Rsa;
 use openssl::sha::Sha256;
 use rocket::FromFormField;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::blockchain::OperationCode::{
     Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell,
 };
+use crate::service::bill_service::{BillKeys, BitcreditBill};
 use crate::service::contact_service::IdentityPublicData;
-use crate::{bill::BitcreditBill, util::rsa::encrypt_bytes};
+use crate::util::rsa::encrypt_bytes;
 pub use block::Block;
 pub use chain::Chain;
 
 mod block;
 mod chain;
+
+/// Generic result type
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Generic error type
+#[derive(Debug, Error)]
+pub enum Error {
+    /// If a whole chain is not valid
+    #[error("Blockchain is invalid")]
+    BlockchainInvalid,
+
+    #[error("unable to serialize/deserialize to/from JSON {0}")]
+    Json(#[from] serde_json::Error),
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChainToReturn {
@@ -28,13 +44,14 @@ impl ChainToReturn {
     /// # Parameters
     /// * `chain` - The `Chain` object to be transformed. It contains the list of blocks and the initial bill version
     ///   necessary for processing.
+    /// * `bill_keys` - The keys for the bill
     ///
     /// # Returns
     /// A new instance of `Self`, with a `blocks` field containing the transformed `BlockToReturn` objects.
     ///
-    pub fn new(chain: Chain) -> Self {
+    pub fn new(chain: Chain, bill_keys: &BillKeys) -> Self {
         let mut blocks: Vec<BlockToReturn> = Vec::new();
-        let bill = chain.get_first_version_bill();
+        let bill = chain.get_first_version_bill_with_keys(bill_keys);
         for block in chain.blocks {
             blocks.push(BlockToReturn::new(block, bill.clone()));
         }

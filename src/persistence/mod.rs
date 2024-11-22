@@ -6,6 +6,7 @@ pub mod identity;
 use bill::FileBasedBillStore;
 use db::{contact::SurrealContactStore, get_surreal_db, SurrealDbConfig};
 use identity::FileBasedIdentityStore;
+use log::error;
 use std::{path::Path, sync::Arc};
 use thiserror::Error;
 
@@ -63,8 +64,19 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
 
     let contact_store = Arc::new(SurrealContactStore::new(db));
 
-    let bill_store =
-        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);
+    let bill_store = Arc::new(
+        FileBasedBillStore::new(
+            &conf.data_dir,
+            "bills",
+            "files",
+            "temp_upload",
+            "bills_keys",
+        )
+        .await?,
+    );
+    if let Err(e) = bill_store.cleanup_temp_uploads().await {
+        error!("Error cleaning up temp upload folder for bill: {e}");
+    }
 
     let identity_store = Arc::new(
         FileBasedIdentityStore::new(
@@ -76,6 +88,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         )
         .await?,
     );
+
     Ok(DbContext {
         contact_store,
         bill_store,

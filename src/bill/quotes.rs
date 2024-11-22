@@ -1,5 +1,5 @@
-use super::BitcreditEbillQuote;
 use crate::constants::QUOTE_MAP_FILE_PATH;
+use crate::service::bill_service::BitcreditEbillQuote;
 use borsh::{to_vec, BorshDeserialize};
 use moksha_core::primitives::CheckBitcreditQuoteResponse;
 use std::collections::HashMap;

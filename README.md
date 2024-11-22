@@ -2,12 +2,6 @@
 
 Core for Bitcredit project.
 
-![Bitcredit drawio](https://github.com/BitcoinCredit/E-Bills/assets/57773598/1fd8021d-cc41-408e-8c7e-c256c3bf4f3a)
-
-## Contribute
-
-Check out the project [documentation](./docs/index.md).
-
 ### Backend
 
 Make sure to have a recent version of the Rust toolchain installed.
@@ -144,3 +138,7 @@ surrealdb start --unauthenticated --bind 127.0.0.1:8800
 To work with and explore the database, you can use
 [Surrealist](https://surrealdb.com/surrealist) which is an interactive interface
 for SurrealDB.
+
+## Contribute
+
+Check out the project [contributing guide](./CONTRIBUTING.md).

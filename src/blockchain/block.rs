@@ -5,7 +5,8 @@ use crate::blockchain::OperationCode::{
 };
 use crate::service::contact_service::IdentityPublicData;
 use crate::{
-    bill::{read_keys_from_bill_file, BitcreditBill},
+    bill::read_keys_from_bill_file,
+    service::bill_service::BitcreditBill,
     util::rsa::{decrypt_bytes, private_key_from_pem_u8, public_key_from_pem_u8},
 };
 use chrono::prelude::*;

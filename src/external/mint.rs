@@ -8,14 +8,17 @@ use moksha_wallet::wallet::Wallet;
 use std::{fs, path::PathBuf};
 use url::Url;
 
-use crate::bill::{
-    quotes::{
-        add_bitcredit_quote_and_amount_in_quotes_map, add_bitcredit_token_in_quotes_map,
-        add_in_quotes_map, get_quote_from_map, read_quotes_map,
+use crate::service::bill_service::BitcreditEbillQuote;
+use crate::{
+    bill::{
+        quotes::{
+            add_bitcredit_quote_and_amount_in_quotes_map, add_bitcredit_token_in_quotes_map,
+            add_in_quotes_map, get_quote_from_map, read_quotes_map,
+        },
+        read_keys_from_bill_file,
     },
-    read_keys_from_bill_file, BitcreditEbillQuote,
+    web::RequestToMintBitcreditBillPayload,
 };
-use crate::web::RequestToMintBitcreditBillForm;
 
 // Usage of tokio::main to spawn a new runtime is necessary here, because Wallet is'nt Send - but
 // this logic will be replaced soon
@@ -133,7 +136,7 @@ pub async fn client_accept_bitcredit_quote(bill_id: &String) -> String {
 // this logic will be replaced soon
 #[tokio::main]
 pub async fn request_to_mint_bitcredit(
-    form: RequestToMintBitcreditBillForm,
+    payload: RequestToMintBitcreditBillPayload,
 ) -> PostRequestToMintBitcreditResponse {
     let dir = PathBuf::from("./data/wallet".to_string());
     let db_path = dir.join("wallet.db").to_str().unwrap().to_string();
@@ -149,19 +152,19 @@ pub async fn request_to_mint_bitcredit(
         .await
         .expect("Could not create wallet");
 
-    let bill_keys = read_keys_from_bill_file(&form.bill_name.clone());
+    let bill_keys = read_keys_from_bill_file(&payload.bill_name.clone());
     let keys: BillKeys = BillKeys {
         private_key_pem: bill_keys.private_key_pem,
         public_key_pem: bill_keys.public_key_pem,
     };
 
-    let req = wallet.send_request_to_mint_bitcredit(&mint_url, form.bill_name.clone(), keys);
+    let req = wallet.send_request_to_mint_bitcredit(&mint_url, payload.bill_name.clone(), keys);
 
     let quote: BitcreditEbillQuote = BitcreditEbillQuote {
-        bill_id: form.bill_name.clone(),
+        bill_id: payload.bill_name.clone(),
         quote_id: "".to_string(),
         amount: 0,
-        mint_node_id: form.mint_node.clone(),
+        mint_node_id: payload.mint_node.clone(),
         mint_url: mint_url.to_string().clone(),
         accepted: false,
         token: "".to_string(),

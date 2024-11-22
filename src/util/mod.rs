@@ -1,7 +1,9 @@
 pub mod file;
 pub mod numbers_to_words;
 pub mod rsa;
-use crate::{bill::BitcreditBill, constants::USEDNET, service::identity_service::Identity};
+use crate::{
+    constants::USEDNET, service::bill_service::BitcreditBill, service::identity_service::Identity,
+};
 use bitcoin::secp256k1::Scalar;
 use openssl::sha::sha256;
 use std::str::FromStr;

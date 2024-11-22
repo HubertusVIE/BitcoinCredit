@@ -237,6 +237,22 @@ mod test {
         )
     }
 
+    #[test]
+    fn test_update() {
+        let mut identity = Identity::new_empty();
+        let mut other_identity = Identity::new_empty();
+        assert!(identity.all_changeable_fields_empty());
+        assert!(identity.all_changeable_fields_equal_to(&other_identity));
+        assert!(!identity.update_valid(&other_identity));
+        other_identity.name = String::from("changed");
+        assert!(!identity.all_changeable_fields_equal_to(&other_identity));
+        assert!(!other_identity.all_changeable_fields_empty());
+        assert!(identity.update_valid(&other_identity));
+        identity.update_from(&other_identity);
+        assert_eq!(identity.name, String::from("changed"));
+        assert!(!identity.update_valid(&other_identity));
+    }
+
     #[tokio::test]
     async fn create_identity_baseline() {
         let mut storage = MockIdentityStoreApi::new();

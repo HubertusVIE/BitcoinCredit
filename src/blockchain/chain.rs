@@ -1,15 +1,18 @@
 use super::block::Block;
 use super::calculate_hash;
 use super::OperationCode;
+use super::Result;
 use crate::bill::get_path_for_bill;
 use crate::blockchain::OperationCode::{
     Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell,
 };
 use crate::constants::USEDNET;
 use crate::external;
+use crate::service::bill_service::BillKeys;
+use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
 use crate::{
-    bill::{bill_from_byte_array, read_keys_from_bill_file, BitcreditBill},
+    bill::{bill_from_byte_array, read_keys_from_bill_file},
     util::rsa::decrypt_bytes,
 };
 use borsh_derive::BorshDeserialize;
@@ -56,6 +59,11 @@ impl Chain {
         let output_path = get_path_for_bill(bill_name);
 
         std::fs::write(output_path, serde_json::to_string_pretty(&self).unwrap()).unwrap();
+    }
+
+    pub fn to_pretty_printed_json(&self) -> Result<String> {
+        let res = serde_json::to_string_pretty(&self)?;
+        Ok(res)
     }
 
     /// Validates the integrity of the blockchain by checking the validity of each block in the chain.
@@ -150,16 +158,46 @@ impl Chain {
         }
         false
     }
+
+    pub fn has_been_endorsed_sold_or_minted(&self) -> bool {
+        for block in &self.blocks {
+            if block.operation_code == OperationCode::Mint {
+                return true;
+            }
+            if block.operation_code == OperationCode::Sell {
+                return true;
+            }
+            if block.operation_code == OperationCode::Endorse {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn has_been_endorsed_or_sold(&self) -> bool {
+        for block in &self.blocks {
+            if block.operation_code == OperationCode::Sell {
+                return true;
+            }
+            if block.operation_code == OperationCode::Endorse {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Retrieves the last version of the Bitcredit bill by decrypting and processing the relevant blocks.
+    ///
+    /// # Arguments
+    /// * `bill_keys` - The keys for the bill.
     ///
     /// # Returns
     /// A `BitcreditBill` object containing the most recent version of the bill, including the payee, endorsee,
     /// and other associated information.
     ///
-    pub async fn get_last_version_bill(&self) -> BitcreditBill {
+    pub async fn get_last_version_bill(&self, bill_keys: &BillKeys) -> BitcreditBill {
         let first_block = self.get_first_block();
 
-        let bill_keys = read_keys_from_bill_file(&first_block.bill_name);
         let key: Rsa<Private> =
             Rsa::private_key_from_pem(bill_keys.private_key_pem.as_bytes()).unwrap();
         let bytes = hex::decode(first_block.data.clone()).unwrap();
@@ -195,9 +233,6 @@ impl Chain {
                 && (last_version_block_mint.id < last_version_block_sell.id)
                 && ((last_block.id > last_version_block_sell.id) || paid)
             {
-                let bill_keys = read_keys_from_bill_file(&last_version_block_sell.bill_name);
-                let key: Rsa<Private> =
-                    Rsa::private_key_from_pem(bill_keys.private_key_pem.as_bytes()).unwrap();
                 let bytes = hex::decode(last_version_block_sell.data.clone()).unwrap();
                 let decrypted_bytes = decrypt_bytes(&bytes, &key);
                 let block_data_decrypted = String::from_utf8(decrypted_bytes).unwrap();
@@ -224,9 +259,6 @@ impl Chain {
             } else if self.exist_block_with_operation_code(Endorse.clone())
                 && (last_version_block_endorse.id > last_version_block_mint.id)
             {
-                let bill_keys = read_keys_from_bill_file(&last_version_block_endorse.bill_name);
-                let key: Rsa<Private> =
-                    Rsa::private_key_from_pem(bill_keys.private_key_pem.as_bytes()).unwrap();
                 let bytes = hex::decode(last_version_block_endorse.data.clone()).unwrap();
                 let decrypted_bytes = decrypt_bytes(&bytes, &key);
                 let block_data_decrypted = String::from_utf8(decrypted_bytes).unwrap();
@@ -250,9 +282,6 @@ impl Chain {
             } else if self.exist_block_with_operation_code(Mint.clone())
                 && (last_version_block_mint.id > last_version_block_endorse.id)
             {
-                let bill_keys = read_keys_from_bill_file(&last_version_block_mint.bill_name);
-                let key: Rsa<Private> =
-                    Rsa::private_key_from_pem(bill_keys.private_key_pem.as_bytes()).unwrap();
                 let bytes = hex::decode(last_version_block_mint.data.clone()).unwrap();
                 let decrypted_bytes = decrypt_bytes(&bytes, &key);
                 let block_data_decrypted = String::from_utf8(decrypted_bytes).unwrap();
@@ -571,21 +600,29 @@ impl Chain {
 
     /// This function extracts the first block's data, decrypts it using the private key
     /// associated with the bill, and then deserializes the decrypted data into a `BitcreditBill`
-    /// object. The function assumes that the first block contains the encrypted data for the
-    /// bill's first version.
+    /// object. The function assumes that the first block contains the encrypted data for the bill's first version.
+    ///
+    /// # Arguments
+    /// * `bill_keys` - The keys for the bill.
+    ///
     /// # Returns
     ///
     /// * `BitcreditBill` - The first version of the bill, decrypted and deserialized from
     ///   the data in the first block.
-    pub fn get_first_version_bill(&self) -> BitcreditBill {
+    pub fn get_first_version_bill_with_keys(&self, bill_keys: &BillKeys) -> BitcreditBill {
         let first_block_data = &self.get_first_block();
-        let bill_keys = read_keys_from_bill_file(&first_block_data.bill_name);
         let key: Rsa<Private> =
             Rsa::private_key_from_pem(bill_keys.private_key_pem.as_bytes()).unwrap();
         let bytes = hex::decode(first_block_data.data.clone()).unwrap();
         let decrypted_bytes = decrypt_bytes(&bytes, &key);
         let bill_first_version: BitcreditBill = bill_from_byte_array(&decrypted_bytes);
         bill_first_version
+    }
+
+    pub fn get_first_version_bill(&self) -> BitcreditBill {
+        let first_block_data = &self.get_first_block();
+        let bill_keys = read_keys_from_bill_file(&first_block_data.bill_name);
+        self.get_first_version_bill_with_keys(&bill_keys)
     }
 
     /// This function iterates over the list of blocks in the chain and returns the first block
@@ -672,9 +709,9 @@ impl Chain {
     /// `IdentityPublicData`:  
     /// - The identity data of the drawer, payee, or drawee depending on the evaluated conditions.
     ///
-    pub fn get_drawer(&self) -> IdentityPublicData {
+    pub fn get_drawer(&self, bill_keys: &BillKeys) -> IdentityPublicData {
         let drawer: IdentityPublicData;
-        let bill = self.get_first_version_bill();
+        let bill = self.get_first_version_bill_with_keys(bill_keys);
         if !bill.drawer.name.is_empty() {
             drawer = bill.drawer.clone();
         } else if bill.to_payee {

@@ -98,6 +98,23 @@ pub fn is_not_hidden_or_directory(entry: &DirEntry) -> bool {
     }
 }
 
+/// Function to make sure a given file is neither hidden, nor a directory - async version
+pub async fn is_not_hidden_or_directory_async(entry: &tokio::fs::DirEntry) -> bool {
+    let file_type = match entry.file_type().await {
+        Err(_) => return false,
+        Ok(t) => t,
+    };
+
+    if file_type.is_dir() {
+        return false;
+    }
+
+    match hf::is_hidden(entry.path()) {
+        Ok(res) => !res,
+        Err(_) => false,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
