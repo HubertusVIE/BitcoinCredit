@@ -10,23 +10,21 @@ use crate::{persistence::ContactStoreApi, service::contact_service::IdentityPubl
 #[derive(Clone)]
 pub struct SurrealContactStore {
     db: Surreal<Any>,
-    table: String,
 }
 
 impl SurrealContactStore {
+    const TABLE: &'static str = "contacts";
+
     #[allow(dead_code)]
     pub fn new(db: Surreal<Any>) -> Self {
-        Self {
-            db,
-            table: "contacts".to_owned(),
-        }
+        Self { db }
     }
 }
 
 #[async_trait]
 impl ContactStoreApi for SurrealContactStore {
     async fn get_map(&self) -> Result<HashMap<String, IdentityPublicData>> {
-        let all: Vec<ContactDb> = self.db.select(self.table.to_owned()).await?;
+        let all: Vec<ContactDb> = self.db.select(Self::TABLE).await?;
         let mut map = HashMap::new();
         for contact in all.into_iter() {
             map.insert(contact.name.clone(), contact.into());
@@ -38,7 +36,7 @@ impl ContactStoreApi for SurrealContactStore {
         let result: Vec<ContactDb> = self
             .db
             .query("SELECT * FROM type::table($table) WHERE name = $name")
-            .bind(("table", self.table.to_owned()))
+            .bind(("table", Self::TABLE))
             .bind(("name", name.to_owned()))
             .await?
             .take(0)?;
@@ -50,7 +48,7 @@ impl ContactStoreApi for SurrealContactStore {
         entity.name = name.to_owned();
         let _: Option<ContactDb> = self
             .db
-            .create((self.table.to_owned(), entity.peer_id.to_owned()))
+            .create((Self::TABLE, entity.peer_id.to_owned()))
             .content(entity)
             .await?;
         Ok(())
@@ -59,7 +57,7 @@ impl ContactStoreApi for SurrealContactStore {
     async fn delete(&self, name: &str) -> Result<()> {
         self.db
             .query("DELETE FROM type::table($table) WHERE name = $name")
-            .bind(("table", self.table.to_owned()))
+            .bind(("table", Self::TABLE))
             .bind(("name", name.to_owned()))
             .await?;
         Ok(())
@@ -68,7 +66,7 @@ impl ContactStoreApi for SurrealContactStore {
     async fn update_name(&self, name: &str, new_name: &str) -> Result<()> {
         self.db
             .query("UPDATE type::table($table) SET name = $new_name WHERE name = $name")
-            .bind(("table", self.table.to_owned()))
+            .bind(("table", Self::TABLE))
             .bind(("new_name", new_name.to_owned()))
             .bind(("name", name.to_owned()))
             .await?;
@@ -80,7 +78,7 @@ impl ContactStoreApi for SurrealContactStore {
         entity.name = name.to_owned();
         let _: Option<ContactDb> = self
             .db
-            .update((self.table.to_owned(), entity.peer_id.to_owned()))
+            .update((Self::TABLE, entity.peer_id.to_owned()))
             .content(entity)
             .await?;
         Ok(())
@@ -90,7 +88,7 @@ impl ContactStoreApi for SurrealContactStore {
         let result: Vec<ContactDb> = self
             .db
             .query("SELECT * FROM type::table($table) WHERE nostr_npub = $npub")
-            .bind(("table", self.table.to_owned()))
+            .bind(("table", Self::TABLE))
             .bind(("npub", npub.to_owned()))
             .await?
             .take(0)?;
