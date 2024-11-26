@@ -176,19 +176,22 @@ pub async fn create_service_context(
     shutdown_sender: broadcast::Sender<bool>,
     db: DbContext,
 ) -> Result<ServiceContext> {
-    let contact_service = ContactService::new(client.clone(), db.contact_store);
-    let bill_service = BillService::new(client.clone(), db.bill_store, db.identity_store.clone());
-    let identity_service = IdentityService::new(client.clone(), db.identity_store);
-
-    let company_store =
-        FileBasedCompanyStore::new(&config.data_dir, "company", "data", "keys").await?;
-    let company_service = CompanyService::new(
-        Arc::new(company_store),
-        file_upload_store.clone(),
-        identity_store.clone(),
-        contact_store.clone(),
+    let contact_service = ContactService::new(client.clone(), db.contact_store.clone());
+    let bill_service = BillService::new(
+        client.clone(),
+        db.bill_store,
+        db.identity_store.clone(),
+        db.file_upload_store.clone(),
     );
-    let file_upload_service = FileUploadService::new(file_upload_store);
+    let identity_service = IdentityService::new(client.clone(), db.identity_store.clone());
+
+    let company_service = CompanyService::new(
+        db.company_store,
+        db.file_upload_store.clone(),
+        db.identity_store,
+        db.contact_store,
+    );
+    let file_upload_service = FileUploadService::new(db.file_upload_store);
 
     Ok(ServiceContext::new(
         config,

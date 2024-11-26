@@ -40,6 +40,8 @@ pub enum Error {
 pub use contact::ContactStoreApi;
 
 use crate::config::Config;
+use company::FileBasedCompanyStore;
+use file_upload::FileUploadStore;
 
 /// Given a base path and a directory path, ensures that the directory
 /// exists and returns the full path.
@@ -57,6 +59,8 @@ pub struct DbContext {
     pub contact_store: Arc<dyn ContactStoreApi>,
     pub bill_store: Arc<dyn bill::BillStoreApi>,
     pub identity_store: Arc<dyn identity::IdentityStoreApi>,
+    pub company_store: Arc<dyn company::CompanyStoreApi>,
+    pub file_upload_store: Arc<dyn file_upload::FileUploadStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
@@ -64,21 +68,19 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
     let surreal_db_config = SurrealDbConfig::new(&conf.surreal_db_connection);
     let db = get_surreal_db(&surreal_db_config).await?;
 
-    let contact_store = Arc::new(SurrealContactStore::new(db));
+    let company_store =
+        Arc::new(FileBasedCompanyStore::new(&conf.data_dir, "company", "data", "keys").await?);
+    let file_upload_store =
+        Arc::new(FileUploadStore::new(&conf.data_dir, "files", "temp_upload").await?);
 
-    let bill_store = Arc::new(
-        FileBasedBillStore::new(
-            &conf.data_dir,
-            "bills",
-            "files",
-            "temp_upload",
-            "bills_keys",
-        )
-        .await?,
-    );
-    if let Err(e) = bill_store.cleanup_temp_uploads().await {
+    if let Err(e) = file_upload_store.cleanup_temp_uploads().await {
         error!("Error cleaning up temp upload folder for bill: {e}");
     }
+
+    let contact_store = Arc::new(SurrealContactStore::new(db));
+
+    let bill_store =
+        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);
 
     let identity_store = Arc::new(
         FileBasedIdentityStore::new(
@@ -95,5 +97,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         contact_store,
         bill_store,
         identity_store,
+        company_store,
+        file_upload_store,
     })
 }
