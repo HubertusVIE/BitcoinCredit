@@ -22,6 +22,8 @@ pub struct Config {
     pub data_dir: String,
     #[arg(default_value_t = String::from("ws://localhost:8800"), long, env = "SURREAL_DB_CONNECTION")]
     pub surreal_db_connection: String,
+    #[arg(default_value_t = false, long, env = "TERMINAL_CLIENT")]
+    pub terminal_client: bool,
 }
 
 impl Config {

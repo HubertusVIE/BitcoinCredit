@@ -1,6 +1,7 @@
 pub mod file;
 pub mod numbers_to_words;
 pub mod rsa;
+pub mod terminal;
 use crate::{
     constants::USEDNET, service::bill_service::BitcreditBill, service::identity_service::Identity,
 };

@@ -23,6 +23,7 @@ mod event_loop;
 
 use crate::persistence::bill::BillStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
+use crate::util;
 use anyhow::Result;
 pub use client::Client;
 use libp2p::identity::Keypair;
@@ -49,8 +50,16 @@ pub async fn dht_main(
     spawn(network_event_loop.run(shutdown_receiver));
 
     let network_client_to_return = network_client.clone();
+    let network_client_for_terminal_client = network_client.clone();
 
     spawn(network_client.run(network_events, shutdown_sender.subscribe()));
+
+    if conf.terminal_client {
+        spawn(util::terminal::run_terminal_client(
+            shutdown_sender.subscribe(),
+            network_client_for_terminal_client,
+        ));
+    }
 
     Ok(Dht {
         client: network_client_to_return,

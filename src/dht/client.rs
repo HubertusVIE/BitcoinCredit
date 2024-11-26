@@ -23,7 +23,6 @@ use libp2p::PeerId;
 use log::{error, info};
 use std::collections::HashSet;
 use std::fs;
-use std::io::BufRead;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -52,35 +51,8 @@ impl Client {
         mut network_events: Receiver<Event>,
         mut shutdown_dht_client_receiver: broadcast::Receiver<bool>,
     ) {
-        // We need to use blocking stdin, because tokio's async stdin isn't meant for interactive
-        // use-cases and will block forever on finishing the program
-        let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel(100);
-        std::thread::spawn(move || {
-            let stdin = std::io::stdin();
-            for line in stdin.lock().lines() {
-                match line {
-                    Ok(line) => {
-                        let line = line.trim().to_string();
-                        if !line.is_empty() {
-                            if let Err(e) = stdin_tx.blocking_send(line) {
-                                error!("Error handling stdin: {e}");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error reading line from stdin: {e}");
-                    }
-                }
-            }
-        });
-
         loop {
             tokio::select! {
-                line = stdin_rx.recv() => {
-                    if let Some(next_line) = line {
-                        self.handle_input_line(next_line).await
-                    }
-                },
                 event = network_events.next() => self.handle_event(event.expect("Swarm stream to be infinite.")).await,
                 _ = shutdown_dht_client_receiver.recv() => {
                     info!("Shutting down dht client...");
@@ -510,21 +482,21 @@ impl Client {
             .expect("Command receiver not to be dropped.");
     }
 
-    async fn send_message(&mut self, msg: Vec<u8>, topic: String) {
+    pub async fn send_message(&mut self, msg: Vec<u8>, topic: String) {
         self.sender
             .send(Command::SendMessage { msg, topic })
             .await
             .expect("Command receiver not to be dropped.");
     }
 
-    async fn put_record(&mut self, key: String, value: String) {
+    pub async fn put_record(&mut self, key: String, value: String) {
         self.sender
             .send(Command::PutRecord { key, value })
             .await
             .expect("Command receiver not to be dropped.");
     }
 
-    async fn get_record(&mut self, key: String) -> Record {
+    pub async fn get_record(&mut self, key: String) -> Record {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::GetRecord { key, sender })
@@ -542,7 +514,7 @@ impl Client {
         receiver.await.expect("Sender not to be dropped.");
     }
 
-    async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
+    pub async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::GetProviders { file_name, sender })
@@ -648,167 +620,6 @@ impl Client {
                         }
                     }
                 }
-            }
-        }
-    }
-
-    //Need for testing from console.
-    async fn handle_input_line(&mut self, line: String) {
-        let mut args = line.split(' ');
-        match args.next() {
-            Some("PUT") => {
-                let name: String = {
-                    match args.next() {
-                        Some(name) => String::from(name),
-                        None => {
-                            error!("Expected name.");
-                            return;
-                        }
-                    }
-                };
-                self.put(&name).await;
-            }
-
-            Some("GET_BILL") => {
-                let name: String = {
-                    match args.next() {
-                        Some(name) => String::from(name),
-                        None => {
-                            error!("Expected bill name.");
-                            return;
-                        }
-                    }
-                };
-                self.get_bill(name).await;
-            }
-
-            Some("GET_BILL_ATTACHMENT") => {
-                let name: String = {
-                    match args.next() {
-                        Some(name) => String::from(name),
-                        None => {
-                            error!("Expected bill name.");
-                            return;
-                        }
-                    }
-                };
-                let file_name: String = {
-                    match args.next() {
-                        Some(file_name) => String::from(file_name),
-                        None => {
-                            error!("Expected file name.");
-                            return;
-                        }
-                    }
-                };
-                if let Err(e) = self.get_bill_attachment(name, file_name).await {
-                    error!("Get Bill Attachment failed: {e}");
-                }
-            }
-
-            Some("GET_KEY") => {
-                let name: String = {
-                    match args.next() {
-                        Some(name) => String::from(name),
-                        None => {
-                            error!("Expected bill name.");
-                            return;
-                        }
-                    }
-                };
-                self.get_key(name).await;
-            }
-
-            Some("PUT_RECORD") => {
-                let key = {
-                    match args.next() {
-                        Some(key) => String::from(key),
-                        None => {
-                            error!("Expected key");
-                            return;
-                        }
-                    }
-                };
-                let value = {
-                    match args.next() {
-                        Some(value) => String::from(value),
-                        None => {
-                            error!("Expected value");
-                            return;
-                        }
-                    }
-                };
-
-                self.put_record(key, value).await;
-            }
-
-            Some("SEND_MESSAGE") => {
-                let topic = {
-                    match args.next() {
-                        Some(key) => String::from(key),
-                        None => {
-                            error!("Expected topic");
-                            return;
-                        }
-                    }
-                };
-                let msg = {
-                    match args.next() {
-                        Some(value) => String::from(value),
-                        None => {
-                            error!("Expected msg");
-                            return;
-                        }
-                    }
-                };
-
-                self.send_message(msg.into_bytes(), topic).await;
-            }
-
-            Some("SUBSCRIBE") => {
-                let topic = {
-                    match args.next() {
-                        Some(key) => String::from(key),
-                        None => {
-                            error!("Expected topic");
-                            return;
-                        }
-                    }
-                };
-
-                self.subscribe_to_topic(topic).await;
-            }
-
-            Some("GET_RECORD") => {
-                let key = {
-                    match args.next() {
-                        Some(key) => String::from(key),
-                        None => {
-                            error!("Expected key");
-                            return;
-                        }
-                    }
-                };
-                self.get_record(key).await;
-            }
-
-            Some("GET_PROVIDERS") => {
-                let key = {
-                    match args.next() {
-                        Some(key) => String::from(key),
-                        None => {
-                            error!("Expected key");
-                            return;
-                        }
-                    }
-                };
-                self.get_providers(key).await;
-            }
-
-            _ => {
-                error!(
-                        "expected GET_BILL, GET_KEY, GET_BILL_ATTACHMENT, PUT, SEND_MESSAGE, SUBSCRIBE, GET_RECORD, PUT_RECORD or GET_PROVIDERS."
-                    );
             }
         }
     }
