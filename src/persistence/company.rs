@@ -14,6 +14,10 @@ use tokio::{
     task,
 };
 
+#[cfg(test)]
+use mockall::automock;
+
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait CompanyStoreApi: Send + Sync {
     /// Checks if the given company exists

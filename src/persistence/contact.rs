@@ -5,6 +5,10 @@ use std::{collections::HashMap, fs, path::Path};
 use super::{file_storage_path, Error, Result};
 use async_trait::async_trait;
 
+#[cfg(test)]
+use mockall::automock;
+
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait ContactStoreApi: Send + Sync {
     async fn get_map(&self) -> Result<HashMap<String, IdentityPublicData>>;
