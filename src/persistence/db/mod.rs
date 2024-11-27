@@ -6,6 +6,7 @@ use surrealdb::{
 };
 
 pub mod contact;
+pub mod nostr_event_offset;
 
 /// Configuration for the SurrealDB connection string, namespace and
 /// database name
@@ -55,4 +56,22 @@ pub async fn get_memory_db(namespace: &str, database: &str) -> Result<Surreal<An
     let db = connect("mem://").await?;
     db.use_ns(namespace).use_db(database).await?;
     Ok(db)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_surreal_db() {
+        let config = SurrealDbConfig::new("mem://");
+        let _ = get_surreal_db(&config).await.expect("could not create db");
+    }
+
+    #[tokio::test]
+    async fn test_get_memory_db() {
+        let _ = get_memory_db("test", "test")
+            .await
+            .expect("could not create db");
+    }
 }

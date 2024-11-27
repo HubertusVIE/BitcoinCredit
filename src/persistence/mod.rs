@@ -4,6 +4,7 @@ pub mod contact;
 pub mod db;
 pub mod file_upload;
 pub mod identity;
+pub mod nostr;
 
 use bill::FileBasedBillStore;
 use db::{contact::SurrealContactStore, get_surreal_db, SurrealDbConfig};
@@ -35,9 +36,14 @@ pub enum Error {
 
     #[error("no such {0} entity {1}")]
     NoSuchEntity(String, String),
+
+    #[allow(dead_code)]
+    #[error("Failed to convert integer {0}")]
+    FromInt(#[from] std::num::TryFromIntError),
 }
 
 pub use contact::ContactStoreApi;
+pub use nostr::{NostrEventOffset, NostrEventOffsetStoreApi};
 
 use crate::config::Config;
 use company::FileBasedCompanyStore;
@@ -77,7 +83,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         error!("Error cleaning up temp upload folder for bill: {e}");
     }
 
-    let contact_store = Arc::new(SurrealContactStore::new(db));
+    let contact_store = Arc::new(SurrealContactStore::new(db.clone()));
 
     let bill_store =
         Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);

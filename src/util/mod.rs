@@ -1,3 +1,4 @@
+pub mod date;
 pub mod file;
 pub mod numbers_to_words;
 pub mod rsa;

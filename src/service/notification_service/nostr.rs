@@ -1,11 +1,14 @@
 use async_trait::async_trait;
 use log::{error, trace, warn};
 use nostr_sdk::prelude::*;
+use nostr_sdk::Timestamp;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 
+use crate::persistence::NostrEventOffset;
+use crate::persistence::NostrEventOffsetStoreApi;
 use crate::service::contact_service::ContactServiceApi;
 
 use super::super::contact_service::IdentityPublicData;
@@ -72,14 +75,13 @@ impl NostrClient {
     pub async fn unwrap_envelope(
         &self,
         note: RelayPoolNotification,
-    ) -> Option<(EventEnvelope, PublicKey, EventId)> {
-        let mut result: Option<(EventEnvelope, PublicKey, EventId)> = None;
+    ) -> Option<(EventEnvelope, PublicKey, EventId, Timestamp)> {
+        let mut result: Option<(EventEnvelope, PublicKey, EventId, Timestamp)> = None;
         if let RelayPoolNotification::Event { event, .. } = note {
             if event.kind == Kind::GiftWrap {
                 result = match self.client.unwrap_gift_wrap(&event).await {
-                    Ok(UnwrappedGift { rumor, sender }) => {
-                        extract_event_envelope(rumor).map(|e| (e, sender, event.id))
-                    }
+                    Ok(UnwrappedGift { rumor, sender }) => extract_event_envelope(rumor)
+                        .map(|e| (e, sender, event.id, event.created_at)),
                     Err(e) => {
                         error!("Unwrapping gift wrap failed: {e}");
                         None
@@ -121,6 +123,7 @@ pub struct NostrConsumer {
     client: NostrClient,
     event_handlers: Arc<Vec<Box<dyn NotificationHandlerApi>>>,
     contact_service: Arc<dyn ContactServiceApi>,
+    offset_store: Arc<dyn NostrEventOffsetStoreApi>,
 }
 
 impl NostrConsumer {
@@ -129,11 +132,13 @@ impl NostrConsumer {
         client: NostrClient,
         contact_service: Arc<dyn ContactServiceApi>,
         event_handlers: Vec<Box<dyn NotificationHandlerApi>>,
+        offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     ) -> Self {
         Self {
             client,
             event_handlers: Arc::new(event_handlers),
             contact_service,
+            offset_store,
         }
     }
 
@@ -143,10 +148,19 @@ impl NostrConsumer {
         let client = self.client.clone();
         let event_handlers = self.event_handlers.clone();
         let contact_service = self.contact_service.clone();
+        let offset_store = self.offset_store.clone();
+
+        // continue where we left off
+        let offset_ts = get_offset(&offset_store).await;
 
         // subscribe only to private messages sent to our pubkey
         client
-            .subscribe(Filter::new().pubkey(client.public_key).kind(Kind::GiftWrap))
+            .subscribe(
+                Filter::new()
+                    .pubkey(client.public_key)
+                    .kind(Kind::GiftWrap)
+                    .since(offset_ts),
+            )
             .await
             .expect("Failed to subscribe to Nostr events");
 
@@ -155,16 +169,20 @@ impl NostrConsumer {
             client
                 .client
                 .handle_notifications(|note| async {
-                    if let Some((envelope, sender, _event_id)) = client.unwrap_envelope(note).await
+                    if let Some((envelope, sender, event_id, time)) =
+                        client.unwrap_envelope(note).await
                     {
-                        // TODO: Check if we already processed this event via event_id
-                        // We only want to handle events from known contacts
-                        if let Ok(sender) = sender.to_bech32() {
-                            trace!("Received event: {envelope:?} from {sender:?}");
-                            if contact_service.is_known_npub(sender.as_str()).await? {
+                        if !offset_store.is_processed(&event_id.to_hex()).await? {
+                            if let Ok(sender) = sender.to_bech32() {
                                 trace!("Received event: {envelope:?} from {sender:?}");
-                                handle_event(envelope, &event_handlers).await?;
+                                if contact_service.is_known_npub(sender.as_str()).await? {
+                                    trace!("Received event: {envelope:?} from {sender:?}");
+                                    handle_event(envelope, &event_handlers).await?;
+                                }
                             }
+
+                            // store the new event offset
+                            add_offset(&offset_store, event_id, time, true).await;
                         }
                     };
                     Ok(false)
@@ -174,6 +192,32 @@ impl NostrConsumer {
         });
         Ok(handle)
     }
+}
+
+async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>) -> Timestamp {
+    Timestamp::from_secs(
+        db.current_offset()
+            .await
+            .map_err(|e| error!("Could not get event offset: {e}"))
+            .ok()
+            .unwrap_or(0),
+    )
+}
+
+async fn add_offset(
+    db: &Arc<dyn NostrEventOffsetStoreApi>,
+    event_id: EventId,
+    time: Timestamp,
+    success: bool,
+) {
+    db.add_event(NostrEventOffset {
+        event_id: event_id.to_hex(),
+        time: time.as_u64(),
+        success,
+    })
+    .await
+    .map_err(|e| error!("Could not store event offset: {e}"))
+    .ok();
 }
 
 fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
@@ -222,6 +266,8 @@ mod tests {
 
     use super::super::test_utils::{get_mock_relay, NOSTR_KEY1};
     use super::{NostrClient, NostrConfig, NostrConsumer};
+    use crate::persistence::nostr::MockNostrEventOffsetStoreApi;
+    use crate::persistence::NostrEventOffset;
     use crate::service::notification_service::Event;
     use crate::service::{
         contact_service::MockContactServiceApi,
@@ -295,9 +341,35 @@ mod tests {
             })
             .returning(|_| Ok(()));
 
+        let mut offset_store = MockNostrEventOffsetStoreApi::new();
+
+        // expect the offset store to return the current offset once on start
+        offset_store
+            .expect_current_offset()
+            .returning(|| Ok(1000))
+            .once();
+
+        // should also check if the event has been processed already
+        offset_store
+            .expect_is_processed()
+            .withf(|e: &str| !e.is_empty())
+            .returning(|_| Ok(false))
+            .once();
+
+        // when done processing the event, add it to the offset store
+        offset_store
+            .expect_add_event()
+            .withf(|e: &NostrEventOffset| e.success)
+            .returning(|_| Ok(()))
+            .once();
+
         // we start the consumer
-        let consumer =
-            NostrConsumer::new(client2, Arc::new(contact_service), vec![Box::new(handler)]);
+        let consumer = NostrConsumer::new(
+            client2,
+            Arc::new(contact_service),
+            vec![Box::new(handler)],
+            Arc::new(offset_store),
+        );
         let handle = consumer
             .start()
             .await
