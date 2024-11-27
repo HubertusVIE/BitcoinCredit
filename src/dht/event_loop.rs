@@ -338,13 +338,13 @@ impl EventLoop {
 
     async fn handle_command(&mut self, command: Command) {
         match command {
-            Command::StartProviding { file_name, sender } => {
-                info!("Start providing {file_name:?}");
+            Command::StartProviding { entry, sender } => {
+                info!("Start providing {entry:?}");
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kademlia
-                    .start_providing(file_name.into_bytes().into())
+                    .start_providing(entry.into_bytes().into())
                     .expect("Can not provide.");
                 self.pending_start_providing.insert(query_id, sender);
             }
@@ -399,13 +399,13 @@ impl EventLoop {
                 self.pending_get_records.insert(query_id, sender);
             }
 
-            Command::GetProviders { file_name, sender } => {
-                info!("Get providers {file_name:?}");
+            Command::GetProviders { entry, sender } => {
+                info!("Get providers {entry:?}");
                 let query_id = self
                     .swarm
                     .behaviour_mut()
                     .kademlia
-                    .get_providers(file_name.into_bytes().into());
+                    .get_providers(entry.into_bytes().into());
                 self.pending_get_providers.insert(query_id, sender);
             }
 

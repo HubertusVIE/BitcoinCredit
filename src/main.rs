@@ -54,9 +54,14 @@ async fn main() -> Result<()> {
     // Initialize the database context
     let db = get_db_context(&conf).await?;
 
-    let dht = dht::dht_main(&conf, db.bill_store.clone(), db.identity_store.clone())
-        .await
-        .expect("DHT failed to start");
+    let dht = dht::dht_main(
+        &conf,
+        db.bill_store.clone(),
+        db.company_store.clone(),
+        db.identity_store.clone(),
+    )
+    .await
+    .expect("DHT failed to start");
     let mut dht_client = dht.client;
 
     let ctrl_c_sender = dht.shutdown_sender.clone();
@@ -75,12 +80,15 @@ async fn main() -> Result<()> {
     dht_client
         .check_new_bills(local_peer_id.to_string())
         .await?;
-    dht_client.update_table(local_peer_id.to_string()).await?;
+    dht_client
+        .update_bills_table(local_peer_id.to_string())
+        .await?;
     dht_client.subscribe_to_all_bills_topics().await?;
     dht_client.put_bills_for_parties().await?;
     dht_client.start_providing_bills().await?;
     dht_client.receive_updates_for_all_bills_topics().await?;
     dht_client.put_identity_public_data_in_dht().await?;
+    dht_client.put_companies_public_data_in_dht().await?;
 
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
     let service_context =

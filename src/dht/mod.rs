@@ -22,6 +22,7 @@ mod client;
 mod event_loop;
 
 use crate::persistence::bill::BillStoreApi;
+use crate::persistence::company::CompanyStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::{persistence, util};
 pub use client::Client;
@@ -109,10 +110,11 @@ pub struct Dht {
 pub async fn dht_main(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
+    company_store: Arc<dyn CompanyStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<Dht> {
     let (network_client, network_events, network_event_loop) =
-        new(conf, bill_store, identity_store).await?;
+        new(conf, bill_store, company_store, identity_store).await?;
 
     let (shutdown_sender, shutdown_receiver) = broadcast::channel::<bool>(100);
 
@@ -139,6 +141,7 @@ pub async fn dht_main(
 async fn new(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
+    company_store: Arc<dyn CompanyStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
     if !identity_store.exists().await {
@@ -285,7 +288,7 @@ async fn new(
     let event_loop = EventLoop::new(swarm, command_receiver, event_sender);
 
     Ok((
-        Client::new(command_sender, bill_store, identity_store),
+        Client::new(command_sender, bill_store, company_store, identity_store),
         event_receiver,
         event_loop,
     ))

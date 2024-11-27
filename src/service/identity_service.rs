@@ -217,7 +217,9 @@ impl Identity {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::persistence::{self, bill::MockBillStoreApi, identity::MockIdentityStoreApi};
+    use crate::persistence::{
+        self, bill::MockBillStoreApi, company::MockCompanyStoreApi, identity::MockIdentityStoreApi,
+    };
     use futures::channel::mpsc;
 
     fn get_service(mock_storage: MockIdentityStoreApi) -> IdentityService {
@@ -228,6 +230,7 @@ mod test {
             Client::new(
                 sender,
                 Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockCompanyStoreApi::new()),
                 Arc::new(client_storage),
             ),
             Arc::new(mock_storage),

@@ -7,10 +7,13 @@ use super::Result;
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
 use crate::constants::{BILLS_PREFIX, INFO_PREFIX};
 use crate::persistence::bill::BillStoreApi;
+use crate::persistence::company::CompanyStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
+use crate::service::company_service::{Company, CompanyKeys, CompanyPublicData};
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
 use crate::util::rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key};
+use future::try_join_all;
 use futures::channel::mpsc::Receiver;
 use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
@@ -22,10 +25,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+/// The DHT client
 #[derive(Clone)]
 pub struct Client {
+    /// The sender to send events to the event loop
     pub(super) sender: mpsc::Sender<Command>,
     bill_store: Arc<dyn BillStoreApi>,
+    company_store: Arc<dyn CompanyStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
 }
 
@@ -33,15 +39,18 @@ impl Client {
     pub fn new(
         sender: mpsc::Sender<Command>,
         bill_store: Arc<dyn BillStoreApi>,
+        company_store: Arc<dyn CompanyStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
     ) -> Self {
         Self {
             sender,
             bill_store,
+            company_store,
             identity_store,
         }
     }
 
+    /// Runs the dht client, listening for incoming events from the event loop
     pub async fn run(
         mut self,
         mut network_events: Receiver<Event>,
@@ -58,6 +67,172 @@ impl Client {
         }
     }
 
+    // --------------------------------------------------------------
+    // Company-related logic ---------------------------------------
+    // --------------------------------------------------------------
+
+    pub async fn put_companies_public_data_in_dht(&mut self) -> Result<()> {
+        let companies = self.company_store.get_all().await?;
+        log::info!("Putting local company public data in the DHT");
+
+        if !companies.is_empty() {
+            let tasks = companies.into_iter().map(|(id, (company, company_keys))| {
+                let mut self_clone = self.clone();
+                async move {
+                    self_clone
+                        .put_company_public_data_in_dht((id, (company, company_keys)))
+                        .await
+                }
+            });
+
+            try_join_all(tasks).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn put_company_public_data_in_dht(
+        &mut self,
+        company_data: (String, (Company, CompanyKeys)),
+    ) -> Result<()> {
+        let id = company_data.0;
+        let local_public_data =
+            CompanyPublicData::from(id.clone(), company_data.1 .0, company_data.1 .1);
+        let local_json = serde_json::to_string(&local_public_data)?;
+
+        let dht_record = self.get_record(id.clone()).await?.value;
+        if dht_record.is_empty() {
+            self.put_record(id.clone(), local_json).await?;
+        } else {
+            let dht_public_data: CompanyPublicData = serde_json::from_slice(&dht_record)?;
+            if !dht_public_data.eq(&local_public_data) {
+                self.put_record(id.clone(), local_json).await?;
+            }
+        }
+        Ok(())
+    }
+
+    // --------------------------------------------------------------
+    // Identity-related logic ---------------------------------------
+    // --------------------------------------------------------------
+
+    /// Adds the local identity's public data into the DHT
+    pub async fn put_identity_public_data_in_dht(&mut self) -> Result<()> {
+        if self.identity_store.exists().await {
+            let identity = self.identity_store.get_full().await?;
+            let identity_data = IdentityPublicData::new(
+                identity.identity.clone(),
+                identity.peer_id.to_string().clone(),
+            );
+
+            let key = format!("{}{}", INFO_PREFIX, &identity_data.peer_id);
+            let current_info = self.get_record(key.clone()).await?.value;
+            let mut current_info_string = String::new();
+            if !current_info.is_empty() {
+                current_info_string = std::str::from_utf8(&current_info)?.to_string();
+            }
+            let value = serde_json::to_string(&identity_data)?;
+            if !current_info_string.eq(&value) {
+                self.put_record(key, value).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Queries the DHT for the public identity data for the given peer id
+    pub async fn get_identity_public_data_from_dht(
+        &mut self,
+        peer_id: String,
+    ) -> Result<IdentityPublicData> {
+        let key = format!("{}{}", INFO_PREFIX, &peer_id);
+        let current_info = self.get_record(key.clone()).await?.value;
+        let mut identity_public_data: IdentityPublicData = IdentityPublicData::new_empty();
+        if !current_info.is_empty() {
+            let current_info_string = std::str::from_utf8(&current_info)?.to_string();
+            identity_public_data = serde_json::from_str(&current_info_string)?;
+        }
+
+        Ok(identity_public_data)
+    }
+
+    // ---------------------------------------------------------
+    // Bill-related logic --------------------------------------
+    // ---------------------------------------------------------
+
+    /// Checks the bill record for the local node, adding missing bills and starts providing them, if necessary
+    pub async fn update_bills_table(&mut self, node_id: String) -> Result<()> {
+        let node_request = BILLS_PREFIX.to_string() + &node_id;
+        let list_bills_for_node = self.get_record(node_request.clone()).await?;
+        let value = list_bills_for_node.value;
+
+        if !value.is_empty() {
+            let record_in_dht = std::str::from_utf8(&value)?.to_string();
+            let mut new_record: String = record_in_dht.clone();
+
+            let bill_names = self.bill_store.get_bill_names().await?;
+            for bill_name in bill_names {
+                if !record_in_dht.contains(&bill_name) {
+                    new_record += (",".to_string() + &bill_name.clone()).as_str();
+                    self.start_providing(bill_name.clone()).await?;
+                }
+            }
+            if !record_in_dht.eq(&new_record) {
+                self.put_record(node_request.clone(), new_record).await?;
+            }
+        } else {
+            let mut new_record = String::new();
+            let bill_names = self.bill_store.get_bill_names().await?;
+            for bill_name in bill_names {
+                if new_record.is_empty() {
+                    new_record = bill_name.clone();
+                    self.start_providing(bill_name.clone()).await?;
+                } else {
+                    new_record += (",".to_string() + &bill_name.clone()).as_str();
+                    self.start_providing(bill_name.clone()).await?;
+                }
+            }
+            if !new_record.is_empty() {
+                self.put_record(node_request.clone(), new_record).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Starts providing all locally available bills
+    pub async fn start_providing_bills(&mut self) -> Result<()> {
+        let bills = self.bill_store.get_bill_names().await?;
+        for bill in bills {
+            self.start_providing(bill).await?;
+        }
+        Ok(())
+    }
+
+    /// Adds the given bill for the given node id
+    pub async fn add_bill_to_dht_for_node(&mut self, bill_name: &str, node_id: &str) -> Result<()> {
+        let node_request = BILLS_PREFIX.to_string() + node_id;
+        let mut record_for_saving_in_dht;
+        let list_bills_for_node = self.get_record(node_request.clone()).await?;
+        let value = list_bills_for_node.value;
+        if !value.is_empty() {
+            record_for_saving_in_dht = std::str::from_utf8(&value)?.to_string();
+            if !record_for_saving_in_dht.contains(bill_name) {
+                record_for_saving_in_dht = record_for_saving_in_dht.to_string() + "," + bill_name;
+            }
+        } else {
+            record_for_saving_in_dht = bill_name.to_owned();
+        }
+
+        if !std::str::from_utf8(&value)?
+            .to_string()
+            .eq(&record_for_saving_in_dht)
+        {
+            self.put_record(node_request.clone(), record_for_saving_in_dht.to_string())
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Checks the DHT for new bills, fetching the bill data, keys and files for them
     pub async fn check_new_bills(&mut self, node_id: String) -> Result<()> {
         let node_request = BILLS_PREFIX.to_string() + &node_id;
         let list_bills_for_node = self.get_record(node_request.clone()).await?;
@@ -106,123 +281,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn update_table(&mut self, node_id: String) -> Result<()> {
-        let node_request = BILLS_PREFIX.to_string() + &node_id;
-        let list_bills_for_node = self.get_record(node_request.clone()).await?;
-        let value = list_bills_for_node.value;
-
-        if !value.is_empty() {
-            let record_in_dht = std::str::from_utf8(&value)?.to_string();
-            let mut new_record: String = record_in_dht.clone();
-
-            let bill_names = self.bill_store.get_bill_names().await?;
-            for bill_name in bill_names {
-                if !record_in_dht.contains(&bill_name) {
-                    new_record += (",".to_string() + &bill_name.clone()).as_str();
-                    self.put(&bill_name).await?;
-                }
-            }
-            if !record_in_dht.eq(&new_record) {
-                self.put_record(node_request.clone(), new_record).await?;
-            }
-        } else {
-            let mut new_record = String::new();
-            let bill_names = self.bill_store.get_bill_names().await?;
-            for bill_name in bill_names {
-                if new_record.is_empty() {
-                    new_record = bill_name.clone();
-                    self.put(&bill_name).await?;
-                } else {
-                    new_record += (",".to_string() + &bill_name.clone()).as_str();
-                    self.put(&bill_name).await?;
-                }
-            }
-            if !new_record.is_empty() {
-                self.put_record(node_request.clone(), new_record).await?;
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn start_providing_bills(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bill_names().await?;
-        for bill in bills {
-            self.put(&bill).await?;
-        }
-        Ok(())
-    }
-
-    pub async fn put_identity_public_data_in_dht(&mut self) -> Result<()> {
-        if self.identity_store.exists().await {
-            let identity = self.identity_store.get_full().await?;
-            let identity_data = IdentityPublicData::new(
-                identity.identity.clone(),
-                identity.peer_id.to_string().clone(),
-            );
-
-            let key = format!("{}{}", INFO_PREFIX, &identity_data.peer_id);
-            let current_info = self.get_record(key.clone()).await?.value;
-            let mut current_info_string = String::new();
-            if !current_info.is_empty() {
-                current_info_string = std::str::from_utf8(&current_info)?.to_string();
-            }
-            let value = serde_json::to_string(&identity_data)?;
-            if !current_info_string.eq(&value) {
-                self.put_record(key, value).await?;
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn get_identity_public_data_from_dht(
-        &mut self,
-        peer_id: String,
-    ) -> Result<IdentityPublicData> {
-        let key = format!("{}{}", INFO_PREFIX, &peer_id);
-        let current_info = self.get_record(key.clone()).await?.value;
-        let mut identity_public_data: IdentityPublicData = IdentityPublicData::new_empty();
-        if !current_info.is_empty() {
-            let current_info_string = std::str::from_utf8(&current_info)?.to_string();
-            identity_public_data = serde_json::from_str(&current_info_string)?;
-        }
-
-        Ok(identity_public_data)
-    }
-
-    pub async fn add_bill_to_dht_for_node(&mut self, bill_name: &str, node_id: &str) -> Result<()> {
-        let node_request = BILLS_PREFIX.to_string() + node_id;
-        let mut record_for_saving_in_dht;
-        let list_bills_for_node = self.get_record(node_request.clone()).await?;
-        let value = list_bills_for_node.value;
-        if !value.is_empty() {
-            record_for_saving_in_dht = std::str::from_utf8(&value)?.to_string();
-            if !record_for_saving_in_dht.contains(bill_name) {
-                record_for_saving_in_dht = record_for_saving_in_dht.to_string() + "," + bill_name;
-            }
-        } else {
-            record_for_saving_in_dht = bill_name.to_owned();
-        }
-
-        if !std::str::from_utf8(&value)?
-            .to_string()
-            .eq(&record_for_saving_in_dht)
-        {
-            self.put_record(node_request.clone(), record_for_saving_in_dht.to_string())
-                .await?;
-        }
-        Ok(())
-    }
-
-    pub async fn add_message_to_topic(&mut self, msg: Vec<u8>, topic: String) -> Result<()> {
-        self.send_message(msg, topic).await?;
-        Ok(())
-    }
-
-    pub async fn put(&mut self, name: &str) -> Result<()> {
-        self.start_providing(name.to_owned()).await?;
-        Ok(())
-    }
-
+    /// Requests the data file for the given bill
     pub async fn get_bill(&mut self, name: &str) -> Result<Vec<u8>> {
         let local_peer_id = self.identity_store.get_peer_id().await?;
         let mut providers = self.get_providers(name.to_owned()).await?;
@@ -316,6 +375,7 @@ impl Client {
         }
     }
 
+    /// Requests the keys file for the given bill
     pub async fn get_key(&mut self, name: &str) -> Result<Vec<u8>> {
         let local_peer_id = self.identity_store.get_peer_id().await?;
         let mut providers = self.get_providers(name.to_owned()).await?;
@@ -340,6 +400,7 @@ impl Client {
         }
     }
 
+    /// Puts all participants of every local bill to the record of the respective bill in the DHT
     pub async fn put_bills_for_parties(&mut self) -> Result<()> {
         let bills = self.bill_store.get_bills().await?;
 
@@ -353,6 +414,7 @@ impl Client {
         Ok(())
     }
 
+    /// Subscribes to all locally available bills
     pub async fn subscribe_to_all_bills_topics(&mut self) -> Result<()> {
         let bills = self.bill_store.get_bills().await?;
 
@@ -362,6 +424,7 @@ impl Client {
         Ok(())
     }
 
+    /// Asks on the topic to receive the current chain of all local bills
     pub async fn receive_updates_for_all_bills_topics(&mut self) -> Result<()> {
         let bills = self.bill_store.get_bills().await?;
 
@@ -374,6 +437,17 @@ impl Client {
         Ok(())
     }
 
+    // -------------------------------------------------------------
+    // Utility Functions for the DHT -------------------------------
+    // -------------------------------------------------------------
+
+    /// Sends the given message to the given topic via the event loop
+    pub async fn add_message_to_topic(&mut self, msg: Vec<u8>, topic: String) -> Result<()> {
+        self.send_message(msg, topic).await?;
+        Ok(())
+    }
+
+    /// Subscribe to the given topic via the event loop
     pub async fn subscribe_to_topic(&mut self, topic: String) -> Result<()> {
         self.sender
             .send(Command::SubscribeToTopic { topic })
@@ -381,6 +455,7 @@ impl Client {
         Ok(())
     }
 
+    /// Send the given message to the given topic via the event loop
     pub async fn send_message(&mut self, msg: Vec<u8>, topic: String) -> Result<()> {
         self.sender
             .send(Command::SendMessage { msg, topic })
@@ -388,11 +463,13 @@ impl Client {
         Ok(())
     }
 
+    /// Puts the given value into the DHT at the given key via the event loop
     pub async fn put_record(&mut self, key: String, value: String) -> Result<()> {
         self.sender.send(Command::PutRecord { key, value }).await?;
         Ok(())
     }
 
+    /// Gets the record for the given key via the event loop
     pub async fn get_record(&mut self, key: String) -> Result<Record> {
         let (sender, receiver) = oneshot::channel();
         self.sender.send(Command::GetRecord { key, sender }).await?;
@@ -400,25 +477,28 @@ impl Client {
         Ok(record)
     }
 
-    async fn start_providing(&mut self, file_name: String) -> Result<()> {
+    /// Adds the current node to the list of providers for the given entry via the event loop
+    pub async fn start_providing(&mut self, entry: String) -> Result<()> {
         let (sender, receiver) = oneshot::channel();
         self.sender
-            .send(Command::StartProviding { file_name, sender })
+            .send(Command::StartProviding { entry, sender })
             .await?;
         receiver.await?;
         Ok(())
     }
 
-    pub async fn get_providers(&mut self, file_name: String) -> Result<HashSet<PeerId>> {
+    /// Gets the providers for the given file via the event loop
+    pub async fn get_providers(&mut self, entry: String) -> Result<HashSet<PeerId>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
-            .send(Command::GetProviders { file_name, sender })
+            .send(Command::GetProviders { entry, sender })
             .await
             .expect("Command receiver not to be dropped.");
         let providers = receiver.await?;
         Ok(providers)
     }
 
+    /// Request the given file via the event loop
     async fn request_file(&mut self, peer: PeerId, file_name: String) -> Result<Vec<u8>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
@@ -432,13 +512,23 @@ impl Client {
         res.map_err(|e| super::Error::RequestFile(e.to_string()))
     }
 
-    async fn respond_file(&mut self, file: Vec<u8>, channel: ResponseChannel<FileResponse>) {
+    /// Respond with the given file via the event loop
+    async fn respond_file(
+        &mut self,
+        file: Vec<u8>,
+        channel: ResponseChannel<FileResponse>,
+    ) -> Result<()> {
         self.sender
             .send(Command::RespondFile { file, channel })
-            .await
-            .expect("Command receiver not to be dropped.");
+            .await?;
+        Ok(())
     }
 
+    // -------------------------------------------------------------
+    // Request handling code ---------------------------------------
+    // -------------------------------------------------------------
+
+    /// Handles incoming requests
     async fn handle_event(&mut self, event: Event) {
         let Event::InboundRequest { request, channel } = event;
         match parse_inbound_file_request(&request) {
@@ -455,7 +545,9 @@ impl Client {
                                 error!("Could not handle inbound request {request}: {e}")
                             }
                             Ok(file) => {
-                                self.respond_file(file, channel).await;
+                                if let Err(e) = self.respond_file(file, channel).await {
+                                    error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                }
                             }
                         }
                     }
@@ -483,7 +575,11 @@ impl Client {
                                             let file_encrypted =
                                                 encrypt_bytes_with_public_key(&file, &public_key);
 
-                                            self.respond_file(file_encrypted, channel).await;
+                                            if let Err(e) =
+                                                self.respond_file(file_encrypted, channel).await
+                                            {
+                                                error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                            }
                                         }
                                     }
                                 }
@@ -519,7 +615,11 @@ impl Client {
                                             let file_encrypted =
                                                 encrypt_bytes_with_public_key(&file, &public_key);
 
-                                            self.respond_file(file_encrypted, channel).await;
+                                            if let Err(e) =
+                                                self.respond_file(file_encrypted, channel).await
+                                            {
+                                                error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                            }
                                         }
                                     }
                                 }

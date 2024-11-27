@@ -141,11 +141,11 @@ impl From<dcutr::Event> for ComposedEvent {
 #[derive(Debug)]
 pub enum Command {
     StartProviding {
-        file_name: String,
+        entry: String,
         sender: oneshot::Sender<()>,
     },
     GetProviders {
-        file_name: String,
+        entry: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
     PutRecord {

@@ -49,7 +49,7 @@ pub async fn run_terminal_client(
 async fn handle_input_line(dht_client: &mut Client, line: String) {
     let mut args = line.split(' ');
     match args.next() {
-        Some("PUT") => {
+        Some("START_PROVIDING") => {
             let name: String = {
                 match args.next() {
                     Some(name) => String::from(name),
@@ -59,8 +59,8 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            if let Err(e) = dht_client.put(&name).await {
-                error!("Could not put {name}: {e}");
+            if let Err(e) = dht_client.start_providing(name.clone()).await {
+                error!("Could not start providing {name}: {e}");
             };
         }
 

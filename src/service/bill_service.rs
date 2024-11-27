@@ -711,8 +711,7 @@ impl BillServiceApi for BillService {
         }
 
         client.subscribe_to_topic(bill_name.to_owned()).await?;
-
-        client.put(bill_name).await?;
+        client.start_providing(bill_name.to_owned()).await?;
         Ok(())
     }
 
@@ -1055,7 +1054,8 @@ mod test {
     use libp2p::{identity::Keypair, PeerId};
     use mockall::predicate::{always, eq};
     use persistence::{
-        bill::MockBillStoreApi, file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
+        bill::MockBillStoreApi, company::MockCompanyStoreApi, file_upload::MockFileUploadStoreApi,
+        identity::MockIdentityStoreApi,
     };
     use std::sync::Arc;
 
@@ -1113,6 +1113,7 @@ mod test {
             Client::new(
                 sender,
                 Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockCompanyStoreApi::new()),
                 Arc::new(MockIdentityStoreApi::new()),
             ),
             Arc::new(mock_storage),
@@ -1130,6 +1131,7 @@ mod test {
             Client::new(
                 sender,
                 Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockCompanyStoreApi::new()),
                 Arc::new(MockIdentityStoreApi::new()),
             ),
             Arc::new(mock_storage),
@@ -1147,6 +1149,7 @@ mod test {
             Client::new(
                 sender,
                 Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockCompanyStoreApi::new()),
                 Arc::new(MockIdentityStoreApi::new()),
             ),
             Arc::new(mock_storage),
