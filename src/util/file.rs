@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use rocket::fs::TempFile;
-use std::{ffi::OsStr, fs::DirEntry, path::Path};
+use std::{ffi::OsStr, path::Path};
 use tokio::io::AsyncReadExt;
 
 #[cfg(test)]
@@ -79,23 +79,6 @@ pub fn generate_unique_filename(original_filename: &str, extension: Option<Strin
         optional_dot,
         extension
     )
-}
-
-/// Function to make sure a given file is neither hidden, nor a directory
-pub fn is_not_hidden_or_directory(entry: &DirEntry) -> bool {
-    let file_type = match entry.file_type() {
-        Err(_) => return false,
-        Ok(t) => t,
-    };
-
-    if file_type.is_dir() {
-        return false;
-    }
-
-    match hf::is_hidden(entry.path()) {
-        Ok(res) => !res,
-        Err(_) => false,
-    }
 }
 
 /// Function to make sure a given file is neither hidden, nor a directory - async version

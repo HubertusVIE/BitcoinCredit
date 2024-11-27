@@ -67,7 +67,7 @@ impl ContactServiceApi for ContactService {
                 .client
                 .clone()
                 .get_identity_public_data_from_dht(identity.peer_id.clone())
-                .await;
+                .await?;
 
             if !public.name.is_empty() && public.ne(&identity) {
                 self.update_identity(name, public.to_owned()).await?;
@@ -101,7 +101,7 @@ impl ContactServiceApi for ContactService {
             .client
             .clone()
             .get_identity_public_data_from_dht(peer_id.to_owned())
-            .await;
+            .await?;
 
         if public.name.is_empty() {
             self.store.insert(name, default.clone()).await?;

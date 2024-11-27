@@ -30,6 +30,9 @@ pub trait BillStoreApi: Send + Sync {
     /// Reads the keys for the given bill as bytes
     async fn get_bill_keys_as_bytes(&self, bill_name: &str) -> Result<Vec<u8>>;
 
+    /// Gets all bill names
+    async fn get_bill_names(&self) -> Result<Vec<String>>;
+
     /// Gets all bills
     async fn get_bills(&self) -> Result<Vec<BitcreditBill>>;
 
@@ -135,6 +138,21 @@ impl BillStoreApi for FileBasedBillStore {
         let keys_path = self.get_path_for_bill_keys(bill_name);
         let bytes = read(keys_path).await?;
         Ok(bytes)
+    }
+
+    async fn get_bill_names(&self) -> Result<Vec<String>> {
+        let mut res = vec![];
+        let mut dir = read_dir(self.get_path_for_bills()).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            if is_not_hidden_or_directory_async(&entry).await {
+                if let Some(bill_name) = entry.path().file_stem() {
+                    if let Some(bill_name_str) = bill_name.to_str() {
+                        res.push(bill_name_str.to_owned());
+                    }
+                }
+            }
+        }
+        Ok(res)
     }
 
     async fn get_bills(&self) -> Result<Vec<BitcreditBill>> {

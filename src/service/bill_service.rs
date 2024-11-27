@@ -10,8 +10,8 @@ use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::util::get_current_payee_private_key;
 use crate::web::data::File;
+use crate::{dht, external, persistence, util};
 use crate::{dht::Client, persistence::bill::BillStoreApi};
-use crate::{external, persistence, util};
 use async_trait::async_trait;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -55,6 +55,10 @@ pub enum Error {
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] blockchain::Error),
 
+    /// errors that stem from interacting with the Dht
+    #[error("Dht error: {0}")]
+    Dht(#[from] dht::Error),
+
     /// all errors originating from the persistence layer
     #[error("Persistence error: {0}")]
     Persistence(#[from] persistence::Error),
@@ -87,6 +91,10 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             }
             Error::Validation(msg) => build_validation_response(msg),
             Error::Blockchain(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            Error::Dht(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
@@ -510,13 +518,10 @@ impl BillServiceApi for BillService {
     }
 
     async fn find_bill_in_dht(&self, bill_name: &str) -> Result<()> {
-        let mut client = self.client.clone();
-        let bill_bytes = client.get_bill(bill_name.to_string()).await;
-        if !bill_bytes.is_empty() {
-            self.store
-                .write_bill_to_file(bill_name, &bill_bytes)
-                .await?;
-        }
+        let bill_bytes = self.client.clone().get_bill(bill_name).await?;
+        self.store
+            .write_bill_to_file(bill_name, &bill_bytes)
+            .await?;
         Ok(())
     }
 
@@ -676,7 +681,7 @@ impl BillServiceApi for BillService {
         self.client
             .clone()
             .add_message_to_topic(message, bill_name.to_owned())
-            .await;
+            .await?;
         Ok(())
     }
 
@@ -684,7 +689,7 @@ impl BillServiceApi for BillService {
         self.client
             .clone()
             .add_bill_to_dht_for_node(bill_name, node_id)
-            .await;
+            .await?;
         Ok(())
     }
 
@@ -700,13 +705,13 @@ impl BillServiceApi for BillService {
         for node in [drawer_peer_id, drawee_peer_id, payee_peer_id] {
             if !node.is_empty() {
                 info!("issue bill: add {} for node {}", bill_name, &node);
-                client.add_bill_to_dht_for_node(bill_name, node).await;
+                client.add_bill_to_dht_for_node(bill_name, node).await?;
             }
         }
 
-        client.subscribe_to_topic(bill_name.to_owned()).await;
+        client.subscribe_to_topic(bill_name.to_owned()).await?;
 
-        client.put(bill_name).await;
+        client.put(bill_name).await?;
         Ok(())
     }
 

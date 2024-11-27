@@ -59,8 +59,7 @@ impl IdentityServiceApi for IdentityService {
         self.client
             .clone()
             .put_identity_public_data_in_dht()
-            .await
-            .map_err(|e| super::Error::Dht(e.to_string()))?;
+            .await?;
         Ok(())
     }
 
@@ -122,8 +121,7 @@ impl IdentityServiceApi for IdentityService {
         self.client
             .clone()
             .put_identity_public_data_in_dht()
-            .await
-            .map_err(|e| super::Error::Dht(e.to_string()))?;
+            .await?;
 
         Ok(())
     }

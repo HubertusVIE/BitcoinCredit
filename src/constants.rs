@@ -3,6 +3,7 @@ use std::net::Ipv4Addr;
 
 // General
 pub const BILLS_PREFIX: &str = "BILLS";
+pub const INFO_PREFIX: &str = "INFO";
 pub const BILL_PREFIX: &str = "BILL";
 pub const BILL_ATTACHMENT_PREFIX: &str = "BILLATT";
 pub const KEY_PREFIX: &str = "KEY";

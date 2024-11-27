@@ -3,17 +3,14 @@ use super::behaviour::{
     parse_inbound_file_request, BillAttachmentFileRequest, BillFileRequest, BillKeysFileRequest,
     Command, Event, FileResponse, ParsedInboundFileRequest,
 };
+use super::Result;
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
-use crate::constants::{BILLS_FOLDER_PATH, BILLS_PREFIX};
+use crate::constants::{BILLS_PREFIX, INFO_PREFIX};
 use crate::persistence::bill::BillStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
-use crate::util::{
-    file::is_not_hidden_or_directory,
-    rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key},
-};
-use anyhow::{anyhow, Result};
+use crate::util::rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key};
 use futures::channel::mpsc::Receiver;
 use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
@@ -22,7 +19,6 @@ use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use log::{error, info};
 use std::collections::HashSet;
-use std::fs;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -62,174 +58,98 @@ impl Client {
         }
     }
 
-    pub async fn check_new_bills(&mut self, node_id: String) {
+    pub async fn check_new_bills(&mut self, node_id: String) -> Result<()> {
         let node_request = BILLS_PREFIX.to_string() + &node_id;
-        let list_bills_for_node = self.get_record(node_request.clone()).await;
+        let list_bills_for_node = self.get_record(node_request.clone()).await?;
         let value = list_bills_for_node.value;
 
         if !value.is_empty() {
-            let record_for_saving_in_dht = std::str::from_utf8(&value)
-                .expect("Cant get value.")
-                .to_string();
+            let record_for_saving_in_dht = std::str::from_utf8(&value)?.to_string();
             let bills = record_for_saving_in_dht.split(',');
             for bill_id in bills {
                 if !self.bill_store.bill_exists(bill_id).await {
-                    let bill_bytes = self.get_bill(bill_id.to_string()).await;
-                    if !bill_bytes.is_empty() {
-                        self.bill_store
-                            .write_bill_to_file(bill_id, &bill_bytes)
-                            .await
-                            .expect("can't write bill file");
-                    }
+                    let bill_bytes = self.get_bill(bill_id).await?;
+                    self.bill_store
+                        .write_bill_to_file(bill_id, &bill_bytes)
+                        .await?;
 
-                    let key_bytes = self.get_key(bill_id.to_string().clone()).await;
-                    if !key_bytes.is_empty() {
-                        let pr_key = self
-                            .identity_store
-                            .get_full()
-                            .await
-                            .expect("identity can be fetched")
-                            .identity
-                            .private_key_pem;
+                    let key_bytes = self.get_key(bill_id).await?;
+                    let pr_key = self
+                        .identity_store
+                        .get_full()
+                        .await?
+                        .identity
+                        .private_key_pem;
 
-                        let key_bytes_decrypted =
-                            decrypt_bytes_with_private_key(&key_bytes, pr_key);
-                        self.bill_store
-                            .write_bill_keys_to_file_as_bytes(bill_id, &key_bytes_decrypted)
-                            .await
-                            .expect("can't write bill keys file");
-                    }
+                    let key_bytes_decrypted = decrypt_bytes_with_private_key(&key_bytes, pr_key);
+                    self.bill_store
+                        .write_bill_keys_to_file_as_bytes(bill_id, &key_bytes_decrypted)
+                        .await?;
 
-                    if !bill_bytes.is_empty() {
-                        if let Ok(chain) = self.bill_store.read_bill_chain_from_file(bill_id).await
-                        {
-                            let bill = chain.get_first_version_bill();
-                            for file in bill.files {
-                                if let Err(e) = self
-                                    .get_bill_attachment(bill_id.to_owned(), file.name.clone())
-                                    .await
-                                {
-                                    error!("Could not get bill attachment with file name {} for bill {bill_id}: {e}", file.name);
-                                }
+                    if let Ok(chain) = self.bill_store.read_bill_chain_from_file(bill_id).await {
+                        let bill = chain.get_first_version_bill();
+                        for file in bill.files {
+                            if let Err(e) = self.get_bill_attachment(bill_id, &file.name).await {
+                                error!("Could not get bill attachment with file name {} for bill {bill_id}: {e}", file.name);
                             }
                         }
                     }
 
-                    if !bill_bytes.is_empty() {
-                        self.sender
-                            .send(Command::SubscribeToTopic {
-                                topic: bill_id.to_string().clone(),
-                            })
-                            .await
-                            .expect("Command receiver not to be dropped.");
-                    }
+                    self.sender
+                        .send(Command::SubscribeToTopic {
+                            topic: bill_id.to_string().clone(),
+                        })
+                        .await?;
                 }
             }
         }
+        Ok(())
     }
 
-    //TODO: change
-    //
-    // pub async fn upgrade_table_for_other_node(&mut self, node_id: String, bill: String) {
-    //     let node_request = BILLS_PREFIX.to_string() + &node_id;
-    //     let list_bills_for_node = self.get_record(node_request.clone()).await;
-    //     let value = list_bills_for_node.value;
-    //
-    //     if !value.is_empty() {
-    //         let record_in_dht = std::str::from_utf8(&value)
-    //             .expect("Cant get value.")
-    //             .to_string();
-    //         let mut new_record: String = record_in_dht.clone();
-    //
-    //         if !record_in_dht.contains(&bill) {
-    //             new_record += (",".to_string() + &bill).as_str();
-    //         }
-    //
-    //         if !record_in_dht.eq(&new_record) {
-    //             self.put_record(node_request.clone(), new_record).await;
-    //         }
-    //     } else {
-    //         let mut new_record: String = bill.clone();
-    //
-    //         if !new_record.is_empty() {
-    //             self.put_record(node_request.clone(), new_record).await;
-    //         }
-    //     }
-    // }
-
-    pub async fn upgrade_table(&mut self, node_id: String) {
+    pub async fn update_table(&mut self, node_id: String) -> Result<()> {
         let node_request = BILLS_PREFIX.to_string() + &node_id;
-        let list_bills_for_node = self.get_record(node_request.clone()).await;
+        let list_bills_for_node = self.get_record(node_request.clone()).await?;
         let value = list_bills_for_node.value;
 
         if !value.is_empty() {
-            let record_in_dht = std::str::from_utf8(&value)
-                .expect("Cant get value.")
-                .to_string();
+            let record_in_dht = std::str::from_utf8(&value)?.to_string();
             let mut new_record: String = record_in_dht.clone();
 
-            for file in fs::read_dir(BILLS_FOLDER_PATH).unwrap() {
-                let dir = file.unwrap();
-                if is_not_hidden_or_directory(&dir) {
-                    let bill_name = dir
-                        .path()
-                        .file_stem()
-                        .expect("File name error")
-                        .to_str()
-                        .expect("File name error")
-                        .to_owned();
-
-                    if !record_in_dht.contains(&bill_name) {
-                        new_record += (",".to_string() + &bill_name.clone()).as_str();
-                        self.put(&bill_name).await;
-                    }
+            let bill_names = self.bill_store.get_bill_names().await?;
+            for bill_name in bill_names {
+                if !record_in_dht.contains(&bill_name) {
+                    new_record += (",".to_string() + &bill_name.clone()).as_str();
+                    self.put(&bill_name).await?;
                 }
             }
             if !record_in_dht.eq(&new_record) {
-                self.put_record(node_request.clone(), new_record).await;
+                self.put_record(node_request.clone(), new_record).await?;
             }
         } else {
             let mut new_record = String::new();
-            for file in fs::read_dir(BILLS_FOLDER_PATH).unwrap() {
-                let dir = file.unwrap();
-                if is_not_hidden_or_directory(&dir) {
-                    let bill_name = dir
-                        .path()
-                        .file_stem()
-                        .expect("File name error")
-                        .to_str()
-                        .expect("File name error")
-                        .to_owned();
-
-                    if new_record.is_empty() {
-                        new_record = bill_name.clone();
-                        self.put(&bill_name).await;
-                    } else {
-                        new_record += (",".to_string() + &bill_name.clone()).as_str();
-                        self.put(&bill_name).await;
-                    }
+            let bill_names = self.bill_store.get_bill_names().await?;
+            for bill_name in bill_names {
+                if new_record.is_empty() {
+                    new_record = bill_name.clone();
+                    self.put(&bill_name).await?;
+                } else {
+                    new_record += (",".to_string() + &bill_name.clone()).as_str();
+                    self.put(&bill_name).await?;
                 }
             }
             if !new_record.is_empty() {
-                self.put_record(node_request.clone(), new_record).await;
+                self.put_record(node_request.clone(), new_record).await?;
             }
         }
+        Ok(())
     }
 
-    pub async fn start_provide(&mut self) {
-        for file in fs::read_dir(BILLS_FOLDER_PATH).unwrap() {
-            let dir = file.unwrap();
-            if is_not_hidden_or_directory(&dir) {
-                let bill_name = dir
-                    .path()
-                    .file_stem()
-                    .expect("File name error")
-                    .to_str()
-                    .expect("File name error")
-                    .to_owned();
-                self.put(&bill_name).await;
-            }
+    pub async fn start_providing_bills(&mut self) -> Result<()> {
+        let bills = self.bill_store.get_bill_names().await?;
+        for bill in bills {
+            self.put(&bill).await?;
         }
+        Ok(())
     }
 
     pub async fn put_identity_public_data_in_dht(&mut self) -> Result<()> {
@@ -240,17 +160,15 @@ impl Client {
                 identity.peer_id.to_string().clone(),
             );
 
-            let key = "INFO".to_string() + &identity_data.peer_id;
-            let current_info = self.get_record(key.clone()).await.value;
+            let key = format!("{}{}", INFO_PREFIX, &identity_data.peer_id);
+            let current_info = self.get_record(key.clone()).await?.value;
             let mut current_info_string = String::new();
             if !current_info.is_empty() {
-                current_info_string = std::str::from_utf8(&current_info)
-                    .expect("Cant get value.")
-                    .to_string();
+                current_info_string = std::str::from_utf8(&current_info)?.to_string();
             }
-            let value = serde_json::to_string(&identity_data).unwrap();
+            let value = serde_json::to_string(&identity_data)?;
             if !current_info_string.eq(&value) {
-                self.put_record(key, value).await;
+                self.put_record(key, value).await?;
             }
         }
         Ok(())
@@ -259,29 +177,25 @@ impl Client {
     pub async fn get_identity_public_data_from_dht(
         &mut self,
         peer_id: String,
-    ) -> IdentityPublicData {
-        let key = "INFO".to_string() + &peer_id;
-        let current_info = self.get_record(key.clone()).await.value;
+    ) -> Result<IdentityPublicData> {
+        let key = format!("{}{}", INFO_PREFIX, &peer_id);
+        let current_info = self.get_record(key.clone()).await?.value;
         let mut identity_public_data: IdentityPublicData = IdentityPublicData::new_empty();
         if !current_info.is_empty() {
-            let current_info_string = std::str::from_utf8(&current_info)
-                .expect("Cant get value.")
-                .to_string();
-            identity_public_data = serde_json::from_str(&current_info_string).unwrap();
+            let current_info_string = std::str::from_utf8(&current_info)?.to_string();
+            identity_public_data = serde_json::from_str(&current_info_string)?;
         }
 
-        identity_public_data
+        Ok(identity_public_data)
     }
 
-    pub async fn add_bill_to_dht_for_node(&mut self, bill_name: &str, node_id: &str) {
+    pub async fn add_bill_to_dht_for_node(&mut self, bill_name: &str, node_id: &str) -> Result<()> {
         let node_request = BILLS_PREFIX.to_string() + node_id;
         let mut record_for_saving_in_dht;
-        let list_bills_for_node = self.get_record(node_request.clone()).await;
+        let list_bills_for_node = self.get_record(node_request.clone()).await?;
         let value = list_bills_for_node.value;
         if !value.is_empty() {
-            record_for_saving_in_dht = std::str::from_utf8(&value)
-                .expect("Cant get value.")
-                .to_string();
+            record_for_saving_in_dht = std::str::from_utf8(&value)?.to_string();
             if !record_for_saving_in_dht.contains(bill_name) {
                 record_for_saving_in_dht = record_for_saving_in_dht.to_string() + "," + bill_name;
             }
@@ -289,104 +203,93 @@ impl Client {
             record_for_saving_in_dht = bill_name.to_owned();
         }
 
-        if !std::str::from_utf8(&value)
-            .expect("Cant get value.")
+        if !std::str::from_utf8(&value)?
             .to_string()
             .eq(&record_for_saving_in_dht)
         {
             self.put_record(node_request.clone(), record_for_saving_in_dht.to_string())
-                .await;
+                .await?;
         }
+        Ok(())
     }
 
-    pub async fn add_message_to_topic(&mut self, msg: Vec<u8>, topic: String) {
-        self.send_message(msg, topic).await;
+    pub async fn add_message_to_topic(&mut self, msg: Vec<u8>, topic: String) -> Result<()> {
+        self.send_message(msg, topic).await?;
+        Ok(())
     }
 
-    pub async fn put(&mut self, name: &str) {
-        self.start_providing(name.to_owned()).await;
+    pub async fn put(&mut self, name: &str) -> Result<()> {
+        self.start_providing(name.to_owned()).await?;
+        Ok(())
     }
 
-    pub async fn get_bill(&mut self, name: String) -> Vec<u8> {
-        let providers = self.get_providers(name.clone()).await;
+    pub async fn get_bill(&mut self, name: &str) -> Result<Vec<u8>> {
+        let local_peer_id = self.identity_store.get_peer_id().await?;
+        let mut providers = self.get_providers(name.to_owned()).await?;
+        providers.remove(&local_peer_id);
         if providers.is_empty() {
-            error!("No providers was found.");
-            Vec::new()
-        } else {
-            //TODO: If it's me - don't continue.
-            let local_peer_id = self.identity_store.get_peer_id().await.unwrap().to_string();
-            let requests = providers.into_iter().map(|peer| {
-                let mut network_client = self.clone();
+            return Err(super::Error::NoProviders(format!(
+                "Get Bill: No providers found for {name}",
+            )));
+        }
+        let requests = providers.into_iter().map(|peer| {
+            let mut network_client = self.clone();
 
-                let file_request = file_request_for_bill(&local_peer_id, &name);
-                async move { network_client.request_file(peer, file_request).await }.boxed()
-            });
+            let file_request = file_request_for_bill(&local_peer_id.to_string(), name);
+            async move { network_client.request_file(peer, file_request).await }.boxed()
+        });
 
-            let file_content = futures::future::select_ok(requests);
-
-            let file_content_await = file_content.await;
-
-            if file_content_await.is_err() {
-                error!("None of the providers returned file.");
-                Vec::new()
-            } else {
-                file_content_await
-                    .map_err(|_| "None of the providers returned file.")
-                    .expect("Can not get file content.")
-                    .0
-            }
+        match futures::future::select_ok(requests).await {
+            Err(e) => Err(super::Error::NoProviders(format!(
+                "Get Bill: None of the providers returned the file for {name}: {e}",
+            ))),
+            Ok(file_content) => Ok(file_content.0),
         }
     }
 
     /// Requests the given file for the given bill name, decrypting it, checking it's hash,
     /// encrypting it and saving it once it arrives
-    pub async fn get_bill_attachment(
-        &mut self,
-        bill_name: String,
-        file_name: String,
-    ) -> Result<()> {
+    pub async fn get_bill_attachment(&mut self, bill_name: &str, file_name: &str) -> Result<()> {
         // check if there is such a bill and if it contains this file
         let bill = self
             .bill_store
-            .read_bill_chain_from_file(&bill_name)
+            .read_bill_chain_from_file(bill_name)
             .await?
             .get_first_version_bill();
-        let local_hash = match bill.files.iter().find(|file| file.name.eq(&file_name)) {
+        let local_hash = match bill.files.iter().find(|file| file.name.eq(file_name)) {
             None => {
-                return Err(anyhow!("Get Bill Attachment: No file found in bill {bill_name} with file name {file_name}"));
+                return Err(super::Error::FileNotFoundInBill(format!("Get Bill Attachment: No file found in bill {bill_name} with file name {file_name}")));
             }
             Some(file) => &file.hash,
         };
 
         let local_peer_id = self.identity_store.get_peer_id().await?;
-        let mut providers = self.get_providers(bill_name.to_owned()).await;
+        let mut providers = self.get_providers(bill_name.to_owned()).await?;
         providers.remove(&local_peer_id);
         if providers.is_empty() {
-            return Err(anyhow!("Get Bill Attachment: No providers found"));
+            return Err(super::Error::NoProviders(format!(
+                "Get Bill Attachment: No providers found for {bill_name}",
+            )));
         }
 
         let requests = providers.into_iter().map(|peer_id| {
             let mut network_client = self.clone();
-            let file_request = file_request_for_bill_attachment(
-                &local_peer_id.to_string(),
-                &bill_name,
-                &file_name,
-            );
+            let file_request =
+                file_request_for_bill_attachment(&local_peer_id.to_string(), bill_name, file_name);
             async move { network_client.request_file(peer_id, file_request).await }.boxed()
         });
 
         match futures::future::select_ok(requests).await {
-            Err(e) => Err(anyhow!(
-                "Get Bill Attachment: None of the providers returned the file: {e}"
-            )),
+            Err(e) => Err(super::Error::NoFileFromProviders(format!(
+                "Get Bill Attachment: None of the providers returned the file for {bill_name}: {e}"
+            ))),
             Ok(file_content) => {
                 let bytes = file_content.0;
-                let keys = self.bill_store.read_bill_keys_from_file(&bill_name).await?;
+                let keys = self.bill_store.read_bill_keys_from_file(bill_name).await?;
                 let pr_key = self
                     .identity_store
                     .get_full()
-                    .await
-                    .unwrap()
+                    .await?
                     .identity
                     .private_key_pem;
                 // decrypt file using identity private key and check hash
@@ -398,7 +301,7 @@ impl Client {
                 );
                 let remote_hash = util::sha256_hash(&decrypted_with_bill_key);
                 if local_hash != remote_hash.as_str() {
-                    return Err(anyhow!("Get Bill Attachment: Hashes didn't match for bill {bill_name} and file name {file_name}, remote: {remote_hash}, local: {local_hash}"));
+                    return Err(super::Error::FileHashesDidNotMatch(format!("Get Bill Attachment: Hashes didn't match for bill {bill_name} and file name {file_name}, remote: {remote_hash}, local: {local_hash}")));
                 }
                 // encrypt with bill public key and save file locally
                 let encrypted = util::rsa::encrypt_bytes_with_public_key(
@@ -406,121 +309,114 @@ impl Client {
                     &keys.public_key_pem,
                 );
                 self.bill_store
-                    .save_attached_file(&encrypted, &bill_name, &file_name)
+                    .save_attached_file(&encrypted, bill_name, file_name)
                     .await?;
                 Ok(())
             }
         }
     }
 
-    pub async fn get_key(&mut self, name: String) -> Vec<u8> {
-        let providers = self.get_providers(name.clone()).await;
+    pub async fn get_key(&mut self, name: &str) -> Result<Vec<u8>> {
+        let local_peer_id = self.identity_store.get_peer_id().await?;
+        let mut providers = self.get_providers(name.to_owned()).await?;
+        providers.remove(&local_peer_id);
         if providers.is_empty() {
-            error!("No providers was found.");
-            Vec::new()
-        } else {
-            let local_peer_id = self.identity_store.get_peer_id().await.unwrap().to_string();
-            //TODO: If it's me - don't continue.
-            let requests = providers.into_iter().map(|peer| {
-                let mut network_client = self.clone();
+            return Err(super::Error::NoProviders(format!(
+                "Get Bill Keys: No providers found for {name}",
+            )));
+        }
+        let requests = providers.into_iter().map(|peer| {
+            let mut network_client = self.clone();
 
-                let file_request = file_request_for_bill_keys(&local_peer_id, &name);
-                async move { network_client.request_file(peer, file_request).await }.boxed()
-            });
+            let file_request = file_request_for_bill_keys(&local_peer_id.to_string(), name);
+            async move { network_client.request_file(peer, file_request).await }.boxed()
+        });
 
-            let file_content = futures::future::select_ok(requests);
-
-            let file_content_await = file_content.await;
-
-            if file_content_await.is_err() {
-                error!("None of the providers returned file.");
-                Vec::new()
-            } else {
-                file_content_await
-                    .map_err(|_| "None of the providers returned file.")
-                    .expect("Can not get file content.")
-                    .0
-            }
+        match futures::future::select_ok(requests).await {
+            Err(e) => Err(super::Error::NoFileFromProviders(format!(
+                "Get Bill Keys: None of the providers returned the file for {name}: {e}"
+            ))),
+            Ok(file_content) => Ok(file_content.0),
         }
     }
 
-    pub async fn put_bills_for_parties(&mut self) {
-        let bills = self.bill_store.get_bills().await.unwrap();
+    pub async fn put_bills_for_parties(&mut self) -> Result<()> {
+        let bills = self.bill_store.get_bills().await?;
 
         for bill in bills {
             let chain = Chain::read_chain_from_file(&bill.name);
             let nodes = chain.get_all_nodes_from_bill();
             for node in nodes {
-                self.add_bill_to_dht_for_node(&bill.name, &node).await;
+                self.add_bill_to_dht_for_node(&bill.name, &node).await?;
             }
         }
+        Ok(())
     }
 
-    pub async fn subscribe_to_all_bills_topics(&mut self) {
-        let bills = self.bill_store.get_bills().await.unwrap();
+    pub async fn subscribe_to_all_bills_topics(&mut self) -> Result<()> {
+        let bills = self.bill_store.get_bills().await?;
 
         for bill in bills {
-            self.subscribe_to_topic(bill.name).await;
+            self.subscribe_to_topic(bill.name).await?;
         }
+        Ok(())
     }
 
-    pub async fn receive_updates_for_all_bills_topics(&mut self) {
-        let bills = self.bill_store.get_bills().await.unwrap();
+    pub async fn receive_updates_for_all_bills_topics(&mut self) -> Result<()> {
+        let bills = self.bill_store.get_bills().await?;
 
         for bill in bills {
             let event = GossipsubEvent::new(GossipsubEventId::CommandGetChain, vec![0; 24]);
             let message = event.to_byte_array();
 
-            self.add_message_to_topic(message, bill.name).await;
+            self.add_message_to_topic(message, bill.name).await?;
         }
+        Ok(())
     }
 
-    pub async fn subscribe_to_topic(&mut self, topic: String) {
+    pub async fn subscribe_to_topic(&mut self, topic: String) -> Result<()> {
         self.sender
             .send(Command::SubscribeToTopic { topic })
-            .await
-            .expect("Command receiver not to be dropped.");
+            .await?;
+        Ok(())
     }
 
-    pub async fn send_message(&mut self, msg: Vec<u8>, topic: String) {
+    pub async fn send_message(&mut self, msg: Vec<u8>, topic: String) -> Result<()> {
         self.sender
             .send(Command::SendMessage { msg, topic })
-            .await
-            .expect("Command receiver not to be dropped.");
+            .await?;
+        Ok(())
     }
 
-    pub async fn put_record(&mut self, key: String, value: String) {
-        self.sender
-            .send(Command::PutRecord { key, value })
-            .await
-            .expect("Command receiver not to be dropped.");
+    pub async fn put_record(&mut self, key: String, value: String) -> Result<()> {
+        self.sender.send(Command::PutRecord { key, value }).await?;
+        Ok(())
     }
 
-    pub async fn get_record(&mut self, key: String) -> Record {
+    pub async fn get_record(&mut self, key: String) -> Result<Record> {
         let (sender, receiver) = oneshot::channel();
-        self.sender
-            .send(Command::GetRecord { key, sender })
-            .await
-            .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not to be dropped.")
+        self.sender.send(Command::GetRecord { key, sender }).await?;
+        let record = receiver.await?;
+        Ok(record)
     }
 
-    async fn start_providing(&mut self, file_name: String) {
+    async fn start_providing(&mut self, file_name: String) -> Result<()> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::StartProviding { file_name, sender })
-            .await
-            .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not to be dropped.");
+            .await?;
+        receiver.await?;
+        Ok(())
     }
 
-    pub async fn get_providers(&mut self, file_name: String) -> HashSet<PeerId> {
+    pub async fn get_providers(&mut self, file_name: String) -> Result<HashSet<PeerId>> {
         let (sender, receiver) = oneshot::channel();
         self.sender
             .send(Command::GetProviders { file_name, sender })
             .await
             .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not to be dropped.")
+        let providers = receiver.await?;
+        Ok(providers)
     }
 
     async fn request_file(&mut self, peer: PeerId, file_name: String) -> Result<Vec<u8>> {
@@ -531,9 +427,9 @@ impl Client {
                 peer,
                 sender,
             })
-            .await
-            .expect("Command receiver not to be dropped.");
-        receiver.await.expect("Sender not be dropped.")
+            .await?;
+        let res = receiver.await?;
+        res.map_err(|e| super::Error::RequestFile(e.to_string()))
     }
 
     async fn respond_file(&mut self, file: Vec<u8>, channel: ResponseChannel<FileResponse>) {
@@ -571,20 +467,25 @@ impl Client {
                     }) => {
                         let chain = Chain::read_chain_from_file(&key_name);
                         if chain.bill_contains_node(&node_id) {
-                            let public_key = self
-                                .get_identity_public_data_from_dht(node_id)
-                                .await
-                                .rsa_public_key_pem;
-
-                            match self.bill_store.get_bill_keys_as_bytes(&key_name).await {
+                            match self.get_identity_public_data_from_dht(node_id).await {
                                 Err(e) => {
-                                    error!("Could not handle inbound request {request}: {e}")
+                                    error!("Could not handle inbound request {request} - could not get identity public data for: {e}", )
                                 }
-                                Ok(file) => {
-                                    let file_encrypted =
-                                        encrypt_bytes_with_public_key(&file, &public_key);
+                                Ok(data) => {
+                                    let public_key = data.rsa_public_key_pem;
+                                    match self.bill_store.get_bill_keys_as_bytes(&key_name).await {
+                                        Err(e) => {
+                                            error!(
+                                                "Could not handle inbound request {request}: {e}"
+                                            )
+                                        }
+                                        Ok(file) => {
+                                            let file_encrypted =
+                                                encrypt_bytes_with_public_key(&file, &public_key);
 
-                                    self.respond_file(file_encrypted, channel).await;
+                                            self.respond_file(file_encrypted, channel).await;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -597,24 +498,30 @@ impl Client {
                     }) => {
                         let chain = Chain::read_chain_from_file(&bill_name);
                         if chain.bill_contains_node(&node_id) {
-                            let public_key = self
-                                .get_identity_public_data_from_dht(node_id)
-                                .await
-                                .rsa_public_key_pem;
-
-                            match self
-                                .bill_store
-                                .open_attached_file(&bill_name, &file_name)
-                                .await
-                            {
+                            match self.get_identity_public_data_from_dht(node_id).await {
                                 Err(e) => {
-                                    error!("Could not handle inbound request {request}: {e}")
+                                    error!("Could not handle inbound request {request} - could not get identity public data for: {e}");
                                 }
-                                Ok(file) => {
-                                    let file_encrypted =
-                                        encrypt_bytes_with_public_key(&file, &public_key);
+                                Ok(data) => {
+                                    let public_key = data.rsa_public_key_pem;
 
-                                    self.respond_file(file_encrypted, channel).await;
+                                    match self
+                                        .bill_store
+                                        .open_attached_file(&bill_name, &file_name)
+                                        .await
+                                    {
+                                        Err(e) => {
+                                            error!(
+                                                "Could not handle inbound request {request}: {e}"
+                                            )
+                                        }
+                                        Ok(file) => {
+                                            let file_encrypted =
+                                                encrypt_bytes_with_public_key(&file, &public_key);
+
+                                            self.respond_file(file_encrypted, channel).await;
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -23,12 +23,63 @@ mod event_loop;
 
 use crate::persistence::bill::BillStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
-use crate::util;
-use anyhow::Result;
+use crate::{persistence, util};
 pub use client::Client;
 use libp2p::identity::Keypair;
 use log::{error, info};
 use std::sync::Arc;
+use thiserror::Error;
+
+/// Generic result type
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Generic error type
+#[derive(Debug, Error)]
+pub enum Error {
+    /// all errors originating from serializing, or deserializing json
+    #[error("unable to serialize/deserialize to/from JSON {0}")]
+    Json(#[from] serde_json::Error),
+
+    /// all errors originating from the persistence layer
+    #[error("Persistence error: {0}")]
+    Persistence(#[from] persistence::Error),
+
+    /// all errors originating from running into utf8-related errors
+    #[error("utf-8 error when parsing string {0}")]
+    Utf8(#[from] std::str::Utf8Error),
+
+    /// all errors originating from using a broken channel
+    #[error("channel error {0}")]
+    SendChannel(#[from] futures::channel::mpsc::SendError),
+
+    /// all errors originating from using a closed onsehot channel
+    #[error("oneshot channel cancel error {0}")]
+    ChannelCanceled(#[from] futures::channel::oneshot::Canceled),
+
+    /// error if there are no providers
+    #[error("No providers found: {0}")]
+    NoProviders(String),
+
+    /// error if a file wasn't returned from any provider
+    #[error("No file returned from providers: {0}")]
+    NoFileFromProviders(String),
+
+    /// error if an attached file wasn't found in a bill
+    #[error("No file found in bill: {0}")]
+    FileNotFoundInBill(String),
+
+    /// error if file hashes of two files did not match
+    #[error("File hashes did not match: {0}")]
+    FileHashesDidNotMatch(String),
+
+    /// error if requesting a file fails
+    #[error("request file error: {0}")]
+    RequestFile(String),
+
+    /// error if the listen url is invalid
+    #[error("invalid listen p2p url error")]
+    ListenP2pUrlInvalid,
+}
 
 pub struct Dht {
     pub client: Client,
@@ -100,7 +151,12 @@ async fn new(
 
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
 
-    swarm.listen_on(conf.p2p_listen_url()?).unwrap();
+    swarm
+        .listen_on(
+            conf.p2p_listen_url()
+                .map_err(|_| Error::ListenP2pUrlInvalid)?,
+        )
+        .unwrap();
 
     // Wait to listen on all interfaces.
     let sleep = tokio::time::sleep(std::time::Duration::from_secs(1));

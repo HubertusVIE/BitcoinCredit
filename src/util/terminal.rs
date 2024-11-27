@@ -59,7 +59,9 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            dht_client.put(&name).await;
+            if let Err(e) = dht_client.put(&name).await {
+                error!("Could not put {name}: {e}");
+            };
         }
 
         Some("GET_BILL") => {
@@ -72,7 +74,9 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            dht_client.get_bill(name).await;
+            if let Err(e) = dht_client.get_bill(&name).await {
+                error!("Get Bill failed for {name}: {e}");
+            };
         }
 
         Some("GET_BILL_ATTACHMENT") => {
@@ -94,8 +98,8 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            if let Err(e) = dht_client.get_bill_attachment(name, file_name).await {
-                error!("Get Bill Attachment failed: {e}");
+            if let Err(e) = dht_client.get_bill_attachment(&name, &file_name).await {
+                error!("Get Bill Attachment failed for {name}: {e}");
             }
         }
 
@@ -109,7 +113,9 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            dht_client.get_key(name).await;
+            if let Err(e) = dht_client.get_key(&name).await {
+                error!("Get Bill Keys failed for {name}: {e}");
+            }
         }
 
         Some("PUT_RECORD") => {
@@ -132,7 +138,9 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                 }
             };
 
-            dht_client.put_record(key, value).await;
+            if let Err(e) = dht_client.put_record(key.clone(), value.clone()).await {
+                error!("Could not put record {value} to {key}: {e}");
+            }
         }
 
         Some("SEND_MESSAGE") => {
@@ -155,7 +163,12 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                 }
             };
 
-            dht_client.send_message(msg.into_bytes(), topic).await;
+            if let Err(e) = dht_client
+                .send_message(msg.clone().into_bytes(), topic.clone())
+                .await
+            {
+                error!("Could not send message {msg} to {topic}: {e}");
+            }
         }
 
         Some("SUBSCRIBE") => {
@@ -169,7 +182,9 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                 }
             };
 
-            dht_client.subscribe_to_topic(topic).await;
+            if let Err(e) = dht_client.subscribe_to_topic(topic.clone()).await {
+                error!("Could not subscribe to topic {topic}: {e}");
+            }
         }
 
         Some("GET_RECORD") => {
@@ -182,7 +197,9 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            dht_client.get_record(key).await;
+            if let Err(e) = dht_client.get_record(key.clone()).await {
+                error!("Could not get record for {key}: {e}");
+            }
         }
 
         Some("GET_PROVIDERS") => {
@@ -195,7 +212,9 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            dht_client.get_providers(key).await;
+            if let Err(e) = dht_client.get_providers(key.clone()).await {
+                error!("Could not get providers for {key}: {e}");
+            }
         }
 
         _ => {

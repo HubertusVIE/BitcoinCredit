@@ -133,7 +133,7 @@ impl CompanyServiceApi for CompanyService {
 
     async fn get_company_by_id(&self, id: &str) -> Result<CompanyToReturn> {
         if !self.store.exists(id).await {
-            return Err(super::Error::Validation(String::from(
+            return Err(super::Error::Validation(format!(
                 "No company with id: {id} found",
             )));
         }
@@ -219,11 +219,19 @@ impl CompanyServiceApi for CompanyService {
         logo_file_upload_id: Option<String>,
     ) -> Result<()> {
         if !self.store.exists(id).await {
-            return Err(super::Error::Validation(String::from(
+            return Err(super::Error::Validation(format!(
                 "No company with id: {id} found",
             )));
         }
+        let peer_id = self.identity_store.get_peer_id().await?;
         let mut company = self.store.get(id).await?;
+
+        if !company.signatories.contains(&peer_id.to_string()) {
+            return Err(super::Error::Validation(String::from(
+                "Caller must be signatory for company",
+            )));
+        }
+
         if let Some(legal_name_to_set) = legal_name {
             company.legal_name = legal_name_to_set;
         }
@@ -256,7 +264,7 @@ impl CompanyServiceApi for CompanyService {
 
     async fn add_signatory(&self, id: &str, signatory_node_id: String) -> Result<()> {
         if !self.store.exists(id).await {
-            return Err(super::Error::Validation(String::from(
+            return Err(super::Error::Validation(format!(
                 "No company with id: {id} found.",
             )));
         }
@@ -265,14 +273,14 @@ impl CompanyServiceApi for CompanyService {
             .iter()
             .any(|(_name, identity)| identity.peer_id == signatory_node_id);
         if !is_in_contacts {
-            return Err(super::Error::Validation(String::from(
+            return Err(super::Error::Validation(format!(
                 "Node Id {signatory_node_id} is not in the contacts.",
             )));
         }
 
         let mut company = self.store.get(id).await?;
         if company.signatories.contains(&signatory_node_id) {
-            return Err(super::Error::Validation(String::from(
+            return Err(super::Error::Validation(format!(
                 "Node Id {signatory_node_id} is already a signatory.",
             )));
         }
@@ -284,7 +292,7 @@ impl CompanyServiceApi for CompanyService {
 
     async fn remove_signatory(&self, id: &str, signatory_node_id: String) -> Result<()> {
         if !self.store.exists(id).await {
-            return Err(super::Error::Validation(String::from(
+            return Err(super::Error::Validation(format!(
                 "No company with id: {id} found.",
             )));
         }
@@ -296,7 +304,7 @@ impl CompanyServiceApi for CompanyService {
             )));
         }
         if !company.signatories.contains(&signatory_node_id) {
-            return Err(super::Error::Validation(String::from(
+            return Err(super::Error::Validation(format!(
                 "Node id {signatory_node_id} is not a signatory.",
             )));
         }
@@ -646,16 +654,22 @@ mod test {
 
     #[tokio::test]
     async fn edit_company_baseline() {
+        let peer_id = PeerId::random();
         let (mut storage, mut file_upload_store, mut identity_store, contact_store) =
             get_storages();
-        storage
-            .expect_get()
-            .returning(|_| Ok(get_baseline_company_data().1 .0));
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1 .0;
+            data.signatories = vec![peer_id.to_string()];
+            Ok(data)
+        });
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| Ok(()));
         storage
             .expect_save_attached_file()
             .returning(|_, _, _| Ok(()));
+        identity_store
+            .expect_get_peer_id()
+            .returning(move || Ok(peer_id));
         identity_store.expect_get().returning(|| {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
@@ -703,11 +717,40 @@ mod test {
     }
 
     #[tokio::test]
+    async fn edit_company_fails_if_caller_is_not_signatory() {
+        let peer_id = PeerId::random();
+        let (mut storage, file_upload_store, mut identity_store, contact_store) = get_storages();
+        storage.expect_exists().returning(|_| false);
+        storage.expect_get().returning(|_| {
+            let mut data = get_baseline_company_data().1 .0;
+            data.signatories = vec!["some_other_dude".to_string()];
+            Ok(data)
+        });
+        identity_store
+            .expect_get_peer_id()
+            .returning(move || Ok(peer_id));
+        let service = get_service(storage, file_upload_store, identity_store, contact_store);
+        let res = service
+            .edit_company(
+                "some_id",
+                Some("legal_name".to_string()),
+                Some("some Address".to_string()),
+                Some("company@example.com".to_string()),
+                None,
+            )
+            .await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
     async fn edit_company_propagates_persistence_errors() {
         let (mut storage, file_upload_store, mut identity_store, contact_store) = get_storages();
-        storage
-            .expect_get()
-            .returning(|_| Ok(get_baseline_company_data().1 .0));
+        let peer_id = PeerId::random();
+        storage.expect_get().returning(move |_| {
+            let mut data = get_baseline_company_data().1 .0;
+            data.signatories = vec![peer_id.to_string()];
+            Ok(data)
+        });
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| {
             Err(persistence::Error::Io(std::io::Error::new(
@@ -720,6 +763,9 @@ mod test {
             identity.public_key_pem = TEST_PUB_KEY.to_string();
             Ok(identity)
         });
+        identity_store
+            .expect_get_peer_id()
+            .returning(move || Ok(peer_id));
         let service = get_service(storage, file_upload_store, identity_store, contact_store);
         let res = service
             .edit_company(

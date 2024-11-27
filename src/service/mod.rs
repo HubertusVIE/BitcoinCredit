@@ -6,9 +6,9 @@ pub mod identity_service;
 pub mod notification_service;
 
 use super::{dht::Client, Config};
-use crate::external;
 use crate::persistence::DbContext;
 use crate::persistence::{self};
+use crate::{dht, external};
 use bill_service::{BillService, BillServiceApi};
 use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
@@ -55,9 +55,9 @@ pub enum Error {
     #[error("Cryptography error: {0}")]
     Cryptography(String),
 
-    /// errors stemming from interaction with the DHT
-    #[error("DHT error: {0}")]
-    Dht(String),
+    /// errors that stem from interacting with the Dht
+    #[error("Dht error: {0}")]
+    Dht(#[from] dht::Error),
 
     /// errors that stem from validation
     #[error("Validation Error: {0}")]
