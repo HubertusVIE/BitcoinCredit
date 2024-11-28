@@ -57,14 +57,14 @@ lettre = { version = "0.11.10", features = [
   "tokio1-native-tls",
   "file-transport",
 ] }
-nostr-sdk = "0.36.0"
+nostr-sdk = { version = "0.37.0", features = ["nip59"] }
 uuid = { version = "1.11.0", features = ["v4"] }
 infer = { version = "0.3", default-features = false }
 surrealdb = "2"
 
 [dev-dependencies]
 mockall = "0.13.0"
-nostr-relay-builder = "0.36.0"
+nostr-relay-builder = "0.37.0"
 surrealdb = { version = "2", features = ["kv-mem"] }
 
 [features]
