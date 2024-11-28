@@ -1,7 +1,8 @@
 use super::behaviour::{Command, ComposedEvent, Event, MyBehaviour};
 use crate::blockchain::{Block, Chain, GossipsubEvent, GossipsubEventId};
 use crate::constants::{
-    RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
+    BILL_PREFIX, RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID,
+    RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
 use crate::dht::behaviour::{FileRequest, FileResponse};
 use anyhow::Result;
@@ -260,35 +261,44 @@ impl EventLoop {
                 message_id: id,
                 message,
             })) => {
-                let bill_name = message.topic.clone().into_string();
-                info!("Got message with id: {id} from peer: {peer_id} in topic: {bill_name}",);
-                let event = GossipsubEvent::from_byte_array(&message.data);
+                info!(
+                    "Got message with id: {id} from peer: {peer_id} in topic: {}",
+                    message.topic.as_str()
+                );
+                if message.topic.as_str().starts_with(BILL_PREFIX) {
+                    if let Some(bill_name) = message.topic.as_str().strip_prefix(BILL_PREFIX) {
+                        let event = GossipsubEvent::from_byte_array(&message.data);
 
-                if event.id.eq(&GossipsubEventId::Block) {
-                    let block: Block =
-                        serde_json::from_slice(&event.message).expect("Block are not valid.");
-                    let mut chain: Chain = Chain::read_chain_from_file(&bill_name);
-                    chain.try_add_block(block);
-                    if chain.is_chain_valid() {
-                        chain.write_chain_to_file(&bill_name);
+                        if event.id.eq(&GossipsubEventId::Block) {
+                            let block: Block = serde_json::from_slice(&event.message)
+                                .expect("Block are not valid.");
+                            let mut chain: Chain = Chain::read_chain_from_file(bill_name);
+                            chain.try_add_block(block);
+                            if chain.is_chain_valid() {
+                                chain.write_chain_to_file(bill_name);
+                            }
+                        } else if event.id.eq(&GossipsubEventId::Chain) {
+                            let receive_chain: Chain = serde_json::from_slice(&event.message)
+                                .expect("Chain are not valid.");
+                            let mut local_chain = Chain::read_chain_from_file(bill_name);
+                            local_chain.compare_chain(receive_chain, bill_name);
+                        } else if event.id.eq(&GossipsubEventId::CommandGetChain) {
+                            let chain = Chain::read_chain_from_file(bill_name);
+                            let chain_bytes =
+                                serde_json::to_vec(&chain).expect("Can not serialize chain.");
+                            let event = GossipsubEvent::new(GossipsubEventId::Chain, chain_bytes);
+                            let message = event.to_byte_array();
+                            self.swarm
+                                .behaviour_mut()
+                                .gossipsub
+                                .publish(gossipsub::IdentTopic::new(bill_name), message)
+                                .expect("Can not publish message.");
+                        } else {
+                            warn!(
+                                "Unknown event id: {id} from peer: {peer_id} in topic: {bill_name}"
+                            );
+                        }
                     }
-                } else if event.id.eq(&GossipsubEventId::Chain) {
-                    let receive_chain: Chain =
-                        serde_json::from_slice(&event.message).expect("Chain are not valid.");
-                    let mut local_chain = Chain::read_chain_from_file(&bill_name);
-                    local_chain.compare_chain(receive_chain, &bill_name);
-                } else if event.id.eq(&GossipsubEventId::CommandGetChain) {
-                    let chain = Chain::read_chain_from_file(&bill_name);
-                    let chain_bytes = serde_json::to_vec(&chain).expect("Can not serialize chain.");
-                    let event = GossipsubEvent::new(GossipsubEventId::Chain, chain_bytes);
-                    let message = event.to_byte_array();
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .publish(gossipsub::IdentTopic::new(bill_name.clone()), message)
-                        .expect("Can not publish message.");
-                } else {
-                    warn!("Unknown event id: {id} from peer: {peer_id} in topic: {bill_name}");
                 }
             }
             //--------------OTHERS BEHAVIOURS EVENTS--------------
@@ -349,13 +359,20 @@ impl EventLoop {
                 self.pending_start_providing.insert(query_id, sender);
             }
 
+            Command::StopProviding { entry } => {
+                info!("Stop providing {entry:?}");
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .stop_providing(&entry.into_bytes().into());
+            }
+
             Command::PutRecord { key, value } => {
                 info!("Put record {key:?}");
                 let key_record = Key::new(&key);
-                let value_bytes = value.as_bytes().to_vec();
                 let record = Record {
                     key: key_record,
-                    value: value_bytes,
+                    value,
                     publisher: None,
                     expires: None,
                 };
@@ -389,7 +406,16 @@ impl EventLoop {
                     .behaviour_mut()
                     .gossipsub
                     .subscribe(&gossipsub::IdentTopic::new(topic))
-                    .expect("TODO: panic message");
+                    .expect("Can not subscribe.");
+            }
+
+            Command::UnsubscribeFromTopic { topic } => {
+                info!("Unsubscribe from topic {topic:?}");
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .unsubscribe(&gossipsub::IdentTopic::new(topic))
+                    .expect("Can not unsubscribe.");
             }
 
             Command::GetRecord { key, sender } => {

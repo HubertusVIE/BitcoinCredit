@@ -519,10 +519,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn find_bill_in_dht(&self, bill_name: &str) -> Result<()> {
-        let bill_bytes = self.client.clone().get_bill(bill_name).await?;
-        self.store
-            .write_bill_to_file(bill_name, &bill_bytes)
-            .await?;
+        self.client.clone().get_bill(bill_name).await?;
         Ok(())
     }
 
@@ -681,7 +678,7 @@ impl BillServiceApi for BillService {
 
         self.client
             .clone()
-            .add_message_to_topic(message, bill_name.to_owned())
+            .add_message_to_bill_topic(message, bill_name)
             .await?;
         Ok(())
     }
@@ -710,8 +707,8 @@ impl BillServiceApi for BillService {
             }
         }
 
-        client.subscribe_to_topic(bill_name.to_owned()).await?;
-        client.start_providing(bill_name.to_owned()).await?;
+        client.subscribe_to_bill_topic(bill_name).await?;
+        client.start_providing_bill(bill_name).await?;
         Ok(())
     }
 

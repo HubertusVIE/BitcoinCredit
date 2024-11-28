@@ -1,5 +1,9 @@
 use crate::{
-    service::{self, company_service::CompanyToReturn, Error, Result, ServiceContext},
+    service::{
+        self,
+        company_service::{CompanyPublicData, CompanyToReturn},
+        Error, Result, ServiceContext,
+    },
     util::file::{detect_content_type_for_bytes, UploadFileHandler},
     web::data::{UploadFileForm, UploadFilesResponse},
 };
@@ -89,6 +93,20 @@ pub async fn create(
             payload.logo_file_upload_id,
         )
         .await?;
+
+    let id = &created_company.id;
+    let peer_id = state.identity_service.get_peer_id().await?;
+
+    let mut dht_client = state.dht_client();
+    dht_client
+        .add_company_to_dht_for_node(id, &peer_id.to_string())
+        .await?;
+    dht_client.subscribe_to_company_topic(id).await?;
+    dht_client.start_providing_company(id).await?;
+    dht_client
+        .put_company_public_data_in_dht(CompanyPublicData::from(created_company.clone()))
+        .await?;
+
     Ok(Json(created_company))
 }
 
@@ -108,6 +126,13 @@ pub async fn edit(
             payload.logo_file_upload_id,
         )
         .await?;
+
+    let updated = state.company_service.get_company_by_id(&payload.id).await?;
+    let mut dht_client = state.dht_client();
+    dht_client
+        .put_company_public_data_in_dht(CompanyPublicData::from(updated))
+        .await?;
+
     Ok(())
 }
 
@@ -119,8 +144,14 @@ pub async fn add_signatory(
     let payload = add_signatory_payload.0;
     state
         .company_service
-        .add_signatory(&payload.id, payload.signatory_node_id)
+        .add_signatory(&payload.id, payload.signatory_node_id.clone())
         .await?;
+
+    let mut dht_client = state.dht_client();
+    dht_client
+        .add_company_to_dht_for_node(&payload.id, &payload.signatory_node_id)
+        .await?;
+
     Ok(())
 }
 
@@ -136,7 +167,22 @@ pub async fn remove_signatory(
     let payload = remove_signatory_payload.0;
     state
         .company_service
-        .remove_signatory(&payload.id, payload.signatory_node_id)
+        .remove_signatory(&payload.id, payload.signatory_node_id.clone())
         .await?;
+
+    let mut dht_client = state.dht_client();
+    dht_client
+        .remove_company_from_dht_for_node(&payload.id, &payload.signatory_node_id)
+        .await?;
+
+    // if we're removing ourselves, we need to stop subscribing and stop providing
+    let peer_id = state.identity_service.get_peer_id().await?;
+    if peer_id.to_string().eq(&payload.signatory_node_id) {
+        dht_client.stop_providing_company(&payload.id).await?;
+        dht_client
+            .unsubscribe_from_company_topic(&payload.id)
+            .await?;
+    }
+
     Ok(())
 }

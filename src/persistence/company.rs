@@ -56,6 +56,26 @@ pub trait CompanyStoreApi: Send + Sync {
     async fn open_attached_file(&self, id: &str, file_name: &str) -> Result<Vec<u8>>;
 }
 
+pub fn company_from_bytes(bytes: &[u8]) -> Result<Company> {
+    let company: Company = serde_json::from_slice(bytes)?;
+    Ok(company)
+}
+
+pub fn company_to_bytes(company: &Company) -> Result<Vec<u8>> {
+    let bytes = serde_json::to_vec(&company)?;
+    Ok(bytes)
+}
+
+pub fn company_keys_from_bytes(bytes: &[u8]) -> Result<CompanyKeys> {
+    let company_keys: CompanyKeys = serde_json::from_slice(bytes)?;
+    Ok(company_keys)
+}
+
+pub fn company_keys_to_bytes(company_keys: &CompanyKeys) -> Result<Vec<u8>> {
+    let bytes = serde_json::to_vec(&company_keys)?;
+    Ok(bytes)
+}
+
 #[derive(Clone)]
 pub struct FileBasedCompanyStore {
     folder: String,
@@ -107,7 +127,7 @@ impl CompanyStoreApi for FileBasedCompanyStore {
     async fn get(&self, id: &str) -> Result<Company> {
         let path = self.get_path_for_company_data(id);
         let bytes = read(path).await?;
-        let company: Company = serde_json::from_slice(&bytes)?;
+        let company = company_from_bytes(&bytes)?;
         Ok(company)
     }
 

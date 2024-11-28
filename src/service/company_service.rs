@@ -412,13 +412,25 @@ pub struct CompanyPublicData {
 }
 
 impl CompanyPublicData {
-    pub fn from(id: String, company: Company, company_keys: CompanyKeys) -> CompanyPublicData {
+    pub fn from_all(id: String, company: Company, company_keys: CompanyKeys) -> CompanyPublicData {
         CompanyPublicData {
             id,
             legal_name: company.legal_name,
             postal_address: company.postal_address,
             legal_email: company.legal_email,
             public_key: company_keys.public_key,
+        }
+    }
+}
+
+impl From<CompanyToReturn> for CompanyPublicData {
+    fn from(company: CompanyToReturn) -> Self {
+        Self {
+            id: company.id,
+            legal_name: company.legal_name,
+            postal_address: company.postal_address,
+            legal_email: company.legal_email,
+            public_key: company.public_key,
         }
     }
 }

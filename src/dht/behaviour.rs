@@ -1,5 +1,6 @@
 use crate::constants::{
-    BILL_ATTACHMENT_PREFIX, BILL_PREFIX, BOOTSTRAP_NODES_FILE_PATH, KEY_PREFIX, MAX_FILE_SIZE_BYTES,
+    BILL_ATTACHMENT_PREFIX, BILL_PREFIX, BOOTSTRAP_NODES_FILE_PATH, COMPANY_KEY_PREFIX,
+    COMPANY_LOGO_PREFIX, COMPANY_PREFIX, COMPANY_PROOF_PREFIX, KEY_PREFIX, MAX_FILE_SIZE_BYTES,
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -144,13 +145,16 @@ pub enum Command {
         entry: String,
         sender: oneshot::Sender<()>,
     },
+    StopProviding {
+        entry: String,
+    },
     GetProviders {
         entry: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
     PutRecord {
         key: String,
-        value: String,
+        value: Vec<u8>,
     },
     GetRecord {
         key: String,
@@ -172,6 +176,9 @@ pub enum Command {
     SubscribeToTopic {
         topic: String,
     },
+    UnsubscribeFromTopic {
+        topic: String,
+    },
 }
 
 #[derive(Debug)]
@@ -187,6 +194,36 @@ pub enum ParsedInboundFileRequest {
     Bill(BillFileRequest),
     BillKeys(BillKeysFileRequest),
     BillAttachment(BillAttachmentFileRequest),
+    CompanyData(CompanyDataRequest),
+    CompanyKeys(CompanyKeysRequest),
+    CompanyLogo(CompanyLogoRequest),
+    CompanyProof(CompanyProofRequest),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyDataRequest {
+    pub node_id: String,
+    pub company_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyKeysRequest {
+    pub node_id: String,
+    pub company_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyLogoRequest {
+    pub company_id: String,
+    pub node_id: String,
+    pub file_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyProofRequest {
+    pub company_id: String,
+    pub node_id: String,
+    pub file_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,6 +256,22 @@ pub fn file_request_for_bill_keys(node_id: &str, bill_name: &str) -> String {
     format!("{node_id}_{KEY_PREFIX}_{bill_name}")
 }
 
+pub fn file_request_for_company_data(node_id: &str, company_id: &str) -> String {
+    format!("{node_id}_{COMPANY_PREFIX}_{company_id}")
+}
+
+pub fn file_request_for_company_keys(node_id: &str, company_id: &str) -> String {
+    format!("{node_id}_{COMPANY_KEY_PREFIX}_{company_id}")
+}
+
+pub fn file_request_for_company_logo(node_id: &str, company_id: &str, file_name: &str) -> String {
+    format!("{node_id}_{COMPANY_LOGO_PREFIX}_{company_id}_{file_name}")
+}
+
+pub fn file_request_for_company_proof(node_id: &str, company_id: &str, file_name: &str) -> String {
+    format!("{node_id}_{COMPANY_PROOF_PREFIX}_{company_id}_{file_name}")
+}
+
 pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequest> {
     let parts = request.splitn(4, "_").collect::<Vec<&str>>();
     if parts.len() < 3 {
@@ -248,6 +301,40 @@ pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequ
                     node_id,
                     bill_name: parts[2].to_owned(),
                     file_name: parts[3].to_owned(),
+                },
+            ))
+        }
+        COMPANY_PREFIX => Ok(ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
+            company_id: parts[2].to_owned(),
+            node_id,
+        })),
+        COMPANY_KEY_PREFIX => Ok(ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
+            company_id: parts[2].to_owned(),
+            node_id,
+        })),
+        COMPANY_LOGO_PREFIX => {
+            if parts.len() < 4 {
+                return Err(anyhow!(
+                    "invalid file request, need at least 4 parts in {request}"
+                ));
+            }
+            Ok(ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
+                company_id: parts[2].to_owned(),
+                file_name: parts[3].to_owned(),
+                node_id,
+            }))
+        }
+        COMPANY_PROOF_PREFIX => {
+            if parts.len() < 4 {
+                return Err(anyhow!(
+                    "invalid file request, need at least 4 parts in {request}"
+                ));
+            }
+            Ok(ParsedInboundFileRequest::CompanyProof(
+                CompanyProofRequest {
+                    company_id: parts[2].to_owned(),
+                    file_name: parts[3].to_owned(),
+                    node_id,
                 },
             ))
         }

@@ -87,8 +87,14 @@ async fn main() -> Result<()> {
     dht_client.put_bills_for_parties().await?;
     dht_client.start_providing_bills().await?;
     dht_client.receive_updates_for_all_bills_topics().await?;
+
     dht_client.put_identity_public_data_in_dht().await?;
+
+    dht_client.check_new_companies().await?;
+    dht_client.put_companies_for_signatories().await?;
     dht_client.put_companies_public_data_in_dht().await?;
+    dht_client.start_providing_companies().await?;
+    dht_client.subscribe_to_all_companies_topics().await?;
 
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
     let service_context =
