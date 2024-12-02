@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     // You can now use USERNETWORK globally
-    println!("Chosen Network: {:?}", *USERNETWORK);
+    info!("Chosen Network: {:?}", *USERNETWORK);
 
     // Parse command line arguments and env vars with clap
     let conf = Config::parse();
