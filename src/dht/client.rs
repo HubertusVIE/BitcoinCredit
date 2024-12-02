@@ -89,8 +89,8 @@ impl Client {
     }
 
     /// Gets the list of companies from the network for the local node and gets the companies that
-    /// aren't locally available from the network and start providing them and subscribing to them
-    pub async fn check_new_companies(&mut self) -> Result<()> {
+    /// aren't locally available from the network and starts providing them and subscribing to them
+    pub async fn check_companies(&mut self) -> Result<()> {
         log::info!("Checking for new companies...");
         let local_peer_id = self.identity_store.get_peer_id().await?;
         let node_request = self.node_request_for_companies(&local_peer_id.to_string());
@@ -99,6 +99,28 @@ impl Client {
             return Ok(());
         }
         let companies: Vec<String> = from_slice(&companies_for_node)?;
+        let local_companies: Vec<String> = self
+            .company_store
+            .get_all()
+            .await?
+            .iter()
+            .map(|(id, (_, _))| id.to_string())
+            .collect();
+
+        let local_but_not_remote: Vec<String> = local_companies
+            .into_iter()
+            .filter(|item| !companies.contains(item))
+            .collect();
+
+        // Remove the companies, we have locally, but where the network tells us we're not a part
+        // of anymore
+        for company in local_but_not_remote {
+            self.company_store.remove(&company).await?;
+            self.stop_providing_company(&company).await?;
+            self.unsubscribe_from_company_topic(&company).await?;
+        }
+
+        // Add companies thet network tells us we're part of, but we don't have locally
         for company in companies {
             if self.company_store.exists(&company).await {
                 continue;

@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
 
     dht_client.put_identity_public_data_in_dht().await?;
 
-    dht_client.check_new_companies().await?;
+    dht_client.check_companies().await?;
     dht_client.put_companies_for_signatories().await?;
     dht_client.put_companies_public_data_in_dht().await?;
     dht_client.start_providing_companies().await?;
