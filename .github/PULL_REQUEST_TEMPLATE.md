@@ -6,14 +6,6 @@ Relates to #(issue-number)
 
 ---
 
-## 📸 Screenshots/Screen record (if applicable)
-
-If your changes include changes that can be tested in the GUI, please attach screenshots:
-
-[Attach screenshot/screen record]
-
----
-
 ## ✅ Checklist
 
 Please ensure the following tasks are completed before requesting a review:
@@ -25,6 +17,7 @@ Please ensure the following tasks are completed before requesting a review:
 - [ ] I have updated the documentation (if applicable).
 - [ ] I have checked that there are no console errors or warnings.
 - [ ] I have verified that the application builds without errors.
+- [ ] I've described the changes made to the API. (modification, addition, deletion).
 
 ---
 
