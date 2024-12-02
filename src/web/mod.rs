@@ -51,6 +51,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .mount(
             "/company",
             routes![
+                handlers::company::check_companies_in_dht,
                 handlers::company::list,
                 handlers::company::detail,
                 handlers::company::get_file,
