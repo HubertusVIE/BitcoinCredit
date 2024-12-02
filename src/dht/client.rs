@@ -153,23 +153,46 @@ impl Client {
             .request_company_keys(company_id, local_peer_id, &providers)
             .await?;
 
+        // like with bills, we don't fail on not being able to fetch files
         let mut logo_file: Option<Vec<u8>> = None;
         if let Some(ref logo) = company.logo_file {
             let file_request =
                 file_request_for_company_logo(&local_peer_id.to_string(), company_id, &logo.name);
-            logo_file = Some(
-                self.request_company_file(company_id, file_request, &providers)
-                    .await?,
-            );
+            match self
+                .request_company_file(company_id, file_request, &providers, &logo.hash, &logo.name)
+                .await
+            {
+                Err(e) => {
+                    logo_file = None;
+                    error!("Could not fetch company logo file for {company_id}: {e}");
+                }
+                Ok(bytes) => {
+                    logo_file = Some(bytes);
+                }
+            };
         }
         let mut proof_file: Option<Vec<u8>> = None;
         if let Some(ref proof) = company.proof_of_registration_file {
             let file_request =
                 file_request_for_company_proof(&local_peer_id.to_string(), company_id, &proof.name);
-            proof_file = Some(
-                self.request_company_file(company_id, file_request, &providers)
-                    .await?,
-            );
+            match self
+                .request_company_file(
+                    company_id,
+                    file_request,
+                    &providers,
+                    &proof.hash,
+                    &proof.name,
+                )
+                .await
+            {
+                Err(e) => {
+                    proof_file = None;
+                    error!("Could not fetch company proof file for {company_id}: {e}");
+                }
+                Ok(bytes) => {
+                    proof_file = Some(bytes);
+                }
+            };
         }
 
         self.company_store.insert(company_id, &company).await?;
@@ -178,21 +201,18 @@ impl Client {
             .await?;
 
         if logo_file.is_some() || proof_file.is_some() {
-            let public_key = self.identity_store.get().await?.private_key_pem;
-            if let Some(logo) = logo_file {
-                let encrypted_bytes = encrypt_bytes_with_public_key(&logo, &public_key);
+            if let Some(encrypted_logo_bytes) = logo_file {
                 if let Some(ref file) = company.logo_file {
                     self.company_store
-                        .save_attached_file(&encrypted_bytes, company_id, &file.name)
+                        .save_attached_file(&encrypted_logo_bytes, company_id, &file.name)
                         .await?;
                 }
             }
 
-            if let Some(proof) = proof_file {
-                let encrypted_bytes = encrypt_bytes_with_public_key(&proof, &public_key);
+            if let Some(encrypted_proof_bytes) = proof_file {
                 if let Some(ref file) = company.proof_of_registration_file {
                     self.company_store
-                        .save_attached_file(&encrypted_bytes, company_id, &file.name)
+                        .save_attached_file(&encrypted_proof_bytes, company_id, &file.name)
                         .await?;
                 }
             }
@@ -267,6 +287,8 @@ impl Client {
         company_id: &str,
         file_request: String,
         providers: &HashSet<PeerId>,
+        hash: &str,
+        file_name: &str,
     ) -> Result<Vec<u8>> {
         let requests = providers.iter().map(|peer| {
             let mut network_client = self.clone();
@@ -288,6 +310,10 @@ impl Client {
                 let identity = self.identity_store.get().await?;
                 let decrypted_bytes =
                     decrypt_bytes_with_private_key(&encrypted_bytes, identity.private_key_pem);
+                let remote_hash = util::sha256_hash(&decrypted_bytes);
+                if hash != remote_hash.as_str() {
+                    return Err(super::Error::FileHashesDidNotMatch(format!("Get Company File: Hashes didn't match for company {company_id} and file name {file_name}, remote: {remote_hash}, local: {hash}")));
+                }
                 let encrypted_bytes =
                     encrypt_bytes_with_public_key(&decrypted_bytes, &identity.public_key_pem);
                 Ok(encrypted_bytes)
