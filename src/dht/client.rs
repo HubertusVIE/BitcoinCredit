@@ -1413,3 +1413,282 @@ impl Client {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::persistence::{
+        bill::MockBillStoreApi, company::MockCompanyStoreApi, identity::MockIdentityStoreApi,
+    };
+    use futures::channel::mpsc::{self, Sender};
+    use libp2p::kad::record::{Key, Record};
+    use std::collections::HashSet;
+    // TODO: tests for company/bill key and node requests
+    // TODO: tests for start providing
+
+    fn get_client() -> Client {
+        let (sender, _) = mpsc::channel(0);
+        Client::new(
+            sender,
+            Arc::new(MockBillStoreApi::new()),
+            Arc::new(MockCompanyStoreApi::new()),
+            Arc::new(MockIdentityStoreApi::new()),
+        )
+    }
+
+    // fn response_channel<T>() -> ResponseChannel<T> {
+    //     let (sender, _) = oneshot::channel::<T>();
+    //     ResponseChannel { sender }
+    // }
+
+    fn get_client_chan(sender: Sender<Command>) -> Client {
+        Client::new(
+            sender,
+            Arc::new(MockBillStoreApi::new()),
+            Arc::new(MockCompanyStoreApi::new()),
+            Arc::new(MockIdentityStoreApi::new()),
+        )
+    }
+
+    #[test]
+    fn company_key() {
+        assert_eq!(get_client().company_key("id"), "COMPANYid".to_string());
+    }
+
+    #[test]
+    fn identity_key() {
+        assert_eq!(get_client().identity_key("id"), "IDENTITYid".to_string());
+    }
+
+    #[test]
+    fn bill_key() {
+        assert_eq!(get_client().bill_key("id"), "BILLid".to_string());
+    }
+
+    #[test]
+    fn node_request_for_companies() {
+        assert_eq!(
+            get_client().node_request_for_companies("nodeid"),
+            "COMPANIESnodeid".to_string()
+        );
+    }
+
+    #[test]
+    fn node_request_for_bills() {
+        assert_eq!(
+            get_client().node_request_for_bills("nodeid"),
+            "BILLSnodeid".to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn get_company_providers() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            if let Some(Command::GetProviders { entry, sender }) = receiver.next().await {
+                assert_eq!(entry, "COMPANYcompany_id".to_string());
+
+                let mut res = HashSet::new();
+                res.insert(PeerId::random());
+                sender.send(res).unwrap();
+            } else {
+                panic!("No command received");
+            }
+        });
+        let result = get_client_chan(sender)
+            .get_company_providers("company_id")
+            .await
+            .unwrap();
+        assert!(result.len() == 1);
+    }
+
+    #[tokio::test]
+    async fn get_bill_providers() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            if let Some(Command::GetProviders { entry, sender }) = receiver.next().await {
+                assert_eq!(entry, "BILLbill_id".to_string());
+
+                let mut res = HashSet::new();
+                res.insert(PeerId::random());
+                sender.send(res).unwrap();
+            } else {
+                panic!("No command received");
+            }
+        });
+        let result = get_client_chan(sender)
+            .get_bill_providers("bill_id")
+            .await
+            .unwrap();
+        assert!(result.len() == 1);
+    }
+
+    #[tokio::test]
+    async fn start_providing_bill() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            if let Some(Command::StartProviding { entry, sender }) = receiver.next().await {
+                assert_eq!(entry, "BILLbill_id".to_string());
+                sender.send(()).unwrap();
+            } else {
+                panic!("No command received");
+            }
+        });
+        let result = get_client_chan(sender)
+            .start_providing_bill("bill_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn start_providing_company() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            if let Some(Command::StartProviding { entry, sender }) = receiver.next().await {
+                assert_eq!(entry, "COMPANYcompany_id".to_string());
+                sender.send(()).unwrap();
+            } else {
+                panic!("No command received");
+            }
+        });
+        let result = get_client_chan(sender)
+            .start_providing_company("company_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn stop_providing_company() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            if let Some(Command::StopProviding { entry }) = receiver.next().await {
+                assert_eq!(entry, "COMPANYcompany_id".to_string());
+            } else {
+                panic!("No command received");
+            }
+        });
+        let result = get_client_chan(sender)
+            .stop_providing_company("company_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_record() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            if let Some(Command::GetRecord { key, sender }) = receiver.next().await {
+                assert_eq!(key, "key".to_string());
+                sender
+                    .send(Record::new(Key::new(&"key".to_string()), vec![]))
+                    .unwrap();
+            } else {
+                panic!("No command received");
+            }
+        });
+        let result = get_client_chan(sender).get_record("key".to_string()).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().value.is_empty());
+    }
+
+    #[tokio::test]
+    async fn put_record() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            if let Some(Command::PutRecord { key, value }) = receiver.next().await {
+                assert_eq!(key, "key".to_string());
+                assert!(value.is_empty());
+            } else {
+                panic!("No command received");
+            }
+        });
+        let result = get_client_chan(sender)
+            .put_record("key".to_string(), vec![])
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn subscribe_to_bill_topic() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let result = get_client_chan(sender)
+            .subscribe_to_bill_topic("bill_id")
+            .await;
+        assert!(result.is_ok());
+        match receiver.next().await.unwrap() {
+            Command::SubscribeToTopic { topic } => {
+                assert_eq!(topic, "BILLbill_id".to_string());
+            }
+            _ => panic!("got wrong command"),
+        };
+    }
+
+    #[tokio::test]
+    async fn subscribe_to_company_topic() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let result = get_client_chan(sender)
+            .subscribe_to_company_topic("company_id")
+            .await;
+        assert!(result.is_ok());
+        match receiver.next().await.unwrap() {
+            Command::SubscribeToTopic { topic } => {
+                assert_eq!(topic, "COMPANYcompany_id".to_string());
+            }
+            _ => panic!("got wrong command"),
+        };
+    }
+
+    #[tokio::test]
+    async fn unsubscribe_from_company_topic() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let result = get_client_chan(sender)
+            .unsubscribe_from_company_topic("company_id")
+            .await;
+        assert!(result.is_ok());
+        match receiver.next().await.unwrap() {
+            Command::UnsubscribeFromTopic { topic } => {
+                assert_eq!(topic, "COMPANYcompany_id".to_string());
+            }
+            _ => panic!("got wrong command"),
+        };
+    }
+
+    #[tokio::test]
+    async fn add_message_to_bill_topic() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let result = get_client_chan(sender)
+            .add_message_to_bill_topic(vec![], "bill_id")
+            .await;
+        assert!(result.is_ok());
+        match receiver.next().await.unwrap() {
+            Command::SendMessage { msg, topic } => {
+                assert_eq!(topic, "BILLbill_id".to_string());
+                assert!(msg.is_empty());
+            }
+            _ => panic!("got wrong command"),
+        };
+    }
+
+    #[tokio::test]
+    async fn add_message_to_company_topic() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let result = get_client_chan(sender)
+            .add_message_to_company_topic(vec![], "company_id")
+            .await;
+        assert!(result.is_ok());
+        match receiver.next().await.unwrap() {
+            Command::SendMessage { msg, topic } => {
+                assert_eq!(topic, "COMPANYcompany_id".to_string());
+                assert!(msg.is_empty());
+            }
+            _ => panic!("got wrong command"),
+        };
+    }
+}
