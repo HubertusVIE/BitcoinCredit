@@ -368,6 +368,10 @@ impl Client {
         company_ids: Vec<String>,
         node_id: &str,
     ) -> Result<()> {
+        if company_ids.is_empty() {
+            return Ok(());
+        }
+
         let node_request = self.node_request_for_companies(node_id);
         let companies_for_node = self.get_record(node_request.clone()).await?.value;
         if companies_for_node.is_empty() {
@@ -1417,14 +1421,39 @@ impl Client {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::persistence::{
-        bill::MockBillStoreApi, company::MockCompanyStoreApi, identity::MockIdentityStoreApi,
+    use crate::{
+        persistence::{
+            bill::MockBillStoreApi, company::MockCompanyStoreApi, identity::MockIdentityStoreApi,
+        },
+        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
     };
     use futures::channel::mpsc::{self, Sender};
     use libp2p::kad::record::{Key, Record};
-    use std::collections::HashSet;
-    // TODO: tests for company/bill key and node requests
-    // TODO: tests for start providing
+    use std::collections::{HashMap, HashSet};
+
+    fn get_baseline_company_data(id: &str) -> (String, (Company, CompanyKeys)) {
+        (
+            id.to_string(),
+            (
+                Company {
+                    legal_name: "some_name".to_string(),
+                    country_of_registration: "AT".to_string(),
+                    city_of_registration: "Vienna".to_string(),
+                    postal_address: "some address".to_string(),
+                    legal_email: "company@example.com".to_string(),
+                    registration_number: "some_number".to_string(),
+                    registration_date: "2012-01-01".to_string(),
+                    proof_of_registration_file: None,
+                    logo_file: None,
+                    signatories: vec![],
+                },
+                CompanyKeys {
+                    private_key: TEST_PRIVATE_KEY.to_string(),
+                    public_key: TEST_PUB_KEY.to_string(),
+                },
+            ),
+        )
+    }
 
     fn get_client() -> Client {
         let (sender, _) = mpsc::channel(0);
@@ -1436,17 +1465,34 @@ mod test {
         )
     }
 
-    // fn response_channel<T>() -> ResponseChannel<T> {
-    //     let (sender, _) = oneshot::channel::<T>();
-    //     ResponseChannel { sender }
-    // }
-
     fn get_client_chan(sender: Sender<Command>) -> Client {
         Client::new(
             sender,
             Arc::new(MockBillStoreApi::new()),
             Arc::new(MockCompanyStoreApi::new()),
             Arc::new(MockIdentityStoreApi::new()),
+        )
+    }
+
+    fn get_client_chan_stores(
+        mock_bill_storage: MockBillStoreApi,
+        mock_company_storage: MockCompanyStoreApi,
+        mock_identity_storage: MockIdentityStoreApi,
+        sender: Sender<Command>,
+    ) -> Client {
+        Client::new(
+            sender,
+            Arc::new(mock_bill_storage),
+            Arc::new(mock_company_storage),
+            Arc::new(mock_identity_storage),
+        )
+    }
+
+    fn get_storages() -> (MockBillStoreApi, MockCompanyStoreApi, MockIdentityStoreApi) {
+        (
+            MockBillStoreApi::new(),
+            MockCompanyStoreApi::new(),
+            MockIdentityStoreApi::new(),
         )
     }
 
@@ -1690,5 +1736,396 @@ mod test {
             }
             _ => panic!("got wrong command"),
         };
+    }
+
+    #[tokio::test]
+    async fn subscribe_to_all_companies_topics() {
+        let (sender, receiver) = mpsc::channel(10);
+        let (bill_store, mut company_store, identity_store) = get_storages();
+        company_store.expect_get_all().returning(|| {
+            let mut map = HashMap::new();
+            let company_1 = get_baseline_company_data("company_1");
+            let company_2 = get_baseline_company_data("company_2");
+            map.insert(String::from("company_1"), (company_1.1 .0, company_1.1 .1));
+            map.insert(String::from("company_2"), (company_2.1 .0, company_2.1 .1));
+            Ok(map)
+        });
+        let result = get_client_chan_stores(bill_store, company_store, identity_store, sender)
+            .subscribe_to_all_companies_topics()
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(receiver.count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn start_providing_companies_does_nothing_if_no_companies() {
+        let (sender, _receiver) = mpsc::channel(10);
+        let (bill_store, mut company_store, identity_store) = get_storages();
+        company_store
+            .expect_get_all()
+            .returning(|| Ok(HashMap::new()));
+        let result = get_client_chan_stores(bill_store, company_store, identity_store, sender)
+            .start_providing_companies()
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn start_providing_companies_calls_start_provide_for_each_company() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let (bill_store, mut company_store, identity_store) = get_storages();
+        company_store.expect_get_all().returning(|| {
+            let mut map = HashMap::new();
+            let company_1 = get_baseline_company_data("company_1");
+            let company_2 = get_baseline_company_data("company_2");
+            map.insert(String::from("company_1"), (company_1.1 .0, company_1.1 .1));
+            map.insert(String::from("company_2"), (company_2.1 .0, company_2.1 .1));
+            Ok(map)
+        });
+
+        tokio::spawn(async move {
+            let mut count = 0;
+            while let Some(Command::StartProviding { entry: _, sender }) = receiver.next().await {
+                sender.send(()).unwrap();
+                count += 1;
+            }
+            assert!(count == 2);
+        });
+
+        let result = get_client_chan_stores(bill_store, company_store, identity_store, sender)
+            .start_providing_companies()
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_companies_to_dht_for_node() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let parsed: Vec<String> = from_slice(&value).unwrap();
+                        assert!(parsed.contains(&String::from("company_1")));
+                        assert!(parsed.contains(&String::from("company_2")));
+                        assert!(parsed.len() == 2);
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANIESmy_node_id".to_string()),
+                                to_vec(&vec!["company_1".to_string()]).unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .add_companies_to_dht_for_node(
+                vec![String::from("company_1"), String::from("company_2")],
+                "my_node_id",
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_companies_to_dht_for_node_does_nothing_on_empty_list() {
+        let result = get_client()
+            .add_companies_to_dht_for_node(vec![], "my_node_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_companies_to_dht_for_node_puts_given_ids_if_result_from_dht_empty() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let parsed: Vec<String> = from_slice(&value).unwrap();
+                        assert!(parsed.contains(&String::from("company_1")));
+                        assert!(parsed.contains(&String::from("company_2")));
+                        assert!(parsed.len() == 2);
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let result: Vec<String> = vec![];
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANIESmy_node_id".to_string()),
+                                to_vec(&result).unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .add_companies_to_dht_for_node(
+                vec![String::from("company_1"), String::from("company_2")],
+                "my_node_id",
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_companies_to_dht_for_node_puts_given_ids_if_result_from_dht_is_invalid() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let parsed: Vec<String> = from_slice(&value).unwrap();
+                        assert!(parsed.contains(&String::from("company_1")));
+                        assert!(parsed.contains(&String::from("company_2")));
+                        assert!(parsed.len() == 2);
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let result: String = String::from("hello world"); // this is invalid, since
+                                                                          // we expect a vec
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANIESmy_node_id".to_string()),
+                                to_vec(&result).unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .add_companies_to_dht_for_node(
+                vec![String::from("company_1"), String::from("company_2")],
+                "my_node_id",
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn remove_company_from_dht_for_node() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let parsed: Vec<String> = from_slice(&value).unwrap();
+                        assert!(parsed.contains(&String::from("company_1")));
+                        assert!(parsed.len() == 1);
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANIESmy_node_id".to_string()),
+                                to_vec(&vec!["company_1".to_string(), "company_2".to_string()])
+                                    .unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .remove_company_from_dht_for_node("company_2", "my_node_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_company_to_dht_for_node() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let parsed: Vec<String> = from_slice(&value).unwrap();
+                        assert!(parsed.contains(&String::from("company_1")));
+                        assert!(parsed.contains(&String::from("company_2")));
+                        assert!(parsed.len() == 2);
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANIESmy_node_id".to_string()),
+                                to_vec(&vec!["company_2".to_string()]).unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .add_company_to_dht_for_node("company_1", "my_node_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_company_to_dht_for_node_puts_given_id_if_result_from_dht_is_invalid() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let parsed: Vec<String> = from_slice(&value).unwrap();
+                        assert!(parsed.contains(&String::from("company_1")));
+                        assert!(parsed.len() == 1);
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let result: String = String::from("hello world"); // this is invalid, since
+                                                                          // we expect a vec
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANIESmy_node_id".to_string()),
+                                to_vec(&result).unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .add_company_to_dht_for_node("company_1", "my_node_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_company_to_dht_for_node_puts_given_id_if_result_from_dht_is_empty() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let parsed: Vec<String> = from_slice(&value).unwrap();
+                        assert!(parsed.contains(&String::from("company_1")));
+                        assert!(parsed.len() == 1);
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANIESmy_node_id".to_string());
+                        let result: Vec<String> = vec![];
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANIESmy_node_id".to_string()),
+                                to_vec(&result).unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .add_company_to_dht_for_node("company_1", "my_node_id")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_company_public_data_from_dht() {
+        let (sender, mut receiver) = mpsc::channel(10);
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANYcompany_1".to_string());
+                        let company = get_baseline_company_data("company_1");
+                        let data =
+                            CompanyPublicData::from_all(company.0, company.1 .0, company.1 .1);
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANYcompany_1".to_string()),
+                                serde_json::to_string(&data).unwrap().into_bytes(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan(sender)
+            .get_company_public_data_from_dht("company_1")
+            .await;
+        assert!(result.is_ok());
+        assert!(result.as_ref().unwrap().is_some());
+        assert_eq!(result.as_ref().unwrap().as_ref().unwrap().id, "company_1");
+    }
+
+    #[tokio::test]
+    async fn put_companies_public_data_in_dht() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let (bill_store, mut company_store, identity_store) = get_storages();
+        company_store.expect_get_all().returning(|| {
+            let mut map = HashMap::new();
+            let company_1 = get_baseline_company_data("company_1");
+            map.insert(String::from("company_1"), (company_1.1 .0, company_1.1 .1));
+            Ok(map)
+        });
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::PutRecord { key, value } => {
+                        assert_eq!(key, "COMPANYcompany_1".to_string());
+                        let parsed: CompanyPublicData = serde_json::from_slice(&value).unwrap();
+                        assert_eq!(parsed.id, String::from("company_1"));
+                    }
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "COMPANYcompany_1".to_string());
+                        let result: Vec<u8> = vec![];
+                        sender
+                            .send(Record::new(
+                                Key::new(&"COMPANYcompany_1".to_string()),
+                                result,
+                            ))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan_stores(bill_store, company_store, identity_store, sender)
+            .put_companies_public_data_in_dht()
+            .await;
+        assert!(result.is_ok());
     }
 }
