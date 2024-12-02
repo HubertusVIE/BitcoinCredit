@@ -465,6 +465,10 @@ mod test {
         assert!(parse_inbound_file_request("nodeid_BILL_TEST").is_ok());
         assert!(parse_inbound_file_request("nodeid_KEY_TEST").is_ok());
         assert!(parse_inbound_file_request("nodeid_BILLATT_TEST_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANY_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANYKEY_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANYLOGO_TEST_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANYPROOF_TEST_TEST").is_ok());
     }
 
     #[test]
@@ -535,6 +539,100 @@ mod test {
                 node_id: "nodeid".to_string(),
                 bill_name: "TEST".to_string(),
                 file_name: "FILE".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_data() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANY_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_data() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_data("nodeid", "TEST")).unwrap(),
+            ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_keys() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANYKEY_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_keys() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_keys("nodeid", "TEST")).unwrap(),
+            ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_logo() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANYLOGO_TEST_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_logo() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_logo("nodeid", "TEST", "TEST"))
+                .unwrap(),
+            ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_proof() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANYPROOF_TEST_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_proof() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_proof("nodeid", "TEST", "TEST"))
+                .unwrap(),
+            ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
             })
         );
     }
