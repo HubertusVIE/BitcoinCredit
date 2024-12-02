@@ -2,8 +2,9 @@ use super::behaviour::{
     file_request_for_bill, file_request_for_bill_attachment, file_request_for_bill_keys,
     file_request_for_company_data, file_request_for_company_keys, file_request_for_company_logo,
     file_request_for_company_proof, parse_inbound_file_request, BillAttachmentFileRequest,
-    BillFileRequest, BillKeysFileRequest, Command, CompanyDataRequest, CompanyKeysRequest,
-    CompanyLogoRequest, CompanyProofRequest, Event, FileResponse, ParsedInboundFileRequest,
+    BillFileRequest, BillKeysFileRequest, Command, CompanyDataRequest, CompanyEvent,
+    CompanyKeysRequest, CompanyLogoRequest, CompanyProofRequest, Event, FileResponse,
+    ParsedInboundFileRequest,
 };
 use super::Result;
 use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
@@ -870,6 +871,13 @@ impl Client {
         Ok(())
     }
 
+    /// Sends the given message to the given company topic via the event loop
+    pub async fn add_message_to_company_topic(&mut self, msg: Vec<u8>, topic: &str) -> Result<()> {
+        let key = self.company_key(topic);
+        self.add_message_to_topic(msg, key).await?;
+        Ok(())
+    }
+
     async fn subscribe_to_topic(&mut self, topic: String) -> Result<()> {
         self.sender
             .send(Command::SubscribeToTopic { topic })
@@ -1130,151 +1138,247 @@ impl Client {
     // -------------------------------------------------------------
     /// Handles incoming requests
     async fn handle_event(&mut self, event: Event) {
-        let Event::InboundRequest { request, channel } = event;
-        match parse_inbound_file_request(&request) {
-            Err(e) => {
-                error!("Could not handle inbound request {request}: {e}")
+        match event {
+            Event::CompanyUpdate {
+                event,
+                company_id,
+                signatory,
+            } => {
+                match event {
+                    CompanyEvent::AddSignatory => {
+                        info!("Handling AddSignatory event for {company_id} and {signatory}");
+                        // add the signatory that we get from the DHT
+                        if let Ok(mut company) = self.company_store.get(&company_id).await {
+                            company.signatories.push(signatory.clone());
+                            if let Err(e) = self.company_store.update(&company_id, &company).await {
+                                error!(
+                                    "Could not remove signatory {signatory} from {company_id}: {e}"
+                                );
+                            }
+                        }
+                        if let Ok(local_peer_id) = self.identity_store.get_peer_id().await {
+                            // If we are removed, remove the local company
+                            if signatory == local_peer_id.to_string() {
+                                info!("Got from DHT, that we were added to company {company_id} - refreshing data from the network");
+                                if let Err(e) = self
+                                    .get_company_data_from_the_network(&company_id, &local_peer_id)
+                                    .await
+                                {
+                                    error!("Could not remove local company {company_id}: {e}");
+                                }
+                                if let Err(e) = self.start_providing_company(&company_id).await {
+                                    error!("Could not start providing company {company_id}: {e}");
+                                }
+                                if let Err(e) = self.subscribe_to_company_topic(&company_id).await {
+                                    error!(
+                                        "Could not start subscribing to company {company_id}: {e}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    CompanyEvent::RemoveSignatory => {
+                        info!("Handling RemoveSignatory event for {company_id} and {signatory}");
+                        // remove the signatory that we get from the DHT
+                        if let Ok(mut company) = self.company_store.get(&company_id).await {
+                            company.signatories.retain(|i| i != &signatory);
+                            if let Err(e) = self.company_store.update(&company_id, &company).await {
+                                error!(
+                                    "Could not remove signatory {signatory} from {company_id}: {e}"
+                                );
+                            }
+                        }
+                        if let Ok(local_peer_id) = self.identity_store.get_peer_id().await {
+                            // If we are removed, remove the local company
+                            if signatory == local_peer_id.to_string() {
+                                info!("Got from DHT, that we were removed from company {company_id} - deleting company locally");
+                                if let Err(e) = self.company_store.remove(&company_id).await {
+                                    error!("Could not remove local company {company_id}: {e}");
+                                }
+                                if let Err(e) = self.stop_providing_company(&company_id).await {
+                                    error!("Could not stop providing company {company_id}: {e}");
+                                }
+                                if let Err(e) =
+                                    self.unsubscribe_from_company_topic(&company_id).await
+                                {
+                                    error!(
+                                        "Could not stop subscribing to company {company_id}: {e}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            Ok(parsed) => {
-                match parsed {
-                    ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
-                        company_id,
-                        node_id,
-                    }) => {
-                        if let Err(e) = self
-                            .handle_company_data_file_request(&company_id, &node_id, channel)
-                            .await
-                        {
-                            error!("Could not handle inbound request {request}: {e}")
-                        }
+            Event::InboundRequest { request, channel } => {
+                match parse_inbound_file_request(&request) {
+                    Err(e) => {
+                        error!("Could not handle inbound request {request}: {e}")
                     }
-                    ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
-                        node_id,
-                        company_id,
-                    }) => {
-                        if let Err(e) = self
-                            .handle_company_keys_file_request(&company_id, &node_id, channel)
-                            .await
-                        {
-                            error!("Could not handle inbound request {request}: {e}")
-                        }
-                    }
-                    ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
-                        node_id,
-                        company_id,
-                        file_name,
-                    }) => {
-                        if let Err(e) = self
-                            .handle_company_logo_file_request(
-                                &company_id,
-                                &node_id,
-                                &file_name,
-                                channel,
-                            )
-                            .await
-                        {
-                            error!("Could not handle inbound request {request}: {e}")
-                        }
-                    }
-                    ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
-                        node_id,
-                        company_id,
-                        file_name,
-                    }) => {
-                        if let Err(e) = self
-                            .handle_company_proof_file_request(
-                                &company_id,
-                                &node_id,
-                                &file_name,
-                                channel,
-                            )
-                            .await
-                        {
-                            error!("Could not handle inbound request {request}: {e}")
-                        }
-                    }
-                    // We can send the bill to anyone requesting it, since the content is encrypted
-                    // and is useless without the keys
-                    ParsedInboundFileRequest::Bill(BillFileRequest { bill_name }) => {
-                        match self.bill_store.get_bill_as_bytes(&bill_name).await {
-                            Err(e) => {
-                                error!("Could not handle inbound request {request}: {e}")
-                            }
-                            Ok(file) => {
-                                if let Err(e) = self.respond_file(file, channel).await {
-                                    error!("Could not handle inbound request {request} - error responding with file: {e}")
+                    Ok(parsed) => {
+                        match parsed {
+                            ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
+                                company_id,
+                                node_id,
+                            }) => {
+                                if let Err(e) = self
+                                    .handle_company_data_file_request(
+                                        &company_id,
+                                        &node_id,
+                                        channel,
+                                    )
+                                    .await
+                                {
+                                    error!("Could not handle inbound request {request}: {e}")
                                 }
                             }
-                        }
-                    }
-                    // We check if the requester is part of the bill and if so, we get their
-                    // identity from DHT and encrypt the file with their public key
-                    ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
-                        node_id,
-                        key_name,
-                    }) => {
-                        let chain = Chain::read_chain_from_file(&key_name);
-                        if chain.bill_contains_node(&node_id) {
-                            match self.get_identity_public_data_from_dht(node_id).await {
-                                Err(e) => {
-                                    error!("Could not handle inbound request {request} - could not get identity public data for: {e}", )
+                            ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
+                                node_id,
+                                company_id,
+                            }) => {
+                                if let Err(e) = self
+                                    .handle_company_keys_file_request(
+                                        &company_id,
+                                        &node_id,
+                                        channel,
+                                    )
+                                    .await
+                                {
+                                    error!("Could not handle inbound request {request}: {e}")
                                 }
-                                Ok(data) => {
-                                    let public_key = data.rsa_public_key_pem;
-                                    match self.bill_store.get_bill_keys_as_bytes(&key_name).await {
+                            }
+                            ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
+                                node_id,
+                                company_id,
+                                file_name,
+                            }) => {
+                                if let Err(e) = self
+                                    .handle_company_logo_file_request(
+                                        &company_id,
+                                        &node_id,
+                                        &file_name,
+                                        channel,
+                                    )
+                                    .await
+                                {
+                                    error!("Could not handle inbound request {request}: {e}")
+                                }
+                            }
+                            ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
+                                node_id,
+                                company_id,
+                                file_name,
+                            }) => {
+                                if let Err(e) = self
+                                    .handle_company_proof_file_request(
+                                        &company_id,
+                                        &node_id,
+                                        &file_name,
+                                        channel,
+                                    )
+                                    .await
+                                {
+                                    error!("Could not handle inbound request {request}: {e}")
+                                }
+                            }
+                            // We can send the bill to anyone requesting it, since the content is encrypted
+                            // and is useless without the keys
+                            ParsedInboundFileRequest::Bill(BillFileRequest { bill_name }) => {
+                                match self.bill_store.get_bill_as_bytes(&bill_name).await {
+                                    Err(e) => {
+                                        error!("Could not handle inbound request {request}: {e}")
+                                    }
+                                    Ok(file) => {
+                                        if let Err(e) = self.respond_file(file, channel).await {
+                                            error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                        }
+                                    }
+                                }
+                            }
+                            // We check if the requester is part of the bill and if so, we get their
+                            // identity from DHT and encrypt the file with their public key
+                            ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
+                                node_id,
+                                key_name,
+                            }) => {
+                                let chain = Chain::read_chain_from_file(&key_name);
+                                if chain.bill_contains_node(&node_id) {
+                                    match self.get_identity_public_data_from_dht(node_id).await {
                                         Err(e) => {
-                                            error!(
+                                            error!("Could not handle inbound request {request} - could not get identity public data for: {e}", )
+                                        }
+                                        Ok(data) => {
+                                            let public_key = data.rsa_public_key_pem;
+                                            match self
+                                                .bill_store
+                                                .get_bill_keys_as_bytes(&key_name)
+                                                .await
+                                            {
+                                                Err(e) => {
+                                                    error!(
                                                 "Could not handle inbound request {request}: {e}"
                                             )
-                                        }
-                                        Ok(file) => {
-                                            let file_encrypted =
-                                                encrypt_bytes_with_public_key(&file, &public_key);
+                                                }
+                                                Ok(file) => {
+                                                    let file_encrypted =
+                                                        encrypt_bytes_with_public_key(
+                                                            &file,
+                                                            &public_key,
+                                                        );
 
-                                            if let Err(e) =
-                                                self.respond_file(file_encrypted, channel).await
-                                            {
-                                                error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                                    if let Err(e) = self
+                                                        .respond_file(file_encrypted, channel)
+                                                        .await
+                                                    {
+                                                        error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }
-                    // We only send attachments (encrypted with the bill public key) to participants of the bill, encrypted with their public key
-                    ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
-                        node_id,
-                        bill_name,
-                        file_name,
-                    }) => {
-                        let chain = Chain::read_chain_from_file(&bill_name);
-                        if chain.bill_contains_node(&node_id) {
-                            match self.get_identity_public_data_from_dht(node_id).await {
-                                Err(e) => {
-                                    error!("Could not handle inbound request {request} - could not get identity public data for: {e}");
-                                }
-                                Ok(data) => {
-                                    let public_key = data.rsa_public_key_pem;
-
-                                    match self
-                                        .bill_store
-                                        .open_attached_file(&bill_name, &file_name)
-                                        .await
-                                    {
+                            // We only send attachments (encrypted with the bill public key) to participants of the bill, encrypted with their public key
+                            ParsedInboundFileRequest::BillAttachment(
+                                BillAttachmentFileRequest {
+                                    node_id,
+                                    bill_name,
+                                    file_name,
+                                },
+                            ) => {
+                                let chain = Chain::read_chain_from_file(&bill_name);
+                                if chain.bill_contains_node(&node_id) {
+                                    match self.get_identity_public_data_from_dht(node_id).await {
                                         Err(e) => {
-                                            error!(
+                                            error!("Could not handle inbound request {request} - could not get identity public data for: {e}");
+                                        }
+                                        Ok(data) => {
+                                            let public_key = data.rsa_public_key_pem;
+
+                                            match self
+                                                .bill_store
+                                                .open_attached_file(&bill_name, &file_name)
+                                                .await
+                                            {
+                                                Err(e) => {
+                                                    error!(
                                                 "Could not handle inbound request {request}: {e}"
                                             )
-                                        }
-                                        Ok(file) => {
-                                            let file_encrypted =
-                                                encrypt_bytes_with_public_key(&file, &public_key);
+                                                }
+                                                Ok(file) => {
+                                                    let file_encrypted =
+                                                        encrypt_bytes_with_public_key(
+                                                            &file,
+                                                            &public_key,
+                                                        );
 
-                                            if let Err(e) =
-                                                self.respond_file(file_encrypted, channel).await
-                                            {
-                                                error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                                    if let Err(e) = self
+                                                        .respond_file(file_encrypted, channel)
+                                                        .await
+                                                    {
+                                                        error!("Could not handle inbound request {request} - error responding with file: {e}")
+                                                    }
+                                                }
                                             }
                                         }
                                     }

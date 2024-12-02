@@ -1,4 +1,5 @@
 use crate::{
+    blockchain::{GossipsubEvent, GossipsubEventId},
     service::{
         self,
         company_service::{CompanyPublicData, CompanyToReturn},
@@ -152,6 +153,17 @@ pub async fn add_signatory(
         .add_company_to_dht_for_node(&payload.id, &payload.signatory_node_id)
         .await?;
 
+    dht_client
+        .add_message_to_company_topic(
+            GossipsubEvent::new(
+                GossipsubEventId::AddSignatoryFromCompany,
+                payload.signatory_node_id.into_bytes(),
+            )
+            .to_byte_array(),
+            &payload.id,
+        )
+        .await?;
+
     Ok(())
 }
 
@@ -173,6 +185,16 @@ pub async fn remove_signatory(
     let mut dht_client = state.dht_client();
     dht_client
         .remove_company_from_dht_for_node(&payload.id, &payload.signatory_node_id)
+        .await?;
+    dht_client
+        .add_message_to_company_topic(
+            GossipsubEvent::new(
+                GossipsubEventId::RemoveSignatoryFromCompany,
+                payload.signatory_node_id.clone().into_bytes(),
+            )
+            .to_byte_array(),
+            &payload.id,
+        )
         .await?;
 
     // if we're removing ourselves, we need to stop subscribing and stop providing

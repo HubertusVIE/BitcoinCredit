@@ -187,6 +187,17 @@ pub enum Event {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
+    CompanyUpdate {
+        event: CompanyEvent,
+        company_id: String,
+        signatory: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum CompanyEvent {
+    AddSignatory,
+    RemoveSignatory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

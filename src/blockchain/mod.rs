@@ -141,6 +141,8 @@ pub enum GossipsubEventId {
     Block,
     Chain,
     CommandGetChain,
+    AddSignatoryFromCompany,
+    RemoveSignatoryFromCompany,
 }
 
 #[cfg(test)]

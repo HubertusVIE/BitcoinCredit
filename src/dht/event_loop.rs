@@ -1,10 +1,10 @@
 use super::behaviour::{Command, ComposedEvent, Event, MyBehaviour};
-use crate::blockchain::{Block, Chain, GossipsubEvent, GossipsubEventId};
+use crate::blockchain::{Chain, GossipsubEvent, GossipsubEventId};
 use crate::constants::{
-    BILL_PREFIX, RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID,
+    BILL_PREFIX, COMPANY_PREFIX, RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID,
     RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
-use crate::dht::behaviour::{FileRequest, FileResponse};
+use crate::dht::behaviour::{CompanyEvent, FileRequest, FileResponse};
 use anyhow::Result;
 use futures::channel::mpsc::Receiver;
 use futures::channel::{mpsc, oneshot};
@@ -265,38 +265,85 @@ impl EventLoop {
                     "Got message with id: {id} from peer: {peer_id} in topic: {}",
                     message.topic.as_str()
                 );
-                if message.topic.as_str().starts_with(BILL_PREFIX) {
+                if message.topic.as_str().starts_with(COMPANY_PREFIX) {
+                    if let Some(company_id) = message.topic.as_str().strip_prefix(COMPANY_PREFIX) {
+                        let event = GossipsubEvent::from_byte_array(&message.data);
+
+                        match event.id {
+                            GossipsubEventId::AddSignatoryFromCompany => {
+                                if let Ok(signatory) = String::from_utf8(event.message) {
+                                    if let Err(e) = self
+                                        .event_sender
+                                        .send(Event::CompanyUpdate {
+                                            event: CompanyEvent::AddSignatory,
+                                            company_id: company_id.to_string(),
+                                            signatory,
+                                        })
+                                        .await
+                                    {
+                                        error!("Could not send event to DHT client: {e}");
+                                    }
+                                }
+                            }
+                            GossipsubEventId::RemoveSignatoryFromCompany => {
+                                if let Ok(signatory) = String::from_utf8(event.message) {
+                                    if let Err(e) = self
+                                        .event_sender
+                                        .send(Event::CompanyUpdate {
+                                            event: CompanyEvent::RemoveSignatory,
+                                            company_id: company_id.to_string(),
+                                            signatory,
+                                        })
+                                        .await
+                                    {
+                                        error!("Could not send event to DHT client: {e}");
+                                    }
+                                }
+                            }
+                            _ => {
+                                warn!("Unknown event: {event:?}");
+                            }
+                        }
+                    }
+                } else if message.topic.as_str().starts_with(BILL_PREFIX) {
                     if let Some(bill_name) = message.topic.as_str().strip_prefix(BILL_PREFIX) {
                         let event = GossipsubEvent::from_byte_array(&message.data);
 
-                        if event.id.eq(&GossipsubEventId::Block) {
-                            let block: Block = serde_json::from_slice(&event.message)
-                                .expect("Block are not valid.");
-                            let mut chain: Chain = Chain::read_chain_from_file(bill_name);
-                            chain.try_add_block(block);
-                            if chain.is_chain_valid() {
-                                chain.write_chain_to_file(bill_name);
+                        match event.id {
+                            GossipsubEventId::Block => {
+                                if let Ok(block) = serde_json::from_slice(&event.message) {
+                                    let mut chain: Chain = Chain::read_chain_from_file(bill_name);
+                                    chain.try_add_block(block);
+                                    if chain.is_chain_valid() {
+                                        chain.write_chain_to_file(bill_name);
+                                    }
+                                }
                             }
-                        } else if event.id.eq(&GossipsubEventId::Chain) {
-                            let receive_chain: Chain = serde_json::from_slice(&event.message)
-                                .expect("Chain are not valid.");
-                            let mut local_chain = Chain::read_chain_from_file(bill_name);
-                            local_chain.compare_chain(receive_chain, bill_name);
-                        } else if event.id.eq(&GossipsubEventId::CommandGetChain) {
-                            let chain = Chain::read_chain_from_file(bill_name);
-                            let chain_bytes =
-                                serde_json::to_vec(&chain).expect("Can not serialize chain.");
-                            let event = GossipsubEvent::new(GossipsubEventId::Chain, chain_bytes);
-                            let message = event.to_byte_array();
-                            self.swarm
-                                .behaviour_mut()
-                                .gossipsub
-                                .publish(gossipsub::IdentTopic::new(bill_name), message)
-                                .expect("Can not publish message.");
-                        } else {
-                            warn!(
-                                "Unknown event id: {id} from peer: {peer_id} in topic: {bill_name}"
-                            );
+                            GossipsubEventId::Chain => {
+                                if let Ok(receive_chain) = serde_json::from_slice(&event.message) {
+                                    let mut local_chain = Chain::read_chain_from_file(bill_name);
+                                    local_chain.compare_chain(receive_chain, bill_name);
+                                }
+                            }
+                            GossipsubEventId::CommandGetChain => {
+                                let chain = Chain::read_chain_from_file(bill_name);
+                                if let Ok(chain_bytes) = serde_json::to_vec(&chain) {
+                                    let event =
+                                        GossipsubEvent::new(GossipsubEventId::Chain, chain_bytes);
+                                    let message = event.to_byte_array();
+                                    if let Err(e) = self
+                                        .swarm
+                                        .behaviour_mut()
+                                        .gossipsub
+                                        .publish(gossipsub::IdentTopic::new(bill_name), message)
+                                    {
+                                        error!("Could not publish event: {event:?}: {e}");
+                                    }
+                                }
+                            }
+                            _ => {
+                                warn!("Unknown event: {event:?}");
+                            }
                         }
                     }
                 }
