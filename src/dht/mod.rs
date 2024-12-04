@@ -142,7 +142,7 @@ async fn new(
     identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
     if !identity_store.exists().await {
-        let ed25519_keys = Keypair::generate_ed25519();
+        let ed25519_keys = Keypair::generate_secp256k1();
         let peer_id = ed25519_keys.public().to_peer_id();
         identity_store.save_peer_id(&peer_id).await?;
         identity_store.save_key_pair(&ed25519_keys).await?;

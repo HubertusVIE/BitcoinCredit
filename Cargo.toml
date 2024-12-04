@@ -9,7 +9,7 @@ borsh = "1.5.1"
 borsh-derive = "1.0.0"
 env_logger = "0.11.5"
 chrono = "0.4.38"
-libp2p = { version = "0.51.3", features = [
+libp2p = { version = "0.51.4", features = [
   "tcp",
   "dns",
   "async-std",
@@ -23,6 +23,7 @@ libp2p = { version = "0.51.3", features = [
   "gossipsub",
   "relay",
   "dcutr",
+  "secp256k1",
 ] }
 tokio = { version = "1.40.0", features = [
   "rt",
