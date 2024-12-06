@@ -1,12 +1,32 @@
 use std::str::FromStr;
 
-use super::Result;
 use bitcoin::{
     secp256k1::{self, Keypair, SecretKey},
     Network,
 };
-use nostr_sdk::{Keys, ToBech32};
+use nostr_sdk::ToBech32;
 use secp256k1::{rand, Secp256k1};
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Private key error: {0}")]
+    PrivateKey(#[from] secp256k1::Error),
+
+    #[error("Nostr key error: {0}")]
+    NostrKey(#[from] nostr_sdk::key::Error),
+
+    #[error("Nostr bech32 key error: {0}")]
+    NostrNip19(#[from] nostr_sdk::nips::nip19::Error),
+
+    #[error("Libp2p key conversion error: {0}")]
+    Secp256k1Conversion(#[from] libp2p::identity::DecodingError),
+
+    #[error("Libp2p key error: {0}")]
+    LibP2p(#[from] libp2p::identity::OtherVariantError),
+}
 
 /// A wrapper around the secp256k1 keypair that can be used for
 /// Bitcoin and Nostr keys.
@@ -48,7 +68,7 @@ impl BcrKeys {
 
     /// Returns the key pair as a nostr key pair
     pub fn get_nostr_keys(&self) -> nostr_sdk::Keys {
-        Keys::new(self.inner.secret_key().into())
+        nostr_sdk::Keys::new(self.inner.secret_key().into())
     }
 
     /// Returns the nostr public key as a bech32 string
@@ -60,6 +80,25 @@ impl BcrKeys {
     pub fn get_nostr_npriv(&self) -> Result<String> {
         Ok(self.get_nostr_keys().secret_key().to_bech32()?)
     }
+
+    /// Converts the keypair to a libp2p keypair
+    pub fn get_libp2p_keys(&self) -> Result<libp2p::identity::Keypair> {
+        as_libp2p_keypair(&self.inner)
+    }
+}
+
+/// libp2p uses a different secp256k1 library than bitcoin and nostr. This
+/// function converts the key via priv key bytes and returns the keypair as a
+/// libp2p keypair.
+fn as_libp2p_keypair(keypair: &Keypair) -> Result<libp2p::identity::Keypair> {
+    let secret: libp2p::identity::secp256k1::SecretKey =
+        libp2p::identity::secp256k1::SecretKey::try_from_bytes(
+            keypair.secret_key().secret_bytes(),
+        )?;
+
+    Ok(libp2p::identity::Keypair::from(
+        libp2p::identity::secp256k1::Keypair::from(secret),
+    ))
 }
 
 /// Generates a new keypair using the secp256k1 library
@@ -116,5 +155,28 @@ mod tests {
             keypair.get_nostr_npriv().unwrap(),
             keypair2.get_nostr_npriv().unwrap()
         );
+    }
+
+    #[test]
+    fn test_convert_keypair() {
+        let keypair = BcrKeys::new();
+        let lp2p_keypair = keypair
+            .get_libp2p_keys()
+            .expect("could not convert keypair to libp2p keypair");
+        let secp256k1_keypair = as_secp256k1_keypair(&lp2p_keypair)
+            .expect("could not convert keypair to secp256k1 keypair");
+        assert_eq!(
+            keypair.get_private_key_string(),
+            secp256k1_keypair.display_secret().to_string()
+        );
+    }
+
+    /// reverses the conversion of a libp2p keypair to a secp256k1 keypair for testing
+    fn as_secp256k1_keypair(keypair: &libp2p::identity::Keypair) -> Result<Keypair> {
+        let secret = keypair.to_owned().try_into_secp256k1()?.secret().to_bytes();
+        Ok(Keypair::from_secret_key(
+            &Secp256k1::new(),
+            &SecretKey::from_slice(&secret)?,
+        ))
     }
 }

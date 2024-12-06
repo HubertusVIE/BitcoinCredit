@@ -7,28 +7,10 @@ pub mod terminal;
 use crate::{
     constants::USEDNET, service::bill_service::BitcreditBill, service::identity_service::Identity,
 };
-use bitcoin::{
-    secp256k1::{self, Scalar},
-    Network, PrivateKey, PublicKey,
-};
+use bitcoin::{secp256k1::Scalar, Network, PrivateKey, PublicKey};
 use openssl::sha::sha256;
 use std::str::FromStr;
-use thiserror::Error;
 use uuid::Uuid;
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Private key error: {0}")]
-    PrivateKey(#[from] secp256k1::Error),
-
-    #[error("Nostr key error: {0}")]
-    NostrKey(#[from] nostr_sdk::key::Error),
-
-    #[error("Nostr bech32 key error: {0}")]
-    NostrNip19(#[from] nostr_sdk::nips::nip19::Error),
-}
 
 #[cfg(not(test))]
 pub fn get_uuid_v4() -> Uuid {
