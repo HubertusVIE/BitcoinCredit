@@ -368,11 +368,13 @@ impl EventLoop {
                                             chain_bytes,
                                         );
                                         let message = event.to_byte_array().unwrap();
-                                        if let Err(e) = self
-                                            .swarm
-                                            .behaviour_mut()
-                                            .gossipsub
-                                            .publish(gossipsub::IdentTopic::new(bill_name), message)
+                                        if let Err(e) =
+                                            self.swarm.behaviour_mut().gossipsub.publish(
+                                                gossipsub::IdentTopic::new(format!(
+                                                    "{BILL_PREFIX}{bill_name}"
+                                                )),
+                                                message,
+                                            )
                                         {
                                             error!("Could not publish event: {event:?}: {e}");
                                         }
