@@ -99,11 +99,11 @@ pub async fn create(
     let created_company = state
         .company_service
         .create_company(
-            payload.legal_name,
+            payload.name,
             payload.country_of_registration,
             payload.city_of_registration,
             payload.postal_address,
-            payload.legal_email,
+            payload.email,
             payload.registration_number,
             payload.registration_date,
             payload.proof_of_registration_file_upload_id,
@@ -112,11 +112,11 @@ pub async fn create(
         .await?;
 
     let id = &created_company.id;
-    let peer_id = state.identity_service.get_peer_id().await?;
+    let node_id = state.identity_service.get_node_id().await?;
 
     let mut dht_client = state.dht_client();
     dht_client
-        .add_company_to_dht_for_node(id, &peer_id.to_string())
+        .add_company_to_dht_for_node(id, &node_id.to_string())
         .await?;
     dht_client.subscribe_to_company_topic(id).await?;
     dht_client.start_providing_company(id).await?;
@@ -137,8 +137,8 @@ pub async fn edit(
         .company_service
         .edit_company(
             &payload.id,
-            payload.legal_name,
-            payload.legal_email,
+            payload.name,
+            payload.email,
             payload.postal_address,
             payload.logo_file_upload_id,
         )
@@ -214,8 +214,8 @@ pub async fn remove_signatory(
         .await?;
 
     // if we're removing ourselves, we need to stop subscribing and stop providing
-    let peer_id = state.identity_service.get_peer_id().await?;
-    if peer_id.to_string().eq(&payload.signatory_node_id) {
+    let node_id = state.identity_service.get_node_id().await?;
+    if node_id.to_string().eq(&payload.signatory_node_id) {
         dht_client.stop_providing_company(&payload.id).await?;
         dht_client
             .unsubscribe_from_company_topic(&payload.id)

@@ -101,8 +101,7 @@ pub async fn search_bill(state: &State<ServiceContext>) -> Result<Status> {
         return Err(service::Error::PreconditionFailed);
     }
     let mut client = state.dht_client();
-    let local_peer_id = state.identity_service.get_peer_id().await?;
-    client.check_new_bills(local_peer_id.to_string()).await?;
+    client.check_new_bills().await?;
 
     Ok(Status::Ok)
 }

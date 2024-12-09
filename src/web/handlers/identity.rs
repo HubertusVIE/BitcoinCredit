@@ -1,7 +1,6 @@
 use crate::service::{self, Result};
 use crate::web::data::{ChangeIdentityPayload, IdentityPayload, NodeId};
 use crate::{service::identity_service::Identity, service::ServiceContext};
-use libp2p::PeerId;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
@@ -18,8 +17,8 @@ pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<Ident
 
 #[get("/peer_id/return")]
 pub async fn return_peer_id(state: &State<ServiceContext>) -> Result<Json<NodeId>> {
-    let peer_id: PeerId = state.identity_service.get_peer_id().await?;
-    let node_id = NodeId::new(peer_id.to_string());
+    let node_id = state.identity_service.get_node_id().await?;
+    let node_id = NodeId::new(node_id.to_string());
     Ok(Json(node_id))
 }
 
