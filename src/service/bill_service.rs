@@ -1051,12 +1051,13 @@ mod test {
     use borsh::to_vec;
     use core::str;
     use futures::channel::mpsc;
-    use libp2p::{identity::Keypair, PeerId};
+    use libp2p::PeerId;
     use mockall::predicate::{always, eq};
     use persistence::{
         bill::MockBillStoreApi, file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
     };
     use std::sync::Arc;
+    use util::crypto::BcrKeys;
 
     fn get_baseline_identity() -> IdentityWithAll {
         let mut identity = Identity::new_empty();
@@ -1066,7 +1067,7 @@ mod test {
         IdentityWithAll {
             identity,
             peer_id: PeerId::random(),
-            key_pair: Keypair::generate_ed25519(),
+            key_pair: BcrKeys::new(),
         }
     }
 
@@ -1180,7 +1181,7 @@ mod test {
         let drawer = IdentityWithAll {
             identity,
             peer_id: PeerId::random(),
-            key_pair: Keypair::generate_ed25519(),
+            key_pair: BcrKeys::new(),
         };
         let drawee = IdentityPublicData::new_empty();
         let payee = IdentityPublicData::new_empty();

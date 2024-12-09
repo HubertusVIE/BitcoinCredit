@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::constants::{
     RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
+use crate::util::crypto::BcrKeys;
 use behaviour::{ComposedEvent, Event, MyBehaviour};
 use event_loop::EventLoop;
 use futures::channel::mpsc;
@@ -25,7 +26,6 @@ use crate::persistence::bill::BillStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::{persistence, util};
 pub use client::Client;
-use libp2p::identity::Keypair;
 use log::{error, info};
 use std::sync::Arc;
 use thiserror::Error;
@@ -99,6 +99,9 @@ pub enum Error {
     /// error if the listen url is invalid
     #[error("invalid listen p2p url error")]
     ListenP2pUrlInvalid,
+
+    #[error("Cryptography error: {0}")]
+    CryptoUtil(#[from] util::crypto::Error),
 }
 
 pub struct Dht {
@@ -142,13 +145,14 @@ async fn new(
     identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
     if !identity_store.exists().await {
-        let ed25519_keys = Keypair::generate_secp256k1();
-        let peer_id = ed25519_keys.public().to_peer_id();
+        let keys = BcrKeys::new();
+        let p2p_keys = keys.get_libp2p_keys()?;
+        let peer_id = p2p_keys.public().to_peer_id();
         identity_store.save_peer_id(&peer_id).await?;
-        identity_store.save_key_pair(&ed25519_keys).await?;
+        identity_store.save_key_pair(&keys).await?;
     }
 
-    let local_public_key = identity_store.get_key_pair().await?;
+    let local_public_key = identity_store.get_key_pair().await?.get_libp2p_keys()?;
     let local_peer_id = identity_store.get_peer_id().await?;
     info!("Local peer id: {local_peer_id:?}");
 

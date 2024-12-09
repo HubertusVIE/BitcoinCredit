@@ -61,6 +61,15 @@ impl BcrKeys {
         self.inner.public_key().to_string()
     }
 
+    pub fn get_bitcoin_keys(
+        &self,
+        used_network: Network,
+    ) -> (bitcoin::PrivateKey, bitcoin::PublicKey) {
+        let secp = Secp256k1::new();
+        let private_key = self.get_bitcoin_private_key(used_network);
+        (private_key, private_key.public_key(&secp))
+    }
+
     /// Returns the key pair as a bitcoin private key for the given network
     pub fn get_bitcoin_private_key(&self, used_network: Network) -> bitcoin::PrivateKey {
         bitcoin::PrivateKey::new(self.inner.secret_key(), used_network)
