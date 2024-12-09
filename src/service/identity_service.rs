@@ -1,14 +1,14 @@
 use super::Result;
+use crate::CONFIG;
 use crate::{
-    constants::USEDNET,
     dht::Client,
     persistence::identity::IdentityStoreApi,
-    util::{self, crypto::BcrKeys},
+    util::{self, BcrKeys},
 };
+
 use async_trait::async_trait;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use libp2p::PeerId;
-use openssl::{pkey::Private, rsa::Rsa};
 use rocket::serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -91,17 +91,15 @@ impl IdentityServiceApi for IdentityService {
         email: String,
         postal_address: String,
     ) -> Result<()> {
-        let rsa: Rsa<Private> = util::rsa::generation_rsa_key();
-        let private_key_pem: String = util::rsa::pem_private_key_from_rsa(&rsa)
-            .map_err(|e| super::Error::Cryptography(e.to_string()))?;
-        let public_key_pem: String = util::rsa::pem_public_key_from_rsa(&rsa)
+        let (private_key_pem, public_key_pem) = util::rsa::create_rsa_key_pair()
             .map_err(|e| super::Error::Cryptography(e.to_string()))?;
 
         let s = bitcoin::secp256k1::Secp256k1::new();
+
         let private_key = bitcoin::PrivateKey::new(
             s.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
                 .0,
-            USEDNET,
+            CONFIG.bitcoin_network(),
         );
         let public_key = private_key.public_key(&s).to_string();
         let private_key = private_key.to_string();
@@ -219,7 +217,9 @@ impl Identity {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::persistence::{self, bill::MockBillStoreApi, identity::MockIdentityStoreApi};
+    use crate::persistence::{
+        self, bill::MockBillStoreApi, company::MockCompanyStoreApi, identity::MockIdentityStoreApi,
+    };
     use futures::channel::mpsc;
 
     fn get_service(mock_storage: MockIdentityStoreApi) -> IdentityService {
@@ -230,6 +230,7 @@ mod test {
             Client::new(
                 sender,
                 Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockCompanyStoreApi::new()),
                 Arc::new(client_storage),
             ),
             Arc::new(mock_storage),

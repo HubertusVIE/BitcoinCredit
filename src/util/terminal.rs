@@ -1,5 +1,6 @@
 use crate::dht::Client;
 use anyhow::Result;
+use borsh::to_vec;
 use log::{error, info};
 use std::io::BufRead;
 use tokio::sync::broadcast;
@@ -49,7 +50,7 @@ pub async fn run_terminal_client(
 async fn handle_input_line(dht_client: &mut Client, line: String) {
     let mut args = line.split(' ');
     match args.next() {
-        Some("PUT") => {
+        Some("START_PROVIDING_COMPANY") => {
             let name: String = {
                 match args.next() {
                     Some(name) => String::from(name),
@@ -59,8 +60,23 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            if let Err(e) = dht_client.put(&name).await {
-                error!("Could not put {name}: {e}");
+            if let Err(e) = dht_client.start_providing_company(&name).await {
+                error!("Could not start providing company {name}: {e}");
+            };
+        }
+
+        Some("START_PROVIDING_BILL") => {
+            let name: String = {
+                match args.next() {
+                    Some(name) => String::from(name),
+                    None => {
+                        error!("Expected name.");
+                        return;
+                    }
+                }
+            };
+            if let Err(e) = dht_client.start_providing_bill(&name).await {
+                error!("Could not start providing bill {name}: {e}");
             };
         }
 
@@ -128,19 +144,26 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            let value = {
-                match args.next() {
-                    Some(value) => String::from(value),
-                    None => {
-                        error!("Expected value");
-                        return;
+            let mut values = vec![];
+            for value in args.by_ref() {
+                values.push(value.to_owned());
+            }
+
+            if values.is_empty() {
+                error!("Expected value");
+                return;
+            }
+
+            match to_vec(&values) {
+                Ok(v) => {
+                    if let Err(e) = dht_client.put_record(key.clone(), v).await {
+                        error!("Could not put record {values:?} to {key}: {e}");
                     }
                 }
+                Err(e) => {
+                    error!("Could not serialize value {values:?} to bytes: {e}");
+                }
             };
-
-            if let Err(e) = dht_client.put_record(key.clone(), value.clone()).await {
-                error!("Could not put record {value} to {key}: {e}");
-            }
         }
 
         Some("SEND_MESSAGE") => {
@@ -171,7 +194,7 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
             }
         }
 
-        Some("SUBSCRIBE") => {
+        Some("SUBSCRIBE_TO_COMPANY") => {
             let topic = {
                 match args.next() {
                     Some(key) => String::from(key),
@@ -182,7 +205,23 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                 }
             };
 
-            if let Err(e) = dht_client.subscribe_to_topic(topic.clone()).await {
+            if let Err(e) = dht_client.subscribe_to_company_topic(&topic).await {
+                error!("Could not subscribe to topic {topic}: {e}");
+            }
+        }
+
+        Some("SUBSCRIBE_TO_BILL") => {
+            let topic = {
+                match args.next() {
+                    Some(key) => String::from(key),
+                    None => {
+                        error!("Expected topic");
+                        return;
+                    }
+                }
+            };
+
+            if let Err(e) = dht_client.subscribe_to_bill_topic(&topic).await {
                 error!("Could not subscribe to topic {topic}: {e}");
             }
         }
@@ -202,7 +241,7 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
             }
         }
 
-        Some("GET_PROVIDERS") => {
+        Some("GET_BILL_PROVIDERS") => {
             let key = {
                 match args.next() {
                     Some(key) => String::from(key),
@@ -212,14 +251,14 @@ async fn handle_input_line(dht_client: &mut Client, line: String) {
                     }
                 }
             };
-            if let Err(e) = dht_client.get_providers(key.clone()).await {
-                error!("Could not get providers for {key}: {e}");
+            if let Err(e) = dht_client.get_bill_providers(&key).await {
+                error!("Could not get bill providers for {key}: {e}");
             }
         }
 
         _ => {
             error!(
-                "expected GET_BILL, GET_KEY, GET_BILL_ATTACHMENT, PUT, SEND_MESSAGE, SUBSCRIBE, GET_RECORD, PUT_RECORD or GET_PROVIDERS."
+                "expected GET_BILL, GET_KEY, GET_BILL_ATTACHMENT, PUT, SEND_MESSAGE, SUBSCRIBE_TO_BILL, SUBSCRIBE_TO_COMPANY, GET_RECORD, PUT_RECORD, START_PROVIDING_BILL, START_PROVIDING_COMPANY or GET_PROVIDERS."
             );
         }
     }

@@ -44,12 +44,15 @@ pub enum Error {
 
     #[error("Cryptography error: {0}")]
     CryptoUtil(#[from] util::crypto::Error),
+
+    #[error("Blockchain error: {0}")]
+    Blockchain(#[from] blockchain::Error),
 }
 
 pub use contact::ContactStoreApi;
 pub use nostr::{NostrEventOffset, NostrEventOffsetStoreApi};
 
-use crate::config::Config;
+use crate::{blockchain, config::Config};
 use company::FileBasedCompanyStore;
 use file_upload::FileUploadStore;
 

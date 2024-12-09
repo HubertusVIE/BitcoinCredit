@@ -4,6 +4,8 @@ use crate::constants::{
 };
 use crate::util::crypto::BcrKeys;
 use behaviour::{ComposedEvent, Event, MyBehaviour};
+use borsh::{to_vec, BorshDeserialize};
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use event_loop::EventLoop;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Receiver;
@@ -18,13 +20,14 @@ use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{identify, noise, relay, tcp, yamux, PeerId, Transport};
 use tokio::{spawn, sync::broadcast};
 
-mod behaviour;
+pub mod behaviour;
 mod client;
 mod event_loop;
 
 use crate::persistence::bill::BillStoreApi;
+use crate::persistence::company::CompanyStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
-use crate::{persistence, util};
+use crate::{blockchain, persistence, util};
 pub use client::Client;
 use log::{error, info};
 use std::sync::Arc;
@@ -36,7 +39,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Generic error type
 #[derive(Debug, Error)]
 pub enum Error {
-    /// all errors originating from file, or network io
+    /// all errors originating from file, or network io, or binary serialization or deserialization
     #[error("io error {0}")]
     Io(#[from] std::io::Error),
 
@@ -100,8 +103,13 @@ pub enum Error {
     #[error("invalid listen p2p url error")]
     ListenP2pUrlInvalid,
 
+    /// errors from internal crypto operations
     #[error("Cryptography error: {0}")]
     CryptoUtil(#[from] util::crypto::Error),
+
+    /// errors that stem from interacting with a blockchain
+    #[error("Blockchain error: {0}")]
+    Blockchain(#[from] blockchain::Error),
 }
 
 pub struct Dht {
@@ -112,10 +120,11 @@ pub struct Dht {
 pub async fn dht_main(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
+    company_store: Arc<dyn CompanyStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<Dht> {
     let (network_client, network_events, network_event_loop) =
-        new(conf, bill_store, identity_store).await?;
+        new(conf, bill_store, company_store, identity_store).await?;
 
     let (shutdown_sender, shutdown_receiver) = broadcast::channel::<bool>(100);
 
@@ -142,6 +151,7 @@ pub async fn dht_main(
 async fn new(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
+    company_store: Arc<dyn CompanyStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
     if !identity_store.exists().await {
@@ -152,6 +162,7 @@ async fn new(
         identity_store.save_key_pair(&keys).await?;
     }
 
+    println!("Before creating client");
     let local_public_key = identity_store.get_key_pair().await?.get_libp2p_keys()?;
     let local_peer_id = identity_store.get_peer_id().await?;
     info!("Local peer id: {local_peer_id:?}");
@@ -286,11 +297,42 @@ async fn new(
 
     let (command_sender, command_receiver) = mpsc::channel(0);
     let (event_sender, event_receiver) = mpsc::channel(0);
-    let event_loop = EventLoop::new(swarm, command_receiver, event_sender);
+    let event_loop = EventLoop::new(swarm, command_receiver, event_sender, bill_store.clone());
 
     Ok((
-        Client::new(command_sender, bill_store, identity_store),
+        Client::new(command_sender, bill_store, company_store, identity_store),
         event_receiver,
         event_loop,
     ))
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct GossipsubEvent {
+    pub id: GossipsubEventId,
+    pub message: Vec<u8>,
+}
+
+impl GossipsubEvent {
+    pub fn new(id: GossipsubEventId, message: Vec<u8>) -> Self {
+        Self { id, message }
+    }
+
+    pub fn to_byte_array(&self) -> Result<Vec<u8>> {
+        let res = to_vec(self)?;
+        Ok(res)
+    }
+
+    pub fn from_byte_array(bytes: &[u8]) -> Result<Self> {
+        let res = Self::try_from_slice(bytes)?;
+        Ok(res)
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub enum GossipsubEventId {
+    Block,
+    Chain,
+    CommandGetChain,
+    AddSignatoryFromCompany,
+    RemoveSignatoryFromCompany,
 }

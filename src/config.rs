@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bitcoin::Network;
 use clap::Parser;
 use libp2p::multiaddr::Protocol;
 use libp2p::Multiaddr;
@@ -24,6 +25,8 @@ pub struct Config {
     pub surreal_db_connection: String,
     #[arg(default_value_t = false, long, env = "TERMINAL_CLIENT")]
     pub terminal_client: bool,
+    #[arg(default_value_t = String::from("development"),  env = "development")]
+    pub environment: String,
 }
 
 impl Config {
@@ -36,5 +39,13 @@ impl Config {
             .with(self.p2p_address.parse::<Ipv4Addr>()?.into())
             .with(Protocol::Tcp(self.p2p_port));
         Ok(res)
+    }
+
+    pub fn bitcoin_network(&self) -> Network {
+        match self.environment.as_str() {
+            "production" => Network::Bitcoin,
+            "development" => Network::Testnet,
+            _ => Network::Testnet,
+        }
     }
 }

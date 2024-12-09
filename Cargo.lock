@@ -1122,6 +1122,7 @@ dependencies = [
  "hex",
  "hf",
  "infer",
+ "lazy_static",
  "lettre",
  "libp2p",
  "log",

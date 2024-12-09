@@ -1,5 +1,6 @@
 use crate::constants::{
-    BILL_ATTACHMENT_PREFIX, BILL_PREFIX, BOOTSTRAP_NODES_FILE_PATH, KEY_PREFIX, MAX_FILE_SIZE_BYTES,
+    BILL_ATTACHMENT_PREFIX, BILL_PREFIX, BOOTSTRAP_NODES_FILE_PATH, COMPANY_KEY_PREFIX,
+    COMPANY_LOGO_PREFIX, COMPANY_PREFIX, COMPANY_PROOF_PREFIX, KEY_PREFIX, MAX_FILE_SIZE_BYTES,
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -141,16 +142,19 @@ impl From<dcutr::Event> for ComposedEvent {
 #[derive(Debug)]
 pub enum Command {
     StartProviding {
-        file_name: String,
+        entry: String,
         sender: oneshot::Sender<()>,
     },
+    StopProviding {
+        entry: String,
+    },
     GetProviders {
-        file_name: String,
+        entry: String,
         sender: oneshot::Sender<HashSet<PeerId>>,
     },
     PutRecord {
         key: String,
-        value: String,
+        value: Vec<u8>,
     },
     GetRecord {
         key: String,
@@ -172,6 +176,9 @@ pub enum Command {
     SubscribeToTopic {
         topic: String,
     },
+    UnsubscribeFromTopic {
+        topic: String,
+    },
 }
 
 #[derive(Debug)]
@@ -180,6 +187,17 @@ pub enum Event {
         request: String,
         channel: ResponseChannel<FileResponse>,
     },
+    CompanyUpdate {
+        event: CompanyEvent,
+        company_id: String,
+        signatory: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum CompanyEvent {
+    AddSignatory,
+    RemoveSignatory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +205,36 @@ pub enum ParsedInboundFileRequest {
     Bill(BillFileRequest),
     BillKeys(BillKeysFileRequest),
     BillAttachment(BillAttachmentFileRequest),
+    CompanyData(CompanyDataRequest),
+    CompanyKeys(CompanyKeysRequest),
+    CompanyLogo(CompanyLogoRequest),
+    CompanyProof(CompanyProofRequest),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyDataRequest {
+    pub node_id: String,
+    pub company_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyKeysRequest {
+    pub node_id: String,
+    pub company_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyLogoRequest {
+    pub company_id: String,
+    pub node_id: String,
+    pub file_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyProofRequest {
+    pub company_id: String,
+    pub node_id: String,
+    pub file_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,6 +267,22 @@ pub fn file_request_for_bill_keys(node_id: &str, bill_name: &str) -> String {
     format!("{node_id}_{KEY_PREFIX}_{bill_name}")
 }
 
+pub fn file_request_for_company_data(node_id: &str, company_id: &str) -> String {
+    format!("{node_id}_{COMPANY_PREFIX}_{company_id}")
+}
+
+pub fn file_request_for_company_keys(node_id: &str, company_id: &str) -> String {
+    format!("{node_id}_{COMPANY_KEY_PREFIX}_{company_id}")
+}
+
+pub fn file_request_for_company_logo(node_id: &str, company_id: &str, file_name: &str) -> String {
+    format!("{node_id}_{COMPANY_LOGO_PREFIX}_{company_id}_{file_name}")
+}
+
+pub fn file_request_for_company_proof(node_id: &str, company_id: &str, file_name: &str) -> String {
+    format!("{node_id}_{COMPANY_PROOF_PREFIX}_{company_id}_{file_name}")
+}
+
 pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequest> {
     let parts = request.splitn(4, "_").collect::<Vec<&str>>();
     if parts.len() < 3 {
@@ -248,6 +312,40 @@ pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequ
                     node_id,
                     bill_name: parts[2].to_owned(),
                     file_name: parts[3].to_owned(),
+                },
+            ))
+        }
+        COMPANY_PREFIX => Ok(ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
+            company_id: parts[2].to_owned(),
+            node_id,
+        })),
+        COMPANY_KEY_PREFIX => Ok(ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
+            company_id: parts[2].to_owned(),
+            node_id,
+        })),
+        COMPANY_LOGO_PREFIX => {
+            if parts.len() < 4 {
+                return Err(anyhow!(
+                    "invalid file request, need at least 4 parts in {request}"
+                ));
+            }
+            Ok(ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
+                company_id: parts[2].to_owned(),
+                file_name: parts[3].to_owned(),
+                node_id,
+            }))
+        }
+        COMPANY_PROOF_PREFIX => {
+            if parts.len() < 4 {
+                return Err(anyhow!(
+                    "invalid file request, need at least 4 parts in {request}"
+                ));
+            }
+            Ok(ParsedInboundFileRequest::CompanyProof(
+                CompanyProofRequest {
+                    company_id: parts[2].to_owned(),
+                    file_name: parts[3].to_owned(),
+                    node_id,
                 },
             ))
         }
@@ -367,6 +465,10 @@ mod test {
         assert!(parse_inbound_file_request("nodeid_BILL_TEST").is_ok());
         assert!(parse_inbound_file_request("nodeid_KEY_TEST").is_ok());
         assert!(parse_inbound_file_request("nodeid_BILLATT_TEST_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANY_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANYKEY_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANYLOGO_TEST_TEST").is_ok());
+        assert!(parse_inbound_file_request("nodeid_COMPANYPROOF_TEST_TEST").is_ok());
     }
 
     #[test]
@@ -437,6 +539,100 @@ mod test {
                 node_id: "nodeid".to_string(),
                 bill_name: "TEST".to_string(),
                 file_name: "FILE".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_data() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANY_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_data() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_data("nodeid", "TEST")).unwrap(),
+            ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_keys() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANYKEY_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_keys() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_keys("nodeid", "TEST")).unwrap(),
+            ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_logo() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANYLOGO_TEST_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_logo() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_logo("nodeid", "TEST", "TEST"))
+                .unwrap(),
+            ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_inbound_file_request_content_company_proof() {
+        assert_eq!(
+            parse_inbound_file_request("nodeid_COMPANYPROOF_TEST_TEST").unwrap(),
+            ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn file_request_parse_inbound_file_request_content_company_proof() {
+        assert_eq!(
+            parse_inbound_file_request(&file_request_for_company_proof("nodeid", "TEST", "TEST"))
+                .unwrap(),
+            ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
+                node_id: "nodeid".to_string(),
+                company_id: "TEST".to_string(),
+                file_name: "TEST".to_string(),
             })
         );
     }

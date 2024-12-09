@@ -1,6 +1,5 @@
 use super::{file_storage_path, Result};
 use async_trait::async_trait;
-use bitcoin::hex::DisplayHex;
 use borsh::{to_vec, BorshDeserialize};
 use libp2p::PeerId;
 use tokio::{fs, task};
@@ -127,9 +126,7 @@ impl IdentityStoreApi for FileBasedIdentityStore {
 
     async fn get_key_pair(&self) -> Result<BcrKeys> {
         let data = fs::read_to_string(&self.key_file).await?;
-        println!("reading key pair from file: {data}");
         let key_pair = BcrKeys::from_private_key(&data)?;
-        println!("key pair: {key_pair:?}");
         Ok(key_pair)
     }
 }
