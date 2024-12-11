@@ -14,11 +14,11 @@ pub async fn return_quote(
 ) -> Result<Json<BitcreditEbillQuote>> {
     let mut quote = get_quote_from_map(&id);
     let copy_id = id.clone();
-    let local_peer_id = state.identity_service.get_peer_id().await?.to_string();
+    let local_node_id = state.identity_service.get_node_id().await?.to_string();
     if !quote.bill_id.is_empty() && quote.quote_id.is_empty() {
         // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
         // thread, but this logic will be replaced soon
-        thread::spawn(move || check_bitcredit_quote(&copy_id, &local_peer_id))
+        thread::spawn(move || check_bitcredit_quote(&copy_id, &local_node_id))
             .join()
             .expect("Thread panicked");
     }

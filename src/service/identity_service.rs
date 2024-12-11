@@ -20,8 +20,8 @@ pub trait IdentityServiceApi: Send + Sync {
     async fn get_full_identity(&self) -> Result<IdentityWithAll>;
     /// Gets the local identity
     async fn get_identity(&self) -> Result<Identity>;
-    /// Gets the local peer_id
-    async fn get_peer_id(&self) -> Result<PeerId>;
+    /// Gets the local node
+    async fn get_node_id(&self) -> Result<PeerId>;
     /// Checks if the identity has been created
     async fn identity_exists(&self) -> bool;
     /// Creates the identity and returns it with it's key pair and peer id
@@ -72,9 +72,9 @@ impl IdentityServiceApi for IdentityService {
         Ok(identity)
     }
 
-    async fn get_peer_id(&self) -> Result<PeerId> {
-        let peer_id = self.store.get_peer_id().await?;
-        Ok(peer_id)
+    async fn get_node_id(&self) -> Result<PeerId> {
+        let node_id = self.store.get_node_id().await?;
+        Ok(node_id)
     }
 
     async fn identity_exists(&self) -> bool {
@@ -91,8 +91,7 @@ impl IdentityServiceApi for IdentityService {
         email: String,
         postal_address: String,
     ) -> Result<()> {
-        let (private_key_pem, public_key_pem) = util::rsa::create_rsa_key_pair()
-            .map_err(|e| super::Error::Cryptography(e.to_string()))?;
+        let (private_key_pem, public_key_pem) = util::rsa::create_rsa_key_pair()?;
 
         let s = bitcoin::secp256k1::Secp256k1::new();
 
@@ -218,7 +217,8 @@ impl Identity {
 mod test {
     use super::*;
     use crate::persistence::{
-        self, bill::MockBillStoreApi, company::MockCompanyStoreApi, identity::MockIdentityStoreApi,
+        self, bill::MockBillStoreApi, company::MockCompanyStoreApi,
+        file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
     };
     use futures::channel::mpsc;
 
@@ -232,6 +232,7 @@ mod test {
                 Arc::new(MockBillStoreApi::new()),
                 Arc::new(MockCompanyStoreApi::new()),
                 Arc::new(client_storage),
+                Arc::new(MockFileUploadStoreApi::new()),
             ),
             Arc::new(mock_storage),
         )
@@ -275,22 +276,22 @@ mod test {
     }
 
     #[tokio::test]
-    async fn get_peer_id_calls_storage() {
-        let peer_id = PeerId::random();
+    async fn get_node_id_calls_storage() {
+        let node_id = PeerId::random();
         let mut storage = MockIdentityStoreApi::new();
-        storage.expect_get_peer_id().returning(move || Ok(peer_id));
+        storage.expect_get_node_id().returning(move || Ok(node_id));
 
         let service = get_service(storage);
-        let res = service.get_peer_id().await;
+        let res = service.get_node_id().await;
 
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), peer_id);
+        assert_eq!(res.unwrap(), node_id);
     }
 
     #[tokio::test]
-    async fn get_peer_id_propagates_errors() {
+    async fn get_node_id_propagates_errors() {
         let mut storage = MockIdentityStoreApi::new();
-        storage.expect_get_peer_id().returning(|| {
+        storage.expect_get_node_id().returning(|| {
             Err(persistence::Error::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "test error",
@@ -298,7 +299,7 @@ mod test {
         });
 
         let service = get_service(storage);
-        let res = service.get_peer_id().await;
+        let res = service.get_node_id().await;
 
         assert!(res.is_err());
     }

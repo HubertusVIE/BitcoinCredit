@@ -8,8 +8,10 @@ pub mod nostr;
 
 use crate::util;
 use bill::FileBasedBillStore;
-use db::{contact::SurrealContactStore, get_surreal_db, SurrealDbConfig};
-use identity::FileBasedIdentityStore;
+use db::{
+    company::SurrealCompanyStore, contact::SurrealContactStore, get_surreal_db,
+    identity::SurrealIdentityStore, SurrealDbConfig,
+};
 use log::error;
 use std::{path::Path, sync::Arc};
 use thiserror::Error;
@@ -38,6 +40,15 @@ pub enum Error {
     #[error("no such {0} entity {1}")]
     NoSuchEntity(String, String),
 
+    #[error("no identity found")]
+    NoIdentity,
+
+    #[error("no node id found")]
+    NoNodeId,
+
+    #[error("no identity key found")]
+    NoIdentityKey,
+
     #[allow(dead_code)]
     #[error("Failed to convert integer {0}")]
     FromInt(#[from] std::num::TryFromIntError),
@@ -47,13 +58,15 @@ pub enum Error {
 
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] blockchain::Error),
+
+    #[error("parse bytes to string error: {0}")]
+    Utf8(#[from] std::str::Utf8Error),
 }
 
 pub use contact::ContactStoreApi;
 pub use nostr::{NostrEventOffset, NostrEventOffsetStoreApi};
 
 use crate::{blockchain, config::Config};
-use company::FileBasedCompanyStore;
 use file_upload::FileUploadStore;
 
 /// Given a base path and a directory path, ensures that the directory
@@ -81,8 +94,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
     let surreal_db_config = SurrealDbConfig::new(&conf.surreal_db_connection);
     let db = get_surreal_db(&surreal_db_config).await?;
 
-    let company_store =
-        Arc::new(FileBasedCompanyStore::new(&conf.data_dir, "company", "data", "keys").await?);
+    let company_store = Arc::new(SurrealCompanyStore::new(db.clone()));
     let file_upload_store =
         Arc::new(FileUploadStore::new(&conf.data_dir, "files", "temp_upload").await?);
 
@@ -93,18 +105,9 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
     let contact_store = Arc::new(SurrealContactStore::new(db.clone()));
 
     let bill_store =
-        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "files", "bills_keys").await?);
+        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "bills_keys").await?);
 
-    let identity_store = Arc::new(
-        FileBasedIdentityStore::new(
-            &conf.data_dir,
-            "identity",
-            "identity",
-            "peer_id",
-            "bcr_keys",
-        )
-        .await?,
-    );
+    let identity_store = Arc::new(SurrealIdentityStore::new(db.clone()));
 
     Ok(DbContext {
         contact_store,

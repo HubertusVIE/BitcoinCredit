@@ -192,3 +192,106 @@ impl IdentityPublicData {
         }
     }
 }
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use crate::persistence::{
+        bill::MockBillStoreApi, company::MockCompanyStoreApi, contact::MockContactStoreApi,
+        file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
+    };
+    use futures::channel::mpsc;
+
+    fn get_service(mock_storage: MockContactStoreApi) -> ContactService {
+        let (sender, _) = mpsc::channel(0);
+        ContactService::new(
+            Client::new(
+                sender,
+                Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockCompanyStoreApi::new()),
+                Arc::new(MockIdentityStoreApi::new()),
+                Arc::new(MockFileUploadStoreApi::new()),
+            ),
+            Arc::new(mock_storage),
+        )
+    }
+
+    #[tokio::test]
+    async fn get_contacts_baseline() {
+        let mut store = MockContactStoreApi::new();
+        store.expect_get_map().returning(|| {
+            let mut identity = IdentityPublicData::new_empty();
+            identity.name = "Minka".to_string();
+            identity.peer_id = "some_node_id".to_string();
+            let mut map = HashMap::new();
+            map.insert("Minka".to_string(), identity);
+            Ok(map)
+        });
+        let result = get_service(store).get_contacts().await;
+        assert!(result.is_ok());
+        assert_eq!(result.as_ref().unwrap().first().unwrap().name, *"Minka");
+        assert_eq!(
+            result.as_ref().unwrap().first().unwrap().peer_id,
+            *"some_node_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_identity_by_name_baseline() {
+        let mut store = MockContactStoreApi::new();
+        store.expect_by_name().returning(|_| {
+            let mut identity = IdentityPublicData::new_empty();
+            identity.name = "Minka".to_string();
+            identity.peer_id = "some_node_id".to_string();
+            Ok(Some(identity))
+        });
+        let result = get_service(store).get_identity_by_name("Minka").await;
+        assert!(result.is_ok());
+        assert_eq!(result.as_ref().unwrap().name, *"Minka");
+    }
+
+    #[tokio::test]
+    async fn delete_identity_calls_store() {
+        let mut store = MockContactStoreApi::new();
+        store.expect_delete().returning(|_| Ok(()));
+        let result = get_service(store)
+            .delete_identity_by_name("some_name")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_identity_name_calls_store() {
+        let mut store = MockContactStoreApi::new();
+        store.expect_update_name().returning(|_, _| Ok(()));
+        let result = get_service(store)
+            .update_identity_name("old_name", "new_name")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_identity_calls_store() {
+        let mut store = MockContactStoreApi::new();
+        store.expect_update().returning(|_, _| Ok(()));
+        let result = get_service(store)
+            .update_identity("name", IdentityPublicData::new_empty())
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn is_known_npub_calls_store() {
+        let mut store = MockContactStoreApi::new();
+        store.expect_get_by_npub().returning(|_| {
+            let mut identity = IdentityPublicData::new_empty();
+            identity.name = "Minka".to_string();
+            identity.peer_id = "some_node_id".to_string();
+            identity.nostr_npub = Some("some_npub".to_string());
+            Ok(Some(identity))
+        });
+        let result = get_service(store).is_known_npub("some_npub").await;
+        assert!(result.is_ok());
+        assert!(result.as_ref().unwrap());
+    }
+}
