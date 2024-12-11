@@ -1,6 +1,6 @@
 use super::{file_storage_path, Result};
 use crate::{
-    blockchain::Chain,
+    blockchain::bill::BillBlockchain,
     service::bill_service::{BillKeys, BitcreditBill},
     util::file::is_not_hidden_or_directory_async,
 };
@@ -33,7 +33,7 @@ pub trait BillStoreApi: Send + Sync {
     async fn get_bills(&self) -> Result<Vec<BitcreditBill>>;
 
     /// Reads the blockchain of the given bill from disk
-    async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<Chain>;
+    async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<BillBlockchain>;
 
     /// Writes bill keys to file
     async fn write_bill_keys_to_file(
@@ -87,8 +87,8 @@ impl FileBasedBillStore {
     }
 }
 
-pub fn bill_chain_from_bytes(bytes: &[u8]) -> Result<Chain> {
-    let chain: Chain = serde_json::from_slice(bytes).map_err(super::Error::Json)?;
+pub fn bill_chain_from_bytes(bytes: &[u8]) -> Result<BillBlockchain> {
+    let chain: BillBlockchain = serde_json::from_slice(bytes).map_err(super::Error::Json)?;
     Ok(chain)
 }
 
@@ -152,7 +152,7 @@ impl BillStoreApi for FileBasedBillStore {
         Ok(bills)
     }
 
-    async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<Chain> {
+    async fn read_bill_chain_from_file(&self, bill_name: &str) -> Result<BillBlockchain> {
         let path = self.get_path_for_bill(bill_name);
         let bytes = read(path).await?;
         serde_json::from_slice(&bytes).map_err(super::Error::Json)

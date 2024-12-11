@@ -361,9 +361,9 @@ impl GossipsubEvent {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub enum GossipsubEventId {
-    Block,
-    Chain,
-    CommandGetChain,
+    BillBlock,
+    BillBlockchain,
+    CommandGetBillBlockchain,
     AddSignatoryFromCompany,
     RemoveSignatoryFromCompany,
 }

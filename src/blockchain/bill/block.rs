@@ -1,11 +1,8 @@
+use super::super::{Error, Result};
+use super::calculate_hash;
 use super::extract_after_phrase;
-use super::Error;
-use super::OperationCode;
-use super::Result;
-use crate::blockchain::calculate_hash;
-use crate::blockchain::OperationCode::{
-    Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell,
-};
+use super::BillOpCode;
+use super::BillOpCode::{Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell};
 use crate::constants::ACCEPTED_BY;
 use crate::constants::ENDORSED_BY;
 use crate::constants::ENDORSED_TO;
@@ -24,19 +21,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct Block {
+pub struct BillBlock {
     pub id: u64,
-    pub bill_name: String,
     pub hash: String,
     pub timestamp: i64,
     pub data: String,
     pub previous_hash: String,
     pub signature: String,
     pub public_key: String,
-    pub operation_code: OperationCode,
+    pub operation_code: BillOpCode,
 }
 
-impl Block {
+impl BillBlock {
     /// Creates a new instance of the struct with the provided details, calculates the block hash,
     /// and generates a signature for the block.
     ///
@@ -45,9 +41,8 @@ impl Block {
     /// - `id`: The unique identifier of the block (`u64`).
     /// - `previous_hash`: A `String` representing the hash of the previous block in the chain.
     /// - `data`: A `String` containing the data to be stored in the block.
-    /// - `bill_name`: A `String` representing the name of the bill associated with the block.
     /// - `public_key`: A `String` containing the public RSA key in PEM format.
-    /// - `operation_code`: An `OperationCode` indicating the operation type associated with the block.
+    /// - `operation_code`: An `BillOpCode` indicating the operation type associated with the block.
     /// - `private_key`: A `String` containing the private RSA key in PEM format, used to sign the block.
     /// - `timestamp`: An `i64` timestamp representing the time the block was created.
     ///
@@ -60,15 +55,13 @@ impl Block {
         id: u64,
         previous_hash: String,
         data: String,
-        bill_name: String,
         public_key: String,
-        operation_code: OperationCode,
+        operation_code: BillOpCode,
         private_key: String,
         timestamp: i64,
     ) -> Result<Self> {
         let hash = hex::encode(calculate_hash(
             &id,
-            &bill_name,
             &previous_hash,
             &data,
             &timestamp,
@@ -79,7 +72,6 @@ impl Block {
 
         Ok(Self {
             id,
-            bill_name,
             hash,
             timestamp,
             previous_hash,
@@ -380,6 +372,18 @@ impl Block {
             Ok(res) => res,
         }
     }
+
+    pub fn validate_hash(&self) -> bool {
+        self.hash
+            == hex::encode(calculate_hash(
+                &self.id,
+                &self.previous_hash,
+                &self.data,
+                &self.timestamp,
+                &self.public_key,
+                &self.operation_code,
+            ))
+    }
 }
 
 #[cfg(test)]
@@ -391,13 +395,12 @@ mod test {
 
     #[test]
     fn signature_can_be_verified() {
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             String::from("some_data"),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Issue,
+            BillOpCode::Issue,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -422,13 +425,12 @@ mod test {
             rsa::encrypt_bytes_with_public_key(&to_vec(&bill).unwrap(), TEST_PUB_KEY).unwrap(),
         );
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hashed_bill,
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Issue,
+            BillOpCode::Issue,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -452,13 +454,12 @@ mod test {
             rsa::encrypt_bytes_with_public_key(&to_vec(&bill).unwrap(), TEST_PUB_KEY).unwrap(),
         );
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hashed_bill,
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Issue,
+            BillOpCode::Issue,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -487,13 +488,12 @@ mod test {
             ENDORSED_TO, &hashed_endorsee, ENDORSED_BY, &hashed_endorser
         );
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Endorse,
+            BillOpCode::Endorse,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -519,13 +519,12 @@ mod test {
             ENDORSED_TO, &hashed_endorsee, ENDORSED_BY, &hashed_endorser
         );
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Endorse,
+            BillOpCode::Endorse,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -551,13 +550,12 @@ mod test {
             ENDORSED_TO, &hashed_mint, ENDORSED_BY, &hashed_minter
         );
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Mint,
+            BillOpCode::Mint,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -583,13 +581,12 @@ mod test {
             ENDORSED_TO, &hashed_endorsee, ENDORSED_BY, &hashed_endorser
         );
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Mint,
+            BillOpCode::Mint,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -608,13 +605,12 @@ mod test {
 
         let data = format!("{}{}", REQ_TO_ACCEPT_BY, &hashed_requester);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::RequestToAccept,
+            BillOpCode::RequestToAccept,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -634,13 +630,12 @@ mod test {
 
         let data = format!("{}{}", REQ_TO_ACCEPT_BY, &hashed_requester);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::RequestToAccept,
+            BillOpCode::RequestToAccept,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -662,13 +657,12 @@ mod test {
 
         let data = format!("{}{}", ACCEPTED_BY, &hashed_accepter);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Accept,
+            BillOpCode::Accept,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -688,13 +682,12 @@ mod test {
 
         let data = format!("{}{}", ACCEPTED_BY, &hashed_accepter);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Accept,
+            BillOpCode::Accept,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -716,14 +709,13 @@ mod test {
 
         let data = format!("{}{}", ACCEPTED_BY, &hashed_accepter);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             // not encrypted
             hex::encode(data.as_bytes()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Accept,
+            BillOpCode::Accept,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -734,7 +726,7 @@ mod test {
 
     #[test]
     fn get_nodes_from_block_accept_fails_for_invalid_block() {
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(
@@ -745,9 +737,8 @@ mod test {
                 )
                 .unwrap(),
             ),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Accept,
+            BillOpCode::Accept,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -765,13 +756,12 @@ mod test {
 
         let data = format!("{}{}", REQ_TO_PAY_BY, &hashed_requester);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::RequestToPay,
+            BillOpCode::RequestToPay,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -791,13 +781,12 @@ mod test {
 
         let data = format!("{}{}", REQ_TO_PAY_BY, &hashed_requester);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::RequestToPay,
+            BillOpCode::RequestToPay,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -823,13 +812,12 @@ mod test {
 
         let data = format!("{}{}{}{}", SOLD_TO, &hashed_buyer, SOLD_BY, &hashed_seller);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Sell,
+            BillOpCode::Sell,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )
@@ -850,13 +838,12 @@ mod test {
 
         let data = format!("{}{}", SOLD_BY, &hashed_seller);
 
-        let block = Block::new(
+        let block = BillBlock::new(
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
             TEST_PUB_KEY.to_owned(),
-            OperationCode::Sell,
+            BillOpCode::Sell,
             TEST_PRIVATE_KEY.to_owned(),
             1731593928,
         )

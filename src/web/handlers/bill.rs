@@ -1,4 +1,4 @@
-use crate::blockchain::Chain;
+use crate::blockchain::bill::BillBlockchain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
@@ -71,7 +71,7 @@ pub async fn return_basic_bill(
 pub async fn return_chain_of_blocks(
     state: &State<ServiceContext>,
     id: String,
-) -> Result<Json<Chain>> {
+) -> Result<Json<BillBlockchain>> {
     let chain = state.bill_service.get_blockchain_for_bill(&id).await?;
     Ok(Json(chain))
 }

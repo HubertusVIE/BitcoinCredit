@@ -52,7 +52,6 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .register("/", catchers![default_catcher, not_found])
         .manage(context)
         .mount("/exit", routes![handlers::exit])
-        .mount("/opcodes", routes![handlers::return_operation_codes])
         .mount(
             "/identity",
             routes![

@@ -7,7 +7,7 @@ use super::behaviour::{
     ParsedInboundFileRequest,
 };
 use super::{GossipsubEvent, GossipsubEventId, Result};
-use crate::blockchain::Chain;
+use crate::blockchain::bill::BillBlockchain;
 use crate::constants::{
     BILLS_PREFIX, BILL_PREFIX, COMPANIES_PREFIX, COMPANY_PREFIX, IDENTITY_PREFIX,
 };
@@ -845,7 +845,7 @@ impl Client {
         name: &str,
         local_node_id: &PeerId,
         providers: &HashSet<PeerId>,
-    ) -> Result<Chain> {
+    ) -> Result<BillBlockchain> {
         let requests = self.create_file_requests_for_peers(
             file_request_for_bill(&local_node_id.to_string(), name),
             providers,
@@ -965,7 +965,8 @@ impl Client {
         let bills = self.bill_store.get_bills().await?;
 
         for bill in bills {
-            let event = GossipsubEvent::new(GossipsubEventId::CommandGetChain, vec![0; 24]);
+            let event =
+                GossipsubEvent::new(GossipsubEventId::CommandGetBillBlockchain, vec![0; 24]);
             let message = event.to_byte_array()?;
 
             self.add_message_to_bill_topic(message, &bill.name).await?;
@@ -1552,10 +1553,7 @@ mod test {
         web::data::File,
     };
     use futures::channel::mpsc::{self, Sender};
-    use libp2p::{
-        identity::Keypair,
-        kad::record::{Key, Record},
-    };
+    use libp2p::kad::record::{Key, Record};
     use std::collections::{HashMap, HashSet};
     use util::BcrKeys;
 
@@ -3009,7 +3007,7 @@ mod test {
                                 name: "invoice.pdf".to_string(),
                                 hash: util::sha256_hash(&file_bytes),
                             });
-                            let chain = get_genesis_chain("bill_2", Some(bill));
+                            let chain = get_genesis_chain(Some(bill));
                             sender
                                 .send(Ok(serde_json::to_vec(&chain).unwrap()))
                                 .unwrap()

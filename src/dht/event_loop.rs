@@ -311,7 +311,7 @@ impl EventLoop {
                     if let Some(bill_name) = message.topic.as_str().strip_prefix(BILL_PREFIX) {
                         if let Ok(event) = GossipsubEvent::from_byte_array(&message.data) {
                             match event.id {
-                                GossipsubEventId::Block => {
+                                GossipsubEventId::BillBlock => {
                                     if let Ok(block) = serde_json::from_slice(&event.message) {
                                         if let Ok(mut chain) = self
                                             .bill_store
@@ -337,7 +337,7 @@ impl EventLoop {
                                         }
                                     }
                                 }
-                                GossipsubEventId::Chain => {
+                                GossipsubEventId::BillBlockchain => {
                                     if let Ok(receive_chain) =
                                         serde_json::from_slice(&event.message)
                                     {
@@ -366,13 +366,13 @@ impl EventLoop {
                                         }
                                     }
                                 }
-                                GossipsubEventId::CommandGetChain => {
+                                GossipsubEventId::CommandGetBillBlockchain => {
                                     if let Ok(chain) =
                                         self.bill_store.read_bill_chain_from_file(bill_name).await
                                     {
                                         if let Ok(chain_bytes) = serde_json::to_vec(&chain) {
                                             let event = GossipsubEvent::new(
-                                                GossipsubEventId::Chain,
+                                                GossipsubEventId::BillBlockchain,
                                                 chain_bytes,
                                             );
                                             if let Ok(message) = event.to_byte_array() {

@@ -1,22 +1,11 @@
-use borsh::to_vec;
-use openssl::sha::Sha256;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::blockchain::OperationCode::{
-    Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell,
-};
-use crate::constants::SIGNED_BY;
 use crate::external;
-use crate::service::bill_service::{BillKeys, BitcreditBill};
-use crate::service::contact_service::IdentityPublicData;
 use crate::util::rsa;
-pub use block::Block;
-pub use chain::Chain;
+use log::{error, warn};
 use std::string::FromUtf8Error;
 
-mod block;
-mod chain;
+pub mod bill;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, Error>;
@@ -58,262 +47,114 @@ pub enum Error {
     ExternalApi(#[from] external::Error),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ChainToReturn {
-    pub blocks: Vec<BlockToReturn>,
-}
+#[allow(dead_code)]
+trait Block {
+    type OpCode: PartialEq + Clone;
 
-impl ChainToReturn {
-    /// Creates a new Chain to return by transforming a given `Chain` into its corresponding representation.
-    ///
-    /// # Parameters
-    /// * `chain` - The `Chain` to be transformed. It contains the list of blocks and the initial bill version
-    ///   necessary for processing.
-    /// * `bill_keys` - The keys for the bill
-    ///
-    /// # Returns
-    /// A new instance containing the transformed `BlockToReturn` objects.
-    ///
-    pub fn new(chain: Chain, bill_keys: &BillKeys) -> Result<Self> {
-        let mut blocks: Vec<BlockToReturn> = Vec::new();
-        for block in chain.blocks {
-            blocks.push(BlockToReturn::new(block, bill_keys)?);
+    fn id(&self) -> u64;
+    fn timestamp(&self) -> i64;
+    fn op_code(&self) -> Self::OpCode;
+    fn hash(&self) -> &str;
+    fn previous_hash(&self) -> &str;
+    fn data(&self) -> &Vec<u8>;
+    fn signature(&self) -> &Vec<u8>;
+    fn public_key(&self) -> &Vec<u8>;
+
+    fn validate_hash(&self) -> bool;
+    fn verify(&self) -> bool;
+
+    fn validate_with_previous(&self, previous_block: &Self) -> bool {
+        if self.previous_hash() != previous_block.hash() {
+            warn!("block with id: {} has wrong previous hash", self.id());
+            return false;
+        } else if self.id() != previous_block.id() + 1 {
+            warn!(
+                "block with id: {} is not the next block after the latest: {}",
+                self.id(),
+                previous_block.id()
+            );
+            return false;
+        } else if !self.validate_hash() {
+            warn!("block with id: {} has invalid hash", self.id());
+            return false;
+        } else if !self.verify() {
+            warn!("block with id: {} has invalid signature", self.id());
+            return false;
         }
-        Ok(Self { blocks })
+        true
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum OperationCode {
-    Issue,
-    Accept,
-    Endorse,
-    RequestToAccept,
-    RequestToPay,
-    Sell,
-    Mint,
-}
+#[allow(dead_code)]
+trait Blockchain {
+    type Block: Block + Clone;
 
-impl OperationCode {
-    pub fn get_all_operation_codes() -> Vec<OperationCode> {
-        vec![
-            Issue,
-            Accept,
-            Endorse,
-            RequestToAccept,
-            RequestToPay,
-            Sell,
-            Mint,
-        ]
+    fn blocks(&self) -> &Vec<Self::Block>;
+
+    fn blocks_mut(&mut self) -> &mut Vec<Self::Block>;
+
+    fn get_block_with_op_code(&self, op_code: <Self::Block as Block>::OpCode) -> &Self::Block {
+        self.blocks()
+            .iter()
+            .filter(|block| block.op_code() == op_code)
+            .last()
+            .unwrap_or_else(|| self.get_first_block())
     }
-}
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WaitingForPayment {
-    Yes(Box<PaymentInfo>),
-    No,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PaymentInfo {
-    pub buyer: IdentityPublicData,
-    pub seller: IdentityPublicData,
-    pub amount: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct BlockToReturn {
-    pub id: u64,
-    pub bill_name: String,
-    pub hash: String,
-    pub timestamp: i64,
-    pub data: String,
-    pub previous_hash: String,
-    pub signature: String,
-    pub public_key: String,
-    pub operation_code: OperationCode,
-    pub label: String,
-}
-
-impl BlockToReturn {
-    /// Creates a new block to return for the given bill, with an attached history label,
-    /// describing what happened in this block
-    pub fn new(block: Block, bill_keys: &BillKeys) -> Result<Self> {
-        let label = block.get_history_label(bill_keys)?;
-
-        Ok(Self {
-            id: block.id,
-            bill_name: block.bill_name,
-            hash: block.hash,
-            timestamp: block.timestamp,
-            data: block.data,
-            previous_hash: block.previous_hash,
-            signature: block.signature,
-            public_key: block.public_key,
-            operation_code: block.operation_code,
-            label,
-        })
-    }
-}
-
-/// Creates a new blockchain for the given bill, encrypting the metadata using the bill's public
-/// key
-pub fn start_blockchain_for_new_bill(
-    bill: &BitcreditBill,
-    operation_code: OperationCode,
-    drawer: IdentityPublicData,
-    drawer_public_key: String,
-    drawer_private_key: String,
-    bill_public_key_pem: String,
-    timestamp: i64,
-) -> Result<Chain> {
-    let drawer_bytes = serde_json::to_vec(&drawer)?;
-    let data_for_new_block = format!("{}{}", SIGNED_BY, hex::encode(drawer_bytes));
-
-    let genesis_hash: String = hex::encode(data_for_new_block.as_bytes());
-
-    let encrypted_and_hashed_bill_data = hex::encode(rsa::encrypt_bytes_with_public_key(
-        &to_vec(bill)?,
-        &bill_public_key_pem,
-    )?);
-
-    let first_block = Block::new(
-        1,
-        genesis_hash,
-        encrypted_and_hashed_bill_data,
-        bill.name.clone(),
-        drawer_public_key,
-        operation_code,
-        drawer_private_key,
-        timestamp,
-    )?;
-
-    let chain = Chain::new(first_block);
-    Ok(chain)
-}
-
-fn calculate_hash(
-    id: &u64,
-    bill_name: &str,
-    previous_hash: &str,
-    data: &str,
-    timestamp: &i64,
-    public_key: &str,
-    operation_code: &OperationCode,
-) -> Vec<u8> {
-    let data = serde_json::json!({
-        "id": id,
-        "bill_name": bill_name,
-        "previous_hash": previous_hash,
-        "data": data,
-        "timestamp": timestamp,
-        "public_key": public_key,
-        "operation_code": operation_code,
-    });
-    let mut hasher = Sha256::new();
-    hasher.update(data.to_string().as_bytes());
-    hasher.finish().to_vec()
-}
-
-fn extract_after_phrase(input: &str, phrase: &str) -> Option<String> {
-    if let Some(start) = input.find(phrase) {
-        let start_idx = start + phrase.len();
-        if let Some(remaining) = input.get(start_idx..) {
-            if let Some(end_idx) = remaining.find(' ') {
-                return Some(remaining[..end_idx].to_string());
-            } else {
-                return Some(remaining.to_string());
+    fn is_chain_valid(&self) -> bool {
+        let blocks = self.blocks();
+        for i in 0..blocks.len() {
+            if i == 0 {
+                continue;
+            }
+            let first = &blocks[i - 1];
+            let second = &blocks[i];
+            if !second.validate_with_previous(first) {
+                return false;
             }
         }
+        true
     }
-    None
-}
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::{
-        service::identity_service::{Identity, IdentityWithAll},
-        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
-        util::BcrKeys,
-    };
-    use libp2p::PeerId;
-
-    pub fn get_baseline_identity() -> IdentityWithAll {
-        let mut identity = Identity::new_empty();
-        identity.name = "drawer".to_owned();
-        identity.public_key_pem = TEST_PUB_KEY.to_owned();
-        identity.private_key_pem = TEST_PRIVATE_KEY.to_owned();
-        IdentityWithAll {
-            identity,
-            peer_id: PeerId::random(),
-            key_pair: BcrKeys::new(),
+    fn try_add_block(&mut self, block: Self::Block) -> bool {
+        let latest_block = self.get_latest_block();
+        if block.validate_with_previous(latest_block) {
+            self.blocks_mut().push(block);
+            true
+        } else {
+            error!("could not add block - invalid");
+            false
         }
     }
 
-    #[test]
-    fn start_blockchain_for_new_bill_baseline() {
-        let bill = BitcreditBill::new_empty();
-        let identity = get_baseline_identity();
-
-        let result = start_blockchain_for_new_bill(
-            &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
-            TEST_PUB_KEY.to_owned(),
-            1731593928,
-        );
-
-        assert!(result.is_ok());
-        assert_eq!(result.as_ref().unwrap().blocks.len(), 1);
+    fn get_latest_block(&self) -> &Self::Block {
+        self.blocks().last().expect("there is at least one block")
     }
 
-    #[test]
-    fn start_blockchain_for_new_bill_baseline_fails_with_invalid_keys() {
-        let bill = BitcreditBill::new_empty();
-        let identity = get_baseline_identity();
-
-        let result = start_blockchain_for_new_bill(
-            &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.private_key_pem, // swapped private and public
-            identity.identity.public_key_pem,
-            TEST_PUB_KEY.to_owned(),
-            1731593928,
-        );
-
-        assert!(result.is_err());
+    fn get_first_block(&self) -> &Self::Block {
+        self.blocks().first().expect("there is at least one block")
     }
 
-    #[test]
-    fn extract_after_phrase_basic() {
-        assert_eq!(
-            extract_after_phrase(
-                "Endorsed by 123 endorsed to 456 amount: 5000",
-                "Endorsed by "
-            ),
-            Some(String::from("123"))
-        );
-        assert_eq!(
-            extract_after_phrase(
-                "Endorsed by 123 endorsed to 456 amount: 5000",
-                " endorsed to "
-            ),
-            Some(String::from("456"))
-        );
-        assert_eq!(
-            extract_after_phrase("Endorsed by 123 endorsed to 456 amount: 5000", " amount: "),
-            Some(String::from("5000"))
-        );
-        assert_eq!(
-            extract_after_phrase(
-                "Endorsed by 123 endorsed to 456 amount: 5000",
-                " weird stuff "
-            ),
-            None
-        );
+    fn get_last_version_block_with_operation_code(
+        &self,
+        op_code: <Self::Block as Block>::OpCode,
+    ) -> &Self::Block {
+        self.blocks()
+            .iter()
+            .filter(|block| block.op_code() == op_code)
+            .last()
+            .unwrap_or_else(|| self.get_first_block())
+    }
+
+    fn block_with_operation_code_exists(&self, op_code: <Self::Block as Block>::OpCode) -> bool {
+        self.blocks().iter().any(|b| b.op_code() == op_code)
+    }
+
+    fn get_block_by_id(&self, id: u64) -> Self::Block {
+        self.blocks()
+            .iter()
+            .find(|b| b.id() == id)
+            .cloned()
+            .unwrap_or_else(|| self.get_first_block().clone())
     }
 }
