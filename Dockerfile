@@ -16,7 +16,7 @@ FROM rust:latest AS rust-builder
 
 RUN update-ca-certificates
 
-RUN apt-get update && apt-get install -y protobuf-compiler
+RUN apt-get update && apt-get install -y protobuf-compiler libclang-dev
 
 # Create appuser
 ENV USER=ebills
@@ -35,8 +35,6 @@ RUN adduser \
 WORKDIR /ebills
 
 COPY ./ .
-
-COPY --from=frontend-builder /frontend_build ./frontend_build
 
 RUN cargo build --release --features embedded-db
 
@@ -57,8 +55,8 @@ WORKDIR /ebills
 
 # Copy essential build files
 COPY --from=rust-builder /ebills/target/release/bitcredit ./bitcredit
-COPY --from=rust-builder /ebills/target/release/frontend_build ./frontend_build
-COPY --from=rust-builder /ebills/target/release/bootstrap ./bootstrap
+COPY --from=frontend-builder /frontend_build ./frontend_build
+COPY --from=rust-builder /ebills/bootstrap ./bootstrap
 
 # Create additional directories and set user permissions
 RUN mkdir identity bills bills_keys contacts quotes && chown -R ebills:ebills /ebills
