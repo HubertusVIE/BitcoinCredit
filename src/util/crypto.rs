@@ -38,7 +38,7 @@ pub struct BcrKeys {
 #[allow(dead_code)]
 impl BcrKeys {
     /// Generates a fresh random keypair that can be used for
-    /// Bitocin and Nostr keys.
+    /// Bitcoin and Nostr keys.
     pub fn new() -> Self {
         Self {
             inner: generate_keypair(),
