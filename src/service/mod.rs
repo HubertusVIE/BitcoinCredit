@@ -11,13 +11,12 @@ use crate::persistence::DbContext;
 use crate::persistence::{self};
 use crate::util::rsa;
 use crate::web::ErrorResponse;
-use crate::{dht, external};
+use crate::{dht, error, external, util};
 use bill_service::{BillService, BillServiceApi};
 use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
 use file_upload_service::{FileUploadService, FileUploadServiceApi};
 use identity_service::{IdentityService, IdentityServiceApi};
-use log::error;
 use rocket::http::ContentType;
 use rocket::Response;
 use rocket::{http::Status, response::Responder};
@@ -57,6 +56,10 @@ pub enum Error {
     #[error("Cryptography error: {0}")]
     Cryptography(#[from] rsa::Error),
 
+    /// errors stemming from crypto utils
+    #[error("Crypto util error: {0}")]
+    CryptoUtil(#[from] util::crypto::Error),
+
     /// errors that stem from interacting with the Dht
     #[error("Dht error: {0}")]
     Dht(#[from] dht::Error),
@@ -82,6 +85,10 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             }
             // for now, Cryptography errors are InternalServerError
             Error::Cryptography(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            Error::CryptoUtil(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }

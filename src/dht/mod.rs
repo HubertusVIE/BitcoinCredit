@@ -2,7 +2,6 @@ use crate::config::Config;
 use crate::constants::{
     RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
-use crate::util::crypto::BcrKeys;
 use behaviour::{ComposedEvent, Event, MyBehaviour};
 use borsh::{to_vec, BorshDeserialize};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -180,15 +179,8 @@ async fn new(
     identity_store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
-    if !identity_store.exists().await {
-        let keys = BcrKeys::new();
-        let p2p_keys = keys.get_libp2p_keys()?;
-        let node_id = p2p_keys.public().to_peer_id();
-        identity_store.save_node_id(&node_id).await?;
-        identity_store.save_key_pair(&keys).await?;
-    }
-
-    let local_public_key = identity_store.get_key_pair().await?.get_libp2p_keys()?;
+    let keys = identity_store.get_or_create_key_pair().await?;
+    let local_public_key = keys.get_libp2p_keys()?;
     let local_node_id = identity_store.get_node_id().await?;
     info!("Local node id: {local_node_id:?}");
 

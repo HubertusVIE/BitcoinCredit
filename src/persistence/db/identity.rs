@@ -119,6 +119,21 @@ impl IdentityStoreApi for SurrealIdentityStore {
             Some(value) => value.try_into(),
         }
     }
+
+    async fn get_or_create_key_pair(&self) -> Result<BcrKeys> {
+        let keys = match self.get_key_pair().await {
+            Ok(keys) => keys,
+            _ => {
+                let new_keys = BcrKeys::new();
+                let p2p_keys = new_keys.get_libp2p_keys()?;
+                let node_id = p2p_keys.public().to_peer_id();
+                self.save_node_id(&node_id).await?;
+                self.save_key_pair(&new_keys).await?;
+                new_keys
+            }
+        };
+        Ok(keys)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
