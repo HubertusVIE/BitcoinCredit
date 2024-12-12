@@ -1,10 +1,20 @@
-use crate::{service::bill_service::BitcreditBill, service::contact_service::IdentityPublicData};
+use crate::{
+    persistence::{
+        bill::MockBillStoreApi, company::MockCompanyStoreApi, contact::MockContactStoreApi,
+        file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
+        nostr::MockNostrEventOffsetStoreApi, DbContext,
+    },
+    service::{bill_service::BitcreditBill, contact_service::IdentityPublicData},
+    util::BcrKeys,
+};
 use nostr_relay_builder::prelude::*;
 
 use super::{
-    email::EmailMessage, handler::NotificationHandlerApi, Event, EventEnvelope, EventType, Result,
+    email::EmailMessage, handler::NotificationHandlerApi, nostr::NostrClient, Event, EventEnvelope,
+    EventType, NostrConfig, Result,
 };
 use serde::{de::DeserializeOwned, Serialize};
+use std::sync::Arc;
 
 /// These mocks might be useful for testing in other modules as well
 use async_trait::async_trait;
@@ -109,4 +119,26 @@ pub fn get_test_bitcredit_bill(
 }
 pub async fn get_mock_relay() -> MockRelay {
     MockRelay::run().await.expect("could not create mock relay")
+}
+
+pub async fn get_mock_nostr_client() -> NostrClient {
+    let relay = get_mock_relay().await;
+    let url = relay.url();
+    let keys = BcrKeys::new();
+
+    let config = NostrConfig::new(keys, vec![url], "Test relay user".to_owned());
+    NostrClient::new(&config)
+        .await
+        .expect("could not create mock nostr client")
+}
+
+pub fn get_mock_db_context() -> DbContext {
+    DbContext {
+        contact_store: Arc::new(MockContactStoreApi::new()),
+        bill_store: Arc::new(MockBillStoreApi::new()),
+        identity_store: Arc::new(MockIdentityStoreApi::new()),
+        company_store: Arc::new(MockCompanyStoreApi::new()),
+        file_upload_store: Arc::new(MockFileUploadStoreApi::new()),
+        nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApi::new()),
+    }
 }

@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use log::{error, trace, warn};
 use nostr_sdk::prelude::*;
 use nostr_sdk::Timestamp;
-use openssl::conf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -24,6 +23,10 @@ pub struct NostrConfig {
 }
 
 impl NostrConfig {
+    pub fn new(keys: BcrKeys, relays: Vec<String>, name: String) -> Self {
+        Self { keys, relays, name }
+    }
+
     #[allow(dead_code)]
     pub fn get_npub(&self) -> Result<String> {
         Ok(self.keys.get_nostr_npub()?)

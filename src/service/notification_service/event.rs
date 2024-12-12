@@ -22,6 +22,24 @@ pub enum EventType {
     BillQuoteApproved,
 }
 
+impl EventType {
+    pub fn all() -> Vec<Self> {
+        vec![
+            Self::BillSigned,
+            Self::BillAccepted,
+            Self::BillAcceptanceRequested,
+            Self::BillPaymentRequested,
+            Self::BillSellRequested,
+            Self::BillPaid,
+            Self::BillEndorsed,
+            Self::BillSold,
+            Self::BillMintingRequested,
+            Self::BillNewQuote,
+            Self::BillQuoteApproved,
+        ]
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names, dead_code)]
 pub enum ActionType {

@@ -98,12 +98,17 @@ async fn main() -> Result<()> {
     let service_context =
         create_service_context(conf.clone(), dht_client.clone(), dht.shutdown_sender, db).await?;
 
+    let nostr_handle = service_context.nostr_consumer.start().await?;
+
     if let Err(e) = web::rocket_main(service_context).launch().await {
         error!("Web server stopped with error: {e}, shutting down the rest of the application...");
         if let Err(e) = web_server_error_shutdown_sender.send(true) {
             error!("Error triggering shutdown signal: {e}");
         }
     }
+
+    info!("Stopping nostr consumer...");
+    nostr_handle.abort();
 
     info!("Waiting for application to exit...");
     // If the web server exits fast, we wait for a grace period so libp2p can finish as well

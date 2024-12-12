@@ -1,5 +1,6 @@
 use super::contact_service::IdentityPublicData;
 use super::identity_service::IdentityWithAll;
+use super::notification_service::{self, NotificationServiceApi};
 use crate::blockchain::{
     self, start_blockchain_for_new_bill, Block, Chain, ChainToReturn, OperationCode,
     WaitingForPayment,
@@ -13,16 +14,16 @@ use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::util::rsa;
 use crate::web::data::File;
-use crate::CONFIG;
 use crate::{dht, external, persistence, util};
 use crate::{
     dht::{Client, GossipsubEvent, GossipsubEventId},
     persistence::bill::BillStoreApi,
 };
+use crate::{error, CONFIG};
 use async_trait::async_trait;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-use log::{error, info};
+use log::info;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::{http::Status, response::Responder};
 use std::sync::Arc;
@@ -71,6 +72,9 @@ pub enum Error {
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Cryptography error: {0}")]
     Cryptography(#[from] rsa::Error),
+
+    #[error("Notification error: {0}")]
+    Notification(#[from] notification_service::Error),
 }
 
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
@@ -100,6 +104,10 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
                 Status::InternalServerError.respond_to(req)
             }
             Error::Cryptography(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            Error::Notification(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
@@ -224,6 +232,7 @@ pub struct BillService {
     identity_store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     bitcoin_client: Arc<dyn BitcoinClientApi>,
+    notification_service: Arc<dyn NotificationServiceApi>,
 }
 
 impl BillService {
@@ -233,6 +242,7 @@ impl BillService {
         identity_store: Arc<dyn IdentityStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         bitcoin_client: Arc<dyn BitcoinClientApi>,
+        notification_service: Arc<dyn NotificationServiceApi>,
     ) -> Self {
         Self {
             client,
@@ -240,6 +250,7 @@ impl BillService {
             identity_store,
             file_upload_store,
             bitcoin_client,
+            notification_service,
         }
     }
 
@@ -707,6 +718,11 @@ impl BillServiceApi for BillService {
             }
         }
 
+        // send notification to all required recipients
+        self.notification_service
+            .send_bill_is_signed_event(&bill)
+            .await?;
+
         Ok(bill)
     }
 
@@ -1080,7 +1096,10 @@ pub struct BillKeys {
 pub mod test {
     use super::*;
     use crate::{
-        service::identity_service::Identity,
+        service::{
+            identity_service::Identity,
+            notification_service::{self, MockNotificationServiceApi},
+        },
         tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
     };
     use borsh::to_vec;
@@ -1164,6 +1183,7 @@ pub mod test {
             Arc::new(MockIdentityStoreApi::new()),
             Arc::new(MockFileUploadStoreApi::new()),
             Arc::new(bitcoin_client),
+            Arc::new(MockNotificationServiceApi::new()),
         )
     }
 
@@ -1184,6 +1204,7 @@ pub mod test {
             Arc::new(MockIdentityStoreApi::new()),
             Arc::new(mock_file_upload_storage),
             Arc::new(MockBitcoinClientApi::new()),
+            Arc::new(MockNotificationServiceApi::new()),
         )
     }
 
@@ -1210,6 +1231,7 @@ pub mod test {
             Arc::new(mock_identity_storage),
             Arc::new(MockFileUploadStoreApi::new()),
             Arc::new(bitcoin_client),
+            Arc::new(MockNotificationServiceApi::new()),
         )
     }
 

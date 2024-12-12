@@ -1,6 +1,11 @@
-use crate::service::bill_service::BitcreditBill;
-use crate::util;
+use std::sync::Arc;
+
+use crate::persistence::NostrEventOffsetStoreApi;
+use crate::persistence::{self, identity::IdentityStoreApi};
+use crate::util::{self};
+use crate::{config::Config, service::bill_service::BitcreditBill};
 use async_trait::async_trait;
+use handler::{LoggingEventHandler, NotificationHandlerApi};
 #[cfg(test)]
 use mockall::automock;
 use thiserror::Error;
@@ -18,7 +23,10 @@ mod transport;
 
 pub use email::NotificationEmailTransportApi;
 pub use event::{ActionType, BillActionEventPayload, Event, EventEnvelope, EventType};
+pub use nostr::{NostrClient, NostrConfig, NostrConsumer};
 pub use transport::NotificationJsonTransportApi;
+
+use super::contact_service::ContactServiceApi;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -56,10 +64,55 @@ pub enum Error {
 
     #[error("crypto util error: {0}")]
     CryptoUtil(#[from] util::crypto::Error),
+
+    #[error("Persistence error: {0}")]
+    Persistence(#[from] persistence::Error),
+}
+
+/// Creates a new nostr client configured with the current identity user.
+pub async fn create_nostr_client(
+    config: &Config,
+    identity_store: Arc<dyn IdentityStoreApi>,
+) -> Result<NostrClient> {
+    let keys = identity_store.get_or_create_key_pair().await?;
+    println!("Nostr npub: {:?}", keys.get_nostr_npub()?);
+    println!(
+        "Nostr hexpub: {:?}",
+        keys.get_nostr_keys().public_key().to_hex()
+    );
+    let nostr_name = match identity_store.get().await {
+        Ok(identity) => identity.get_nostr_name(),
+        _ => "New user".to_owned(),
+    };
+    let config = NostrConfig::new(keys, vec![config.nostr_relay.clone()], nostr_name);
+    NostrClient::new(&config).await
+}
+
+/// Creates a new notification service that will send events via the given Nostr json transport.
+pub async fn create_notification_service(
+    client: NostrClient,
+) -> Result<Arc<dyn NotificationServiceApi>> {
+    Ok(Arc::new(DefaultNotificationService::new(Box::new(client))))
+}
+
+/// Creates a new nostr consumer that will listen for incoming events and handle them
+/// with the given handlers. The consumer is just set up here and needs to be started
+/// via the run method later.
+pub async fn create_nostr_consumer(
+    client: NostrClient,
+    contact_service: Arc<dyn ContactServiceApi>,
+    nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
+) -> Result<NostrConsumer> {
+    // register the logging event handler for all events for now. Later we will probably
+    // setup the handlers outside and pass them to the consumer via this functions arguments.
+    let handlers: Vec<Box<dyn NotificationHandlerApi>> = vec![Box::new(LoggingEventHandler {
+        event_types: EventType::all(),
+    })];
+    let consumer = NostrConsumer::new(client, contact_service, handlers, nostr_event_offset_store);
+    Ok(consumer)
 }
 
 /// Send events via all channels required for the event type.
-#[allow(dead_code)]
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait NotificationServiceApi: Send + Sync {
@@ -71,6 +124,14 @@ pub trait NotificationServiceApi: Send + Sync {
 #[allow(dead_code)]
 pub struct DefaultNotificationService {
     notification_transport: Box<dyn NotificationJsonTransportApi>,
+}
+
+impl DefaultNotificationService {
+    pub fn new(notification_transport: Box<dyn NotificationJsonTransportApi>) -> Self {
+        Self {
+            notification_transport,
+        }
+    }
 }
 
 #[async_trait]
@@ -109,6 +170,11 @@ impl NotificationServiceApi for DefaultNotificationService {
 
 #[cfg(test)]
 mod tests {
+
+    use persistence::nostr::MockNostrEventOffsetStoreApi;
+    use test_utils::{get_mock_db_context, get_mock_nostr_client};
+
+    use crate::service::contact_service::MockContactServiceApi;
 
     use super::test_utils::{get_identity_public_data, get_test_bitcredit_bill};
     use super::transport::MockNotificationJsonTransportApi;
@@ -150,5 +216,13 @@ mod tests {
             .send_bill_is_signed_event(&bill)
             .await
             .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_create_nostr_consumer() {
+        let client = get_mock_nostr_client().await;
+        let contact_service = Arc::new(MockContactServiceApi::new());
+        let store = Arc::new(MockNostrEventOffsetStoreApi::new());
+        let _ = create_nostr_consumer(client, contact_service, store).await;
     }
 }

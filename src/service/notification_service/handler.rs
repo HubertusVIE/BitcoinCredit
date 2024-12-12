@@ -21,7 +21,7 @@ pub trait NotificationHandlerApi: Send + Sync {
 
 /// Logs all events that are received and registered in the event_types.
 pub struct LoggingEventHandler {
-    event_types: Vec<EventType>,
+    pub event_types: Vec<EventType>,
 }
 
 /// Just a dummy handler that logs the event and returns Ok(())

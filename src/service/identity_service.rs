@@ -203,6 +203,14 @@ impl Identity {
         update_field!(self, other, postal_address);
         update_field!(self, other, email);
     }
+
+    pub fn get_nostr_name(&self) -> String {
+        if !self.name.is_empty() {
+            self.name.clone()
+        } else {
+            self.company.to_owned()
+        }
+    }
 }
 
 #[cfg(test)]

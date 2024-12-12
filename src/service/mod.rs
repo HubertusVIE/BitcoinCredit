@@ -17,6 +17,9 @@ use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
 use file_upload_service::{FileUploadService, FileUploadServiceApi};
 use identity_service::{IdentityService, IdentityServiceApi};
+use notification_service::{
+    create_nostr_client, create_nostr_consumer, create_notification_service, NostrConsumer,
+};
 use rocket::http::ContentType;
 use rocket::Response;
 use rocket::{http::Status, response::Responder};
@@ -139,32 +142,11 @@ pub struct ServiceContext {
     pub identity_service: Arc<dyn IdentityServiceApi>,
     pub company_service: Arc<dyn CompanyServiceApi>,
     pub file_upload_service: Arc<dyn FileUploadServiceApi>,
+    pub nostr_consumer: NostrConsumer,
     pub shutdown_sender: broadcast::Sender<bool>,
 }
 
 impl ServiceContext {
-    pub fn new(
-        config: Config,
-        client: Client,
-        contact_service: ContactService,
-        bill_service: BillService,
-        identity_service: IdentityService,
-        company_service: CompanyService,
-        file_upload_service: FileUploadService,
-        shutdown_sender: broadcast::Sender<bool>,
-    ) -> Self {
-        Self {
-            config,
-            dht_client: client,
-            contact_service: Arc::new(contact_service),
-            bill_service: Arc::new(bill_service),
-            identity_service: Arc::new(identity_service),
-            company_service: Arc::new(company_service),
-            file_upload_service: Arc::new(file_upload_service),
-            shutdown_sender,
-        }
-    }
-
     /// returns an owned instance of the dht client
     pub fn dht_client(&self) -> Client {
         self.dht_client.clone()
@@ -186,33 +168,49 @@ pub async fn create_service_context(
     shutdown_sender: broadcast::Sender<bool>,
     db: DbContext,
 ) -> Result<ServiceContext> {
-    let contact_service = ContactService::new(client.clone(), db.contact_store.clone());
+    let contact_service = Arc::new(ContactService::new(
+        client.clone(),
+        db.contact_store.clone(),
+    ));
     let bitcoin_client = Arc::new(BitcoinClient::new());
+
+    let nostr_client = create_nostr_client(&config, db.identity_store.clone()).await?;
+    let notification_service = create_notification_service(nostr_client.clone()).await?;
+
     let bill_service = BillService::new(
         client.clone(),
         db.bill_store,
         db.identity_store.clone(),
         db.file_upload_store.clone(),
         bitcoin_client,
+        notification_service.clone(),
     );
     let identity_service = IdentityService::new(client.clone(), db.identity_store.clone());
 
     let company_service = CompanyService::new(
         db.company_store,
         db.file_upload_store.clone(),
-        db.identity_store,
+        db.identity_store.clone(),
         db.contact_store,
     );
     let file_upload_service = FileUploadService::new(db.file_upload_store);
 
-    Ok(ServiceContext::new(
+    let nostr_consumer = create_nostr_consumer(
+        nostr_client,
+        contact_service.clone(),
+        db.nostr_event_offset_store.clone(),
+    )
+    .await?;
+
+    Ok(ServiceContext {
         config,
-        client,
+        dht_client: client,
         contact_service,
-        bill_service,
-        identity_service,
-        company_service,
-        file_upload_service,
+        bill_service: Arc::new(bill_service),
+        identity_service: Arc::new(identity_service),
+        company_service: Arc::new(company_service),
+        file_upload_service: Arc::new(file_upload_service),
+        nostr_consumer,
         shutdown_sender,
-    ))
+    })
 }
