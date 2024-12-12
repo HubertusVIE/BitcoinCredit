@@ -1552,10 +1552,7 @@ mod test {
         web::data::File,
     };
     use futures::channel::mpsc::{self, Sender};
-    use libp2p::{
-        identity::Keypair,
-        kad::record::{Key, Record},
-    };
+    use libp2p::kad::record::{Key, Record};
     use std::collections::{HashMap, HashSet};
     use util::BcrKeys;
 
