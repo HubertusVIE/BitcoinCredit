@@ -1,5 +1,6 @@
 use super::behaviour::{Command, ComposedEvent, Event, MyBehaviour};
 use super::{GossipsubEvent, GossipsubEventId};
+use crate::blockchain::Blockchain;
 use crate::constants::{
     BILL_PREFIX, COMPANY_PREFIX, RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID,
     RELAY_BOOTSTRAP_NODE_ONE_TCP,

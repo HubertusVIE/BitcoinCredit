@@ -3,6 +3,7 @@ use super::identity_service::IdentityWithAll;
 use crate::blockchain::bill::{
     BillBlock, BillBlockchain, BillBlockchainToReturn, BillOpCode, WaitingForPayment,
 };
+use crate::blockchain::Blockchain;
 use crate::constants::{
     ACCEPTED_BY, AMOUNT, COMPOUNDING_INTEREST_RATE_ZERO, ENDORSED_BY, ENDORSED_TO,
     REQ_TO_ACCEPT_BY, REQ_TO_PAY_BY, SOLD_BY, SOLD_TO,
@@ -323,11 +324,11 @@ impl BillServiceApi for BillService {
             let bill_keys = self.store.read_bill_keys_from_file(&bill.name).await?;
             let drawer = chain.get_drawer(&bill_keys)?;
             let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
-            let endorsed = chain.exist_block_with_operation_code(BillOpCode::Endorse);
-            let accepted = chain.exist_block_with_operation_code(BillOpCode::Accept);
-            let requested_to_pay = chain.exist_block_with_operation_code(BillOpCode::RequestToPay);
+            let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
+            let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
+            let requested_to_pay = chain.block_with_operation_code_exists(BillOpCode::RequestToPay);
             let requested_to_accept =
-                chain.exist_block_with_operation_code(BillOpCode::RequestToAccept);
+                chain.block_with_operation_code_exists(BillOpCode::RequestToAccept);
 
             let holder_public_key = if !bill.endorsee.name.is_empty() {
                 &bill.endorsee.bitcoin_public_key
@@ -338,7 +339,7 @@ impl BillServiceApi for BillService {
                 .bitcoin_client
                 .get_address_to_pay(&bill.public_key, holder_public_key)?;
             let mut paid = false;
-            if chain.exist_block_with_operation_code(BillOpCode::RequestToPay) {
+            if chain.block_with_operation_code_exists(BillOpCode::RequestToPay) {
                 let check_if_already_paid = self
                     .bitcoin_client
                     .check_if_paid(&address_to_pay, bill.amount_numbers)
@@ -403,8 +404,8 @@ impl BillServiceApi for BillService {
         let drawer = chain.get_drawer(&bill_keys)?;
         let mut link_for_buy = "".to_string();
         let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
-        let endorsed = chain.exist_block_with_operation_code(BillOpCode::Endorse);
-        let accepted = chain.exist_block_with_operation_code(BillOpCode::Accept);
+        let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
+        let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
         let address_for_selling: String = String::new();
         let amount_for_selling = 0;
         let waiting_for_payment =
@@ -436,9 +437,9 @@ impl BillServiceApi for BillService {
                 );
             }
         }
-        let requested_to_pay = chain.exist_block_with_operation_code(BillOpCode::RequestToPay);
+        let requested_to_pay = chain.block_with_operation_code_exists(BillOpCode::RequestToPay);
         let requested_to_accept =
-            chain.exist_block_with_operation_code(BillOpCode::RequestToAccept);
+            chain.block_with_operation_code_exists(BillOpCode::RequestToAccept);
         let holder_public_key = if !bill.endorsee.name.is_empty() {
             &bill.endorsee.bitcoin_public_key
         } else {
@@ -755,7 +756,7 @@ impl BillServiceApi for BillService {
         let bill_keys = self.store.read_bill_keys_from_file(bill_name).await?;
         let bill = blockchain.get_last_version_bill(&bill_keys)?;
 
-        let accepted = blockchain.exist_block_with_operation_code(BillOpCode::Accept);
+        let accepted = blockchain.block_with_operation_code_exists(BillOpCode::Accept);
 
         if accepted {
             return Err(Error::BillAlreadyAccepted);
@@ -1453,7 +1454,7 @@ pub mod test {
             )
             .await;
         assert!(res.is_ok());
-        assert!(chain.blocks.len() == 2);
+        assert!(chain.blocks().len() == 2);
         assert!(chain.get_latest_block().operation_code == BillOpCode::RequestToPay);
     }
 
@@ -1580,8 +1581,8 @@ pub mod test {
 
         let res = service.accept_bill("some name", 1731593928).await;
         assert!(res.is_ok());
-        assert!(res.as_ref().unwrap().blocks.len() == 2);
-        assert!(res.unwrap().blocks[1].operation_code == BillOpCode::Accept);
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Accept);
     }
 
     #[tokio::test]
@@ -1622,7 +1623,7 @@ pub mod test {
             })
         });
         let mut chain = get_genesis_chain(Some(bill.clone()));
-        chain.blocks.push(
+        chain.blocks_mut().push(
             BillBlock::new(
                 123456,
                 "prevhash".to_string(),
@@ -1676,8 +1677,8 @@ pub mod test {
 
         let res = service.request_pay("some name", 1731593928).await;
         assert!(res.is_ok());
-        assert!(res.as_ref().unwrap().blocks.len() == 2);
-        assert!(res.unwrap().blocks[1].operation_code == BillOpCode::RequestToPay);
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::RequestToPay);
     }
 
     #[tokio::test]
@@ -1734,8 +1735,8 @@ pub mod test {
 
         let res = service.request_acceptance("some name", 1731593928).await;
         assert!(res.is_ok());
-        assert!(res.as_ref().unwrap().blocks.len() == 2);
-        assert!(res.unwrap().blocks[1].operation_code == BillOpCode::RequestToAccept);
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::RequestToAccept);
     }
 
     #[tokio::test]
@@ -1794,8 +1795,8 @@ pub mod test {
             .mint_bitcredit_bill("some name", IdentityPublicData::new_empty(), 1731593928)
             .await;
         assert!(res.is_ok());
-        assert!(res.as_ref().unwrap().blocks.len() == 2);
-        assert!(res.unwrap().blocks[1].operation_code == BillOpCode::Mint);
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Mint);
     }
 
     #[tokio::test]
@@ -1861,8 +1862,8 @@ pub mod test {
             )
             .await;
         assert!(res.is_ok());
-        assert!(res.as_ref().unwrap().blocks.len() == 2);
-        assert!(res.unwrap().blocks[1].operation_code == BillOpCode::Sell);
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Sell);
     }
 
     #[tokio::test]
@@ -1928,8 +1929,8 @@ pub mod test {
             .endorse_bitcredit_bill("some name", IdentityPublicData::new_empty(), 1731593928)
             .await;
         assert!(res.is_ok());
-        assert!(res.as_ref().unwrap().blocks.len() == 2);
-        assert!(res.unwrap().blocks[1].operation_code == BillOpCode::Endorse);
+        assert!(res.as_ref().unwrap().blocks().len() == 2);
+        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Endorse);
     }
 
     #[tokio::test]

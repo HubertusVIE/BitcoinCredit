@@ -31,7 +31,7 @@ pub const COMPOUNDING_INTEREST_RATE_ZERO: u64 = 0;
 pub const RELAY_BOOTSTRAP_NODE_ONE_IP: Ipv4Addr = Ipv4Addr::new(45, 147, 248, 87);
 pub const RELAY_BOOTSTRAP_NODE_ONE_TCP: u16 = 1908;
 pub const RELAY_BOOTSTRAP_NODE_ONE_PEER_ID: &str =
-    "12D3KooWFvRxAazxdKVB7SsTtcLTnvmF8brtW2kQRhceohtgcJv2";
+    "12D3KooWL5y2jyVFtk541g9ySSoKGjNf61GEPG1XbPhop5MRfyA8";
 
 // Bill Data constants
 pub const SIGNED_BY: &str = "Signed by ";

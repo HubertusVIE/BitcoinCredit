@@ -1,8 +1,9 @@
 use thiserror::Error;
 
-use crate::external;
 use crate::util::rsa;
+use crate::{external, util};
 use log::{error, warn};
+use serde::{de::DeserializeOwned, Serialize};
 use std::string::FromUtf8Error;
 
 pub mod bill;
@@ -47,22 +48,44 @@ pub enum Error {
     ExternalApi(#[from] external::Error),
 }
 
-#[allow(dead_code)]
-trait Block {
-    type OpCode: PartialEq + Clone;
+/// Generic trait for a Block within a Blockchain
+pub trait Block {
+    type OpCode: PartialEq + Clone + Serialize + DeserializeOwned;
 
     fn id(&self) -> u64;
     fn timestamp(&self) -> i64;
-    fn op_code(&self) -> Self::OpCode;
+    fn op_code(&self) -> &Self::OpCode;
     fn hash(&self) -> &str;
     fn previous_hash(&self) -> &str;
-    fn data(&self) -> &Vec<u8>;
-    fn signature(&self) -> &Vec<u8>;
-    fn public_key(&self) -> &Vec<u8>;
+    fn data(&self) -> &str;
+    fn signature(&self) -> &str;
+    fn public_key(&self) -> &str;
 
-    fn validate_hash(&self) -> bool;
-    fn verify(&self) -> bool;
+    /// Validates that the block's hash is correct
+    fn validate_hash(&self) -> bool {
+        self.hash()
+            == calculate_hash(
+                &self.id(),
+                self.previous_hash(),
+                self.data(),
+                &self.timestamp(),
+                self.public_key(),
+                self.op_code(),
+            )
+    }
 
+    /// Verifys the block by checking if the signature is correct
+    fn verify(&self) -> bool {
+        match rsa::verify_signature(self.hash(), self.signature(), self.public_key()) {
+            Err(e) => {
+                error!("Error while verifying block id {}: {e}", self.id());
+                false
+            }
+            Ok(res) => res,
+        }
+    }
+
+    /// Validates the block with a given previous block
     fn validate_with_previous(&self, previous_block: &Self) -> bool {
         if self.previous_hash() != previous_block.hash() {
             warn!("block with id: {} has wrong previous hash", self.id());
@@ -85,22 +108,15 @@ trait Block {
     }
 }
 
-#[allow(dead_code)]
-trait Blockchain {
+/// Generic trait for a Blockchain, expects there to always be at least one block after creation
+pub trait Blockchain {
     type Block: Block + Clone;
 
     fn blocks(&self) -> &Vec<Self::Block>;
 
     fn blocks_mut(&mut self) -> &mut Vec<Self::Block>;
 
-    fn get_block_with_op_code(&self, op_code: <Self::Block as Block>::OpCode) -> &Self::Block {
-        self.blocks()
-            .iter()
-            .filter(|block| block.op_code() == op_code)
-            .last()
-            .unwrap_or_else(|| self.get_first_block())
-    }
-
+    /// Validates the integrity of the blockchain by checking the validity of each block in the chain.
     fn is_chain_valid(&self) -> bool {
         let blocks = self.blocks();
         for i in 0..blocks.len() {
@@ -116,6 +132,15 @@ trait Blockchain {
         true
     }
 
+    /// Trys to add a block to the blockchain, checking the block with the current latest block
+    ///
+    /// # Arguments
+    /// * `block` - The `Block` to be added to the list.
+    ///
+    /// # Returns
+    /// * `true` if the block was successfully added to the list.
+    /// * `false` if the block was invalid and could not be added.
+    ///
     fn try_add_block(&mut self, block: Self::Block) -> bool {
         let latest_block = self.get_latest_block();
         if block.validate_with_previous(latest_block) {
@@ -127,29 +152,68 @@ trait Blockchain {
         }
     }
 
+    /// Retrieves the latest (most recent) block in the blocks list.
     fn get_latest_block(&self) -> &Self::Block {
         self.blocks().last().expect("there is at least one block")
     }
 
+    /// Retrieves the first block in the blocks list.
     fn get_first_block(&self) -> &Self::Block {
         self.blocks().first().expect("there is at least one block")
     }
 
-    fn get_last_version_block_with_operation_code(
+    /// Compares this chain with another one and if the other one is longer, attempts to add new
+    /// blocks from the other chain, as long as the chain remains valid
+    ///
+    /// # Parameters
+    /// - `other_chain: Blockchain` - The chain to compare and synchronize with.
+    ///
+    /// # Returns
+    /// `bool` - whether the local chain changed and needs to be persisted locally after this comparison
+    ///
+    fn compare_chain(&mut self, other_chain: &Self) -> bool {
+        let local_chain_last_id = self.get_latest_block().id();
+        let other_chain_last_id = other_chain.get_latest_block().id();
+        let mut needs_to_persist = false;
+
+        // if it's not the same id, and the local chain is shorter
+        if !(local_chain_last_id.eq(&other_chain_last_id)
+            || local_chain_last_id > other_chain_last_id)
+        {
+            let difference_in_id = other_chain_last_id - local_chain_last_id;
+            for block_id in 1..difference_in_id + 1 {
+                let block = other_chain.get_block_by_id(local_chain_last_id + block_id);
+                let try_add_block = self.try_add_block(block);
+                if try_add_block && self.is_chain_valid() {
+                    needs_to_persist = true;
+                    continue;
+                } else {
+                    return false;
+                }
+            }
+        }
+        needs_to_persist
+    }
+
+    /// Retrieves the last block with the specified op code.
+    fn get_last_version_block_with_op_code(
         &self,
         op_code: <Self::Block as Block>::OpCode,
     ) -> &Self::Block {
         self.blocks()
             .iter()
-            .filter(|block| block.op_code() == op_code)
+            .filter(|block| block.op_code() == &op_code)
             .last()
             .unwrap_or_else(|| self.get_first_block())
     }
 
+    /// Checks if there is any block with a given operation code in the current blocks list.
     fn block_with_operation_code_exists(&self, op_code: <Self::Block as Block>::OpCode) -> bool {
-        self.blocks().iter().any(|b| b.op_code() == op_code)
+        self.blocks().iter().any(|b| b.op_code() == &op_code)
     }
 
+    /// Gets the block with the given block number, or the first one, if the given one doesn't
+    /// exist
     fn get_block_by_id(&self, id: u64) -> Self::Block {
         self.blocks()
             .iter()
@@ -157,4 +221,25 @@ trait Blockchain {
             .cloned()
             .unwrap_or_else(|| self.get_first_block().clone())
     }
+}
+
+/// Calculates the sha256 hash over the given data as a JSON string
+/// returns the hex encoded hash
+fn calculate_hash<T: Serialize>(
+    id: &u64,
+    previous_hash: &str,
+    data: &str,
+    timestamp: &i64,
+    public_key: &str,
+    operation_code: &T,
+) -> String {
+    let data = serde_json::json!({
+        "id": id,
+        "previous_hash": previous_hash,
+        "data": data,
+        "timestamp": timestamp,
+        "public_key": public_key,
+        "operation_code": operation_code,
+    });
+    util::sha256_hash(data.to_string().as_bytes())
 }

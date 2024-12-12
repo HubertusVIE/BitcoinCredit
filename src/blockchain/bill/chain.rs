@@ -5,6 +5,7 @@ use super::BillOpCode;
 use super::BillOpCode::{Endorse, Mint, Sell};
 use super::PaymentInfo;
 use super::WaitingForPayment;
+use crate::blockchain::Blockchain;
 use crate::constants::ENDORSED_TO;
 use crate::constants::SOLD_BY;
 use crate::constants::SOLD_TO;
@@ -14,13 +15,23 @@ use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util::rsa;
 use borsh::{from_slice, to_vec};
-use log::error;
-use log::warn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockchain {
-    pub blocks: Vec<BillBlock>,
+    blocks: Vec<BillBlock>,
+}
+
+impl Blockchain for BillBlockchain {
+    type Block = BillBlock;
+
+    fn blocks(&self) -> &Vec<Self::Block> {
+        &self.blocks
+    }
+
+    fn blocks_mut(&mut self) -> &mut Vec<Self::Block> {
+        &mut self.blocks
+    }
 }
 
 impl BillBlockchain {
@@ -67,97 +78,6 @@ impl BillBlockchain {
         Ok(res)
     }
 
-    /// Validates the integrity of the blockchain by checking the validity of each block in the chain.
-    ///
-    /// # Returns
-    /// * `true` - If all blocks in the chain are valid.
-    /// * `false` - If any block in the chain is found to be invalid.
-    ///
-    pub fn is_chain_valid(&self) -> bool {
-        for i in 0..self.blocks.len() {
-            if i == 0 {
-                continue;
-            }
-            let first: &BillBlock = &self.blocks[i - 1];
-            let second: &BillBlock = &self.blocks[i];
-            if !is_block_valid(second, first) {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// This function checks whether the provided `block` is valid by comparing it with the latest block
-    /// in the current list of blocks. If the block is valid, it is added to the list and the function returns `true`.
-    /// If the block is not valid, it logs an error and returns `false`.
-    ///
-    /// # Arguments
-    /// * `block` - The `Block` to be added to the list.
-    ///
-    /// # Returns
-    /// * `true` if the block is successfully added to the list.
-    /// * `false` if the block is invalid and cannot be added.
-    ///
-    pub fn try_add_block(&mut self, block: BillBlock) -> bool {
-        let latest_block = self.blocks.last().expect("there is at least one block");
-        if is_block_valid(&block, latest_block) {
-            self.blocks.push(block);
-            true
-        } else {
-            error!("could not add block - invalid");
-            false
-        }
-    }
-    /// Retrieves the latest (most recent) block in the blocks list.
-    ///
-    /// # Returns
-    /// * A reference to the latest block in the blocks list.
-    ///
-    pub fn get_latest_block(&self) -> &BillBlock {
-        self.blocks.last().expect("there is at least one block")
-    }
-
-    /// Retrieves the first block in the blocks list.
-    ///
-    /// # Returns
-    /// * A reference to the first block in the blocks list.
-    ///
-    pub fn get_first_block(&self) -> &BillBlock {
-        self.blocks.first().expect("there is at least one block")
-    }
-
-    /// Retrieves the last block with the specified operation code.
-    /// # Arguments
-    /// * `operation_code` - The `BillOpCode` to search for in the blocks.
-    ///
-    /// # Returns
-    /// * A reference to the last block with the specified operation code, or the first block if none is found.
-    ///
-    pub fn get_last_version_block_with_operation_code(
-        &self,
-        operation_code: BillOpCode,
-    ) -> &BillBlock {
-        self.blocks
-            .iter()
-            .filter(|block| block.operation_code == operation_code)
-            .last()
-            .unwrap_or_else(|| self.get_first_block())
-    }
-
-    /// Checks if there is any block with a given operation code in the current blocks list.
-    ///
-    /// # Arguments
-    /// * `operation_code` - The `BillOpCode` to search for within the blocks.
-    ///
-    /// # Returns
-    /// * `true` if a block with the specified operation code exists in the blocks list, otherwise `false`.
-    ///
-    pub fn exist_block_with_operation_code(&self, operation_code: BillOpCode) -> bool {
-        self.blocks
-            .iter()
-            .any(|b| b.operation_code == operation_code)
-    }
-
     /// Checks if the the chain has Endorse, Mint, or Sell blocks in it
     pub fn has_been_endorsed_sold_or_minted(&self) -> bool {
         self.blocks.iter().any(|block| {
@@ -202,10 +122,9 @@ impl BillBlockchain {
         };
 
         if self.blocks.len() > 1 && self.has_been_endorsed_sold_or_minted() {
-            let last_version_block_endorse =
-                self.get_last_version_block_with_operation_code(Endorse);
-            let last_version_block_mint = self.get_last_version_block_with_operation_code(Mint);
-            let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
+            let last_version_block_endorse = self.get_last_version_block_with_op_code(Endorse);
+            let last_version_block_mint = self.get_last_version_block_with_op_code(Mint);
+            let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
             let last_block = self.get_latest_block();
 
             // TODO: check if the last sell block is paid
@@ -226,7 +145,7 @@ impl BillBlockchain {
                 )?)?;
 
                 last_endorsee = buyer;
-            } else if self.exist_block_with_operation_code(Endorse.clone())
+            } else if self.block_with_operation_code_exists(Endorse.clone())
                 && (last_version_block_endorse.id > last_version_block_mint.id)
             {
                 let block_data_decrypted =
@@ -238,7 +157,7 @@ impl BillBlockchain {
                 )?)?;
 
                 last_endorsee = endorsee;
-            } else if self.exist_block_with_operation_code(Mint.clone())
+            } else if self.block_with_operation_code_exists(Mint.clone())
                 && (last_version_block_mint.id > last_version_block_endorse.id)
             {
                 let block_data_decrypted =
@@ -291,9 +210,9 @@ impl BillBlockchain {
         current_timestamp: i64,
     ) -> Result<WaitingForPayment> {
         let last_block = self.get_latest_block();
-        let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
+        let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
         // we only wait for payment, if the last block is a Sell block
-        if self.exist_block_with_operation_code(Sell.clone())
+        if self.block_with_operation_code_exists(Sell.clone())
             && last_block.id == last_version_block_sell.id
         {
             // if the deadline is up, we're not waiting for payment anymore
@@ -342,8 +261,8 @@ impl BillBlockchain {
     /// - `false` if no sell block exists or the deadline has not passed.
     ///
     fn check_if_payment_deadline_has_passed(&self, current_timestamp: i64) -> bool {
-        if self.exist_block_with_operation_code(Sell) {
-            let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
+        if self.block_with_operation_code_exists(Sell) {
+            let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
             let timestamp = last_version_block_sell.timestamp;
 
             let period: i64 = (86400 * 2) as i64; // 2 days deadline
@@ -370,62 +289,6 @@ impl BillBlockchain {
         let decrypted_bytes = first_block_data.get_decrypted_block_bytes(bill_keys)?;
         let bill_first_version: BitcreditBill = from_slice(&decrypted_bytes)?;
         Ok(bill_first_version)
-    }
-
-    /// This function iterates over the list of blocks in the chain and returns the first block
-    /// that matches the provided `id`. If no block is found with the given ID, the function
-    /// returns a clone of the first block in the chain as a fallback.
-    /// # Arguments
-    ///
-    /// * `id` - A `u64` representing the ID of the block to retrieve.
-    ///
-    /// # Returns
-    ///
-    /// * `Block` - The block corresponding to the given `id`, or the first block in the chain
-    ///   if no match is found.
-    ///
-    pub fn get_block_by_id(&self, id: u64) -> BillBlock {
-        self.blocks
-            .iter()
-            .find(|b| b.id == id)
-            .cloned()
-            .unwrap_or_else(|| self.get_first_block().clone())
-    }
-
-    /// This function compares the latest block ID of the local chain with that
-    /// of the `other_chain`. If the `other_chain` is ahead, it attempts to add missing
-    /// blocks from the `other_chain` to the local chain. If the addition of a block
-    /// fails or the resulting chain becomes invalid, the synchronization is aborted.
-    ///
-    /// # Parameters
-    /// - `other_chain: Chain`  
-    ///   The chain to compare and synchronize with.
-    ///
-    /// # Returns
-    /// `bool` - whether the given chain needs to be persisted locally after this comparison
-    ///
-    pub fn compare_chain(&mut self, other_chain: &BillBlockchain) -> bool {
-        let local_chain_last_id = self.get_latest_block().id;
-        let other_chain_last_id = other_chain.get_latest_block().id;
-        let mut needs_to_persist = false;
-
-        // if it's not the same id, and the local chain is shorter
-        if !(local_chain_last_id.eq(&other_chain_last_id)
-            || local_chain_last_id > other_chain_last_id)
-        {
-            let difference_in_id = other_chain_last_id - local_chain_last_id;
-            for block_id in 1..difference_in_id + 1 {
-                let block = other_chain.get_block_by_id(local_chain_last_id + block_id);
-                let try_add_block = self.try_add_block(block);
-                if try_add_block && self.is_chain_valid() {
-                    needs_to_persist = true;
-                    continue;
-                } else {
-                    return false;
-                }
-            }
-        }
-        needs_to_persist
     }
 
     /// This function iterates over all the blocks in the blockchain, extracts the nodes
@@ -471,39 +334,6 @@ impl BillBlockchain {
         }
         Ok(drawer)
     }
-}
-
-/// This function performs a series of checks to ensure the integrity of the current block
-/// in relation to the previous block in the blockchain. These checks include verifying
-/// the hash chain, sequential IDs, hash validity, and block signature.
-///
-/// # Parameters
-/// - `block`: A reference to the current `Block` that needs validation.
-/// - `previous_block`: A reference to the previous `Block` in the chain for comparison.
-///
-/// # Returns
-/// `bool`:
-/// - `true` if the block is valid.
-/// - `false` if any of the validation checks fail.
-///
-fn is_block_valid(block: &BillBlock, previous_block: &BillBlock) -> bool {
-    if block.previous_hash != previous_block.hash {
-        warn!("block with id: {} has wrong previous hash", block.id);
-        return false;
-    } else if block.id != &previous_block.id + 1 {
-        warn!(
-            "block with id: {} is not the next block after the latest: {}",
-            block.id, previous_block.id
-        );
-        return false;
-    } else if !block.validate_hash() {
-        warn!("block with id: {} has invalid hash", block.id);
-        return false;
-    } else if !block.verify() {
-        warn!("block with id: {} has invalid signature", block.id);
-        return false;
-    }
-    true
 }
 
 #[cfg(test)]

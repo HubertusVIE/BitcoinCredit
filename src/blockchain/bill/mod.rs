@@ -1,7 +1,6 @@
-use openssl::sha::Sha256;
 use serde::{Deserialize, Serialize};
 
-use super::Result;
+use super::{Blockchain, Result};
 use crate::service::bill_service::BillKeys;
 use crate::service::contact_service::IdentityPublicData;
 
@@ -53,8 +52,8 @@ impl BillBlockchainToReturn {
     ///
     pub fn new(chain: BillBlockchain, bill_keys: &BillKeys) -> Result<Self> {
         let mut blocks: Vec<BillBlockToReturn> = Vec::new();
-        for block in chain.blocks {
-            blocks.push(BillBlockToReturn::new(block, bill_keys)?);
+        for block in chain.blocks() {
+            blocks.push(BillBlockToReturn::new(block.clone(), bill_keys)?);
         }
         Ok(Self { blocks })
     }
@@ -91,27 +90,6 @@ impl BillBlockToReturn {
             label,
         })
     }
-}
-
-fn calculate_hash(
-    id: &u64,
-    previous_hash: &str,
-    data: &str,
-    timestamp: &i64,
-    public_key: &str,
-    operation_code: &BillOpCode,
-) -> Vec<u8> {
-    let data = serde_json::json!({
-        "id": id,
-        "previous_hash": previous_hash,
-        "data": data,
-        "timestamp": timestamp,
-        "public_key": public_key,
-        "operation_code": operation_code,
-    });
-    let mut hasher = Sha256::new();
-    hasher.update(data.to_string().as_bytes());
-    hasher.finish().to_vec()
 }
 
 fn extract_after_phrase(input: &str, phrase: &str) -> Option<String> {
@@ -169,7 +147,7 @@ mod test {
         );
 
         assert!(result.is_ok());
-        assert_eq!(result.as_ref().unwrap().blocks.len(), 1);
+        assert_eq!(result.as_ref().unwrap().blocks().len(), 1);
     }
 
     #[test]

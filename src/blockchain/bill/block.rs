@@ -1,8 +1,10 @@
+use super::super::calculate_hash;
 use super::super::{Error, Result};
-use super::calculate_hash;
 use super::extract_after_phrase;
 use super::BillOpCode;
 use super::BillOpCode::{Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell};
+
+use crate::blockchain::Block;
 use crate::constants::ACCEPTED_BY;
 use crate::constants::ENDORSED_BY;
 use crate::constants::ENDORSED_TO;
@@ -15,8 +17,8 @@ use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
 use crate::util;
 use crate::util::rsa;
+
 use borsh::from_slice;
-use log::error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -30,6 +32,42 @@ pub struct BillBlock {
     pub signature: String,
     pub public_key: String,
     pub operation_code: BillOpCode,
+}
+
+impl Block for BillBlock {
+    type OpCode = BillOpCode;
+
+    fn id(&self) -> u64 {
+        self.id
+    }
+
+    fn timestamp(&self) -> i64 {
+        self.timestamp
+    }
+
+    fn op_code(&self) -> &Self::OpCode {
+        &self.operation_code
+    }
+
+    fn hash(&self) -> &str {
+        &self.hash
+    }
+
+    fn previous_hash(&self) -> &str {
+        &self.previous_hash
+    }
+
+    fn data(&self) -> &str {
+        &self.data
+    }
+
+    fn signature(&self) -> &str {
+        &self.signature
+    }
+
+    fn public_key(&self) -> &str {
+        &self.public_key
+    }
 }
 
 impl BillBlock {
@@ -60,14 +98,14 @@ impl BillBlock {
         private_key: String,
         timestamp: i64,
     ) -> Result<Self> {
-        let hash = hex::encode(calculate_hash(
+        let hash = calculate_hash(
             &id,
             &previous_hash,
             &data,
             &timestamp,
             &public_key,
             &operation_code,
-        ));
+        );
         let signature = rsa::signature(&hash, &private_key)?;
 
         Ok(Self {
@@ -351,38 +389,6 @@ impl BillBlock {
                 Ok(format!("{}, {}", seller.name, seller.postal_address))
             }
         }
-    }
-
-    /// Verifies the signature of the data associated with the current object using the stored public key.
-    ///
-    /// This method checks if the signature matches the hash of the data, ensuring data integrity and authenticity.
-    ///
-    /// # Returns
-    ///
-    /// A `bool` indicating whether the signature is valid:
-    /// - `true` if the signature is valid.
-    /// - `false` if the signature is invalid.
-    ///
-    pub fn verify(&self) -> bool {
-        match rsa::verify_signature(&self.hash, &self.signature, &self.public_key) {
-            Err(e) => {
-                error!("Error while verifying block id {}: {e}", self.id);
-                false
-            }
-            Ok(res) => res,
-        }
-    }
-
-    pub fn validate_hash(&self) -> bool {
-        self.hash
-            == hex::encode(calculate_hash(
-                &self.id,
-                &self.previous_hash,
-                &self.data,
-                &self.timestamp,
-                &self.public_key,
-                &self.operation_code,
-            ))
     }
 }
 
