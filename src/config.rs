@@ -27,6 +27,8 @@ pub struct Config {
     pub terminal_client: bool,
     #[arg(default_value_t = String::from("development"),  env = "development")]
     pub environment: String,
+    #[arg(default_value_t = String::from("ws://localhost:8080"), long, env = "NOSTR_RELAY")]
+    pub nostr_relay: String,
 }
 
 impl Config {

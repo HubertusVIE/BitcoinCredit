@@ -1,4 +1,5 @@
 use crate::service::bill_service::BitcreditBill;
+use crate::util;
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
@@ -52,6 +53,9 @@ pub enum Error {
 
     #[error("nostr client error: {0}")]
     NostrClient(#[from] nostr_sdk::client::Error),
+
+    #[error("crypto util error: {0}")]
+    CryptoUtil(#[from] util::crypto::Error),
 }
 
 /// Send events via all channels required for the event type.

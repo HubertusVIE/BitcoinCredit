@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use log::{error, trace, warn};
 use nostr_sdk::prelude::*;
 use nostr_sdk::Timestamp;
+use openssl::conf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -9,6 +10,7 @@ use tokio::task::JoinHandle;
 use crate::persistence::NostrEventOffset;
 use crate::persistence::NostrEventOffsetStoreApi;
 use crate::service::contact_service::ContactServiceApi;
+use crate::util::BcrKeys;
 
 use super::super::contact_service::IdentityPublicData;
 use super::handler::NotificationHandlerApi;
@@ -16,9 +18,16 @@ use super::{EventEnvelope, NotificationJsonTransportApi, Result};
 
 #[derive(Clone, Debug)]
 pub struct NostrConfig {
-    nsec: String,
+    keys: BcrKeys,
     relays: Vec<String>,
     name: String,
+}
+
+impl NostrConfig {
+    #[allow(dead_code)]
+    pub fn get_npub(&self) -> Result<String> {
+        Ok(self.keys.get_nostr_npub()?)
+    }
 }
 
 /// A wrapper around nostr_sdk that implements the NotificationJsonTransportApi.
@@ -26,7 +35,7 @@ pub struct NostrConfig {
 /// # Example:
 /// ```
 /// let config = NostrConfig {
-///     nsec: "nsec1...".to_string(),
+///     keys: BcrKeys::new(),
 ///     relays: vec!["wss://relay.example.com".to_string()],
 ///     name: "My Company".to_string(),
 /// };
@@ -45,7 +54,7 @@ pub struct NostrClient {
 impl NostrClient {
     #[allow(dead_code)]
     pub async fn new(config: &NostrConfig) -> Result<Self> {
-        let keys = Keys::parse(&config.nsec)?;
+        let keys = config.keys.get_nostr_keys();
         let options = Options::new();
         let client = Client::builder().signer(keys.clone()).opts(options).build();
         for relay in &config.relays {
@@ -261,7 +270,7 @@ mod tests {
     use mockall::predicate;
     use tokio::time;
 
-    use super::super::test_utils::{get_mock_relay, NOSTR_KEY1};
+    use super::super::test_utils::get_mock_relay;
     use super::{NostrClient, NostrConfig, NostrConsumer};
     use crate::persistence::nostr::MockNostrEventOffsetStoreApi;
     use crate::persistence::NostrEventOffset;
@@ -273,6 +282,7 @@ mod tests {
             NotificationJsonTransportApi,
         },
     };
+    use crate::util::BcrKeys;
 
     /// When testing with the mock relay we need to be careful. It is always
     /// listening on the same port and will not start multiple times. If we
@@ -282,9 +292,12 @@ mod tests {
         let relay = get_mock_relay().await;
         let url = relay.url();
 
+        let keys1 = BcrKeys::new();
+        let keys2 = BcrKeys::new();
+
         // given two clients
         let config1 = NostrConfig {
-            nsec: NOSTR_KEY1.to_string(),
+            keys: keys1.clone(),
             relays: vec![url.to_string()],
             name: "BcrDamus1".to_string(),
         };
@@ -293,7 +306,7 @@ mod tests {
             .expect("failed to create nostr client 1");
 
         let config2 = NostrConfig {
-            nsec: NOSTR_KEY2.to_string(),
+            keys: keys2.clone(),
             relays: vec![url.to_string()],
             name: "BcrDamus2".to_string(),
         };
@@ -302,8 +315,12 @@ mod tests {
             .expect("failed to create nostr client 2");
 
         // and a contact we want to send an event to
-        let contact =
-            get_identity_public_data("payee", "payee@example.com", Some(NOSTR_NPUB2), Some(&url));
+        let contact = get_identity_public_data(
+            "payee",
+            "payee@example.com",
+            Some(&keys2.get_nostr_npub().expect("get npub 2")),
+            Some(&url),
+        );
         let mut event = create_test_event(&EventType::BillSigned);
         event.peer_id = contact.peer_id.to_owned();
 
@@ -311,7 +328,7 @@ mod tests {
         let mut contact_service = MockContactServiceApi::new();
         contact_service
             .expect_is_known_npub()
-            .with(predicate::eq(NOSTR_NPUB1))
+            .with(predicate::eq(keys1.get_nostr_npub().expect("get npub 1")))
             .returning(|_| Ok(true));
 
         // expect a handler that is subscribed to the event type w sent

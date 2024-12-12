@@ -108,7 +108,7 @@ impl IdentityServiceApi for IdentityService {
             bitcoin_public_key: public_key.to_string(),
             bitcoin_private_key: private_key.to_string(),
             nostr_npub: Some(keys.get_nostr_npub()?),
-            nostr_relay: None,
+            nostr_relay: Some(CONFIG.nostr_relay.to_owned()),
         };
         self.store.save(&identity).await?;
         self.client
