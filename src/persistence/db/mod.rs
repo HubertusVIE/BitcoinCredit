@@ -8,6 +8,7 @@ use surrealdb::{
 pub mod company;
 pub mod contact;
 pub mod identity;
+pub mod identity_chain;
 pub mod nostr_event_offset;
 
 /// Configuration for the SurrealDB connection string, namespace and

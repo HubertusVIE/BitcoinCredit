@@ -136,7 +136,6 @@ mod test {
 
         let result = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),

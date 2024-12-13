@@ -11,7 +11,7 @@ use crate::persistence::DbContext;
 use crate::persistence::{self};
 use crate::util::rsa;
 use crate::web::ErrorResponse;
-use crate::{dht, external};
+use crate::{blockchain, dht, external};
 use bill_service::{BillService, BillServiceApi};
 use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
@@ -67,6 +67,10 @@ pub enum Error {
 
     #[error("External API error: {0}")]
     ExternalApi(#[from] external::Error),
+
+    /// errors that stem from interacting with a blockchain
+    #[error("Blockchain error: {0}")]
+    Blockchain(#[from] blockchain::Error),
 }
 
 /// Map from service errors directly to rocket status codes. This allows us to
@@ -88,6 +92,10 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             // for now handle all persistence errors as InternalServerError, there
             // will be cases where we want to handle them differently (eg. 409 Conflict)
             Error::Persistence(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            Error::Blockchain(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
@@ -188,7 +196,11 @@ pub async fn create_service_context(
         db.file_upload_store.clone(),
         bitcoin_client,
     );
-    let identity_service = IdentityService::new(client.clone(), db.identity_store.clone());
+    let identity_service = IdentityService::new(
+        client.clone(),
+        db.identity_store.clone(),
+        db.identity_chain_store.clone(),
+    );
 
     let company_service = CompanyService::new(
         db.company_store,

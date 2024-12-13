@@ -1,3 +1,4 @@
+use crate::external;
 use crate::service::{self, Result};
 use crate::web::data::{ChangeIdentityPayload, IdentityPayload, NodeId};
 use crate::{service::identity_service::Identity, service::ServiceContext};
@@ -28,6 +29,7 @@ pub async fn create_identity(
     identity_payload: Json<IdentityPayload>,
 ) -> Result<Status> {
     let identity = identity_payload.into_inner();
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     state
         .identity_service
         .create_identity(
@@ -38,6 +40,7 @@ pub async fn create_identity(
             identity.country_of_birth,
             identity.email,
             identity.postal_address,
+            timestamp,
         )
         .await?;
     Ok(Status::Ok)

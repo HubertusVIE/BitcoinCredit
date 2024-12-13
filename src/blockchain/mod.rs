@@ -7,6 +7,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::string::FromUtf8Error;
 
 pub mod bill;
+pub mod identity;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, Error>;

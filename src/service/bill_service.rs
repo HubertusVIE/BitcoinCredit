@@ -681,7 +681,6 @@ impl BillServiceApi for BillService {
 
         let chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             public_data_drawer,
             drawer.key_pair,
             public_key_pem,
@@ -1125,7 +1124,6 @@ pub mod test {
         let bill = bill.unwrap_or(get_baseline_bill("some name"));
         BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new_empty(),
             get_baseline_identity().key_pair,
             TEST_PUB_KEY.to_owned(),

@@ -39,7 +39,6 @@ impl BillBlockchain {
     /// key
     pub fn new(
         bill: &BitcreditBill,
-        operation_code: BillOpCode,
         drawer: IdentityPublicData,
         drawer_key_pair: BcrKeys,
         bill_public_key_pem: String,
@@ -59,7 +58,7 @@ impl BillBlockchain {
             1,
             genesis_hash,
             encrypted_and_hashed_bill_data,
-            operation_code,
+            BillOpCode::Issue,
             drawer_key_pair,
             timestamp,
         )?;
@@ -376,7 +375,6 @@ mod test {
 
         let chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),
@@ -394,7 +392,6 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),
@@ -415,7 +412,6 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),
@@ -444,7 +440,6 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),
@@ -471,7 +466,6 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),
@@ -505,7 +499,6 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),
@@ -532,7 +525,6 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),
@@ -558,7 +550,6 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
             identity.key_pair,
             TEST_PUB_KEY.to_owned(),

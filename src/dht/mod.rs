@@ -180,7 +180,7 @@ async fn new(
     identity_store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
-    if !identity_store.exists().await {
+    if !identity_store.libp2p_credentials_exist().await {
         let keys = BcrKeys::new();
         let p2p_keys = keys.get_libp2p_keys()?;
         let node_id = p2p_keys.public().to_peer_id();

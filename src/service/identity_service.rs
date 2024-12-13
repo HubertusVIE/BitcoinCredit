@@ -6,6 +6,9 @@ use crate::{
     util::{self, BcrKeys},
 };
 
+use crate::blockchain::identity::IdentityBlockchain;
+use crate::blockchain::Blockchain;
+use crate::persistence::identity_chain::IdentityChainStoreApi;
 use async_trait::async_trait;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use libp2p::PeerId;
@@ -34,6 +37,7 @@ pub trait IdentityServiceApi: Send + Sync {
         country_of_birth: String,
         email: String,
         postal_address: String,
+        timestamp: i64,
     ) -> Result<()>;
 }
 
@@ -43,11 +47,20 @@ pub trait IdentityServiceApi: Send + Sync {
 pub struct IdentityService {
     client: Client,
     store: Arc<dyn IdentityStoreApi>,
+    blockchain_store: Arc<dyn IdentityChainStoreApi>,
 }
 
 impl IdentityService {
-    pub fn new(client: Client, store: Arc<dyn IdentityStoreApi>) -> Self {
-        Self { client, store }
+    pub fn new(
+        client: Client,
+        store: Arc<dyn IdentityStoreApi>,
+        blockchain_store: Arc<dyn IdentityChainStoreApi>,
+    ) -> Self {
+        Self {
+            client,
+            store,
+            blockchain_store,
+        }
     }
 }
 
@@ -90,8 +103,11 @@ impl IdentityServiceApi for IdentityService {
         country_of_birth: String,
         email: String,
         postal_address: String,
+        timestamp: i64,
     ) -> Result<()> {
         let (private_key_pem, public_key_pem) = util::rsa::create_rsa_key_pair()?;
+
+        let keys = self.store.get_key_pair().await?;
 
         let s = bitcoin::secp256k1::Secp256k1::new();
 
@@ -118,6 +134,13 @@ impl IdentityServiceApi for IdentityService {
             nostr_npub: None,
             nostr_relay: None,
         };
+
+        // create new identity chain and persist it
+        let identity_chain = IdentityBlockchain::new(&identity, &keys, timestamp)?;
+        let first_block = identity_chain.get_first_block();
+        self.blockchain_store.add_block(first_block).await?;
+
+        // persist the identity in the DB
         self.store.save(&identity).await?;
         self.client
             .clone()
@@ -219,6 +242,7 @@ mod test {
     use crate::persistence::{
         self, bill::MockBillStoreApi, company::MockCompanyStoreApi,
         file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
+        identity_chain::MockIdentityChainStoreApi,
     };
     use futures::channel::mpsc;
 
@@ -235,6 +259,27 @@ mod test {
                 Arc::new(MockFileUploadStoreApi::new()),
             ),
             Arc::new(mock_storage),
+            Arc::new(MockIdentityChainStoreApi::new()),
+        )
+    }
+
+    fn get_service_with_chain_storage(
+        mock_storage: MockIdentityStoreApi,
+        mock_chain_storage: MockIdentityChainStoreApi,
+    ) -> IdentityService {
+        let (sender, _) = mpsc::channel(0);
+        let mut client_storage = MockIdentityStoreApi::new();
+        client_storage.expect_exists().returning(|| false);
+        IdentityService::new(
+            Client::new(
+                sender,
+                Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockCompanyStoreApi::new()),
+                Arc::new(client_storage),
+                Arc::new(MockFileUploadStoreApi::new()),
+            ),
+            Arc::new(mock_storage),
+            Arc::new(mock_chain_storage),
         )
     }
 
@@ -258,8 +303,13 @@ mod test {
     async fn create_identity_baseline() {
         let mut storage = MockIdentityStoreApi::new();
         storage.expect_save().returning(move |_| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        let mut chain_storage = MockIdentityChainStoreApi::new();
+        chain_storage.expect_add_block().returning(|_| Ok(()));
 
-        let service = get_service(storage);
+        let service = get_service_with_chain_storage(storage, chain_storage);
         let res = service
             .create_identity(
                 "name".to_string(),
@@ -269,6 +319,7 @@ mod test {
                 "country_of_birth".to_string(),
                 "email".to_string(),
                 "postal_address".to_string(),
+                1731593928,
             )
             .await;
 

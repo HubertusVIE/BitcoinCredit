@@ -1,5 +1,3 @@
-use core::str;
-
 use super::Result;
 use crate::{
     persistence::{identity::IdentityStoreApi, Error},
