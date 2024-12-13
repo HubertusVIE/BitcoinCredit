@@ -15,8 +15,8 @@ use crate::constants::SOLD_TO;
 use crate::service::bill_service::BillKeys;
 use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
-use crate::util;
-use crate::util::rsa;
+use crate::util::{self, crypto};
+use crate::util::{rsa, BcrKeys};
 
 use borsh::from_slice;
 use serde::{Deserialize, Serialize};
@@ -28,9 +28,9 @@ pub struct BillBlock {
     pub hash: String,
     pub timestamp: i64,
     pub data: String,
+    pub public_key: String,
     pub previous_hash: String,
     pub signature: String,
-    pub public_key: String,
     pub operation_code: BillOpCode,
 }
 
@@ -93,9 +93,8 @@ impl BillBlock {
         id: u64,
         previous_hash: String,
         data: String,
-        public_key: String,
         operation_code: BillOpCode,
-        private_key: String,
+        keys: BcrKeys,
         timestamp: i64,
     ) -> Result<Self> {
         let hash = calculate_hash(
@@ -103,10 +102,10 @@ impl BillBlock {
             &previous_hash,
             &data,
             &timestamp,
-            &public_key,
+            &keys.get_public_key(),
             &operation_code,
         );
-        let signature = rsa::signature(&hash, &private_key)?;
+        let signature = crypto::signature(&hash, &keys.get_private_key_string())?;
 
         Ok(Self {
             id,
@@ -114,8 +113,8 @@ impl BillBlock {
             timestamp,
             previous_hash,
             signature,
+            public_key: keys.get_public_key(),
             data,
-            public_key,
             operation_code,
         })
     }
@@ -395,7 +394,7 @@ impl BillBlock {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tests::test::{get_bill_keys, TEST_PRIVATE_KEY, TEST_PUB_KEY};
+    use crate::tests::test::{get_bill_keys, TEST_PUB_KEY};
     use borsh::to_vec;
     use libp2p::PeerId;
 
@@ -405,9 +404,8 @@ mod test {
             1,
             String::from("prevhash"),
             String::from("some_data"),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Issue,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -435,9 +433,8 @@ mod test {
             1,
             String::from("prevhash"),
             hashed_bill,
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Issue,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -464,9 +461,8 @@ mod test {
             1,
             String::from("prevhash"),
             hashed_bill,
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Issue,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -498,9 +494,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Endorse,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -529,9 +524,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Endorse,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -560,9 +554,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Mint,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -591,9 +584,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Mint,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -615,9 +607,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::RequestToAccept,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -640,9 +631,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::RequestToAccept,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -667,9 +657,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Accept,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -692,9 +681,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Accept,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -720,9 +708,8 @@ mod test {
             String::from("prevhash"),
             // not encrypted
             hex::encode(data.as_bytes()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Accept,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -743,9 +730,8 @@ mod test {
                 )
                 .unwrap(),
             ),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Accept,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -766,9 +752,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::RequestToPay,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -791,9 +776,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::RequestToPay,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -822,9 +806,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Sell,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();
@@ -848,9 +831,8 @@ mod test {
             1,
             String::from("prevhash"),
             hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            TEST_PUB_KEY.to_owned(),
             BillOpCode::Sell,
-            TEST_PRIVATE_KEY.to_owned(),
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap();

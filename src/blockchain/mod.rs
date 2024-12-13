@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::util::rsa;
+use crate::util::{crypto, rsa};
 use crate::{external, util};
 use log::{error, warn};
 use serde::{de::DeserializeOwned, Serialize};
@@ -29,6 +29,10 @@ pub enum Error {
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Cryptography error: {0}")]
     Cryptography(#[from] rsa::Error),
+
+    /// Errors stemming from cryptography, such as converting keys, encryption and decryption
+    #[error("Secp256k1Cryptography error: {0}")]
+    Secp256k1Cryptography(#[from] crypto::Error),
 
     /// Errors stemming from decoding
     #[error("Decode error: {0}")]
@@ -76,7 +80,7 @@ pub trait Block {
 
     /// Verifys the block by checking if the signature is correct
     fn verify(&self) -> bool {
-        match rsa::verify_signature(self.hash(), self.signature(), self.public_key()) {
+        match crypto::verify(self.hash(), self.signature(), self.public_key()) {
             Err(e) => {
                 error!("Error while verifying block id {}: {e}", self.id());
                 false

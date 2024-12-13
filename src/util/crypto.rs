@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
 use bitcoin::{
-    secp256k1::{self, Keypair, SecretKey},
+    secp256k1::{self, ecdsa::Signature, Keypair, SecretKey},
     Network,
 };
 use nostr_sdk::ToBech32;
-use secp256k1::{rand, Secp256k1};
+use secp256k1::{rand, Message, PublicKey, Secp256k1};
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -26,6 +26,17 @@ pub enum Error {
 
     #[error("Libp2p key error: {0}")]
     LibP2p(#[from] libp2p::identity::OtherVariantError),
+
+    #[error("Signature had invalid length")]
+    InvalidSignatureLength,
+
+    /// Errors stemming from decoding hex
+    #[error("Decode hex error: {0}")]
+    Decode(#[from] hex::FromHexError),
+
+    /// Errors stemming from parsing the recovery id
+    #[error("Parse recovery id error: {0}")]
+    ParseRecoveryId(#[from] std::num::ParseIntError),
 }
 
 /// A wrapper around the secp256k1 keypair that can be used for
@@ -123,11 +134,55 @@ fn load_keypair(private_key: &str) -> Result<Keypair> {
     Ok(pair)
 }
 
+pub fn signature(hash: &str, private_key: &str) -> Result<String> {
+    // create a signing context
+    let secp = Secp256k1::signing_only();
+    let secret_key = SecretKey::from_str(private_key)?;
+    let msg = Message::from_digest_slice(&hex::decode(hash)?)?;
+    let signature = secp.sign_ecdsa(&msg, &secret_key);
+    Ok(hex::encode(signature.serialize_compact()))
+}
+
+pub fn verify(hash: &str, signature: &str, public_key: &str) -> Result<bool> {
+    // create a verification context
+    let secp = Secp256k1::verification_only();
+    let pub_key = PublicKey::from_str(public_key)?;
+    let msg = Message::from_digest_slice(&hex::decode(hash)?)?;
+    let decoded_signature = Signature::from_compact(&hex::decode(signature)?)?;
+    Ok(secp
+        .verify_ecdsa(&msg, &decoded_signature, &pub_key)
+        .is_ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util;
 
     const PKEY: &str = "926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3";
+
+    #[test]
+    fn test_sign_verify() {
+        let keypair = BcrKeys::new();
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let signature = signature(&hash, &keypair.get_private_key_string()).unwrap();
+        assert!(verify(&hash, &signature, &keypair.get_public_key()).is_ok());
+    }
+
+    #[test]
+    fn test_sign_verify_invalid() {
+        let keypair = BcrKeys::new();
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let signature = signature(&hash, &keypair.get_private_key_string()).unwrap();
+        let hash2 = util::sha256_hash("Hello, Changed Changed Changed World".as_bytes());
+        assert!(verify(&hash, &signature, &keypair.get_public_key()).is_ok());
+        assert!(verify(&hash, &signature, &keypair.get_public_key()).is_ok());
+        // it fails for a different hash
+        assert!(verify(&hash2, &signature, &keypair.get_public_key()).is_ok());
+        assert!(!verify(&hash2, &signature, &keypair.get_public_key())
+            .as_ref()
+            .unwrap());
+    }
 
     #[test]
     fn test_new_keypair() {

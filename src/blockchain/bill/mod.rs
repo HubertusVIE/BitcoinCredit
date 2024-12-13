@@ -67,7 +67,6 @@ pub struct BillBlockToReturn {
     pub data: String,
     pub previous_hash: String,
     pub signature: String,
-    pub public_key: String,
     pub operation_code: BillOpCode,
     pub label: String,
 }
@@ -85,7 +84,6 @@ impl BillBlockToReturn {
             data: block.data,
             previous_hash: block.previous_hash,
             signature: block.signature,
-            public_key: block.public_key,
             operation_code: block.operation_code,
             label,
         })
@@ -140,32 +138,13 @@ mod test {
             &bill,
             BillOpCode::Issue,
             IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         );
 
         assert!(result.is_ok());
         assert_eq!(result.as_ref().unwrap().blocks().len(), 1);
-    }
-
-    #[test]
-    fn start_blockchain_for_new_bill_baseline_fails_with_invalid_keys() {
-        let bill = BitcreditBill::new_empty();
-        let identity = get_baseline_identity();
-
-        let result = BillBlockchain::new(
-            &bill,
-            BillOpCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.private_key_pem, // swapped private and public
-            identity.identity.public_key_pem,
-            TEST_PUB_KEY.to_owned(),
-            1731593928,
-        );
-
-        assert!(result.is_err());
     }
 
     #[test]

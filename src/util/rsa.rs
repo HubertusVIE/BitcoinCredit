@@ -1,10 +1,5 @@
 #![allow(clippy::needless_range_loop)]
-use openssl::{
-    hash::MessageDigest,
-    pkey::PKey,
-    rsa::{Padding, Rsa},
-    sign::{Signer, Verifier},
-};
+use openssl::rsa::{Padding, Rsa};
 use thiserror::Error;
 
 /// Generic result type
@@ -20,10 +15,6 @@ pub enum Error {
     /// all errors originating from running into utf8-related errors
     #[error("utf-8 error when parsing string: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
-
-    /// Errors stemming from decoding
-    #[error("Decode error: {0}")]
-    Decode(#[from] hex::FromHexError),
 }
 
 pub fn create_rsa_key_pair() -> Result<(String, String)> {
@@ -34,45 +25,6 @@ pub fn create_rsa_key_pair() -> Result<(String, String)> {
         String::from_utf8(private_key)?,
         String::from_utf8(public_key)?,
     ))
-}
-
-/// Signs a hash using a private RSA key and returns the resulting signature as a hexadecimal string
-/// # Arguments
-///
-/// - `hash`: A string representing the data hash to be signed. This is typically the output of a hashing algorithm like SHA-256.
-/// - `private_key_pem`: A string containing the private RSA key in PEM format. This key is used to generate the signature.
-///
-/// # Returns
-///
-/// A `String` containing the hexadecimal representation of the digital signature.
-///
-pub fn signature(hash: &str, private_key_pem: &str) -> Result<String> {
-    let private_key_rsa = Rsa::private_key_from_pem(private_key_pem.as_bytes())?;
-    let signer_key = PKey::from_rsa(private_key_rsa)?;
-
-    let mut signer: Signer = Signer::new(MessageDigest::sha256(), signer_key.as_ref())?;
-
-    let data_to_sign = hash.as_bytes();
-    signer.update(data_to_sign)?;
-
-    let signature: Vec<u8> = signer.sign_to_vec()?;
-    let signature_readable = hex::encode(signature.as_slice());
-
-    Ok(signature_readable)
-}
-
-pub fn verify_signature(hash: &str, signature: &str, public_key: &str) -> Result<bool> {
-    let public_key_rsa = Rsa::public_key_from_pem(public_key.as_bytes())?;
-    let verifier_key = PKey::from_rsa(public_key_rsa)?;
-
-    let mut verifier = Verifier::new(MessageDigest::sha256(), verifier_key.as_ref())?;
-
-    let data_to_check = hash.as_bytes();
-    verifier.update(data_to_check)?;
-
-    let signature_bytes = hex::decode(signature)?;
-    let res = verifier.verify(signature_bytes.as_slice())?;
-    Ok(res)
 }
 
 //-------------------------Bytes common-------------------------
