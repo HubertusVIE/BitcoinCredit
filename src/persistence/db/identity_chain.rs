@@ -134,3 +134,65 @@ impl From<&IdentityBlock> for IdentityBlockDb {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{blockchain::Blockchain, persistence::db::get_memory_db, util::BcrKeys};
+
+    async fn get_store() -> SurrealIdentityChainStore {
+        let mem_db = get_memory_db("test", "identity_chain")
+            .await
+            .expect("could not create get_memory_db");
+        SurrealIdentityChainStore::new(mem_db)
+    }
+
+    fn get_valid_block() -> IdentityBlock {
+        IdentityBlock::new(
+            1,
+            "genesis hash".to_string(),
+            "some data".to_string(),
+            IdentityOpCode::Create,
+            &BcrKeys::new(),
+            1731593928,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_get_chain() {
+        let store = get_store().await;
+        let empty_chain = store.get_chain().await;
+        assert!(empty_chain.is_err());
+        let block = get_valid_block();
+        store.add_block(&block).await.unwrap();
+        let result = store.get_chain().await;
+        assert!(result.is_ok());
+        assert_eq!(result.as_ref().unwrap().blocks().len(), 1);
+        assert_eq!(result.as_ref().unwrap().get_first_block().id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_add_block() {
+        let store = get_store().await;
+        let block = get_valid_block();
+        store.add_block(&block).await.unwrap();
+        let last_block = store.get_latest_block().await;
+        assert!(last_block.is_ok());
+        assert_eq!(last_block.as_ref().unwrap().id, 1);
+
+        let block2 = IdentityBlock::new(
+            2,
+            block.hash.clone(),
+            "some data".to_string(),
+            IdentityOpCode::Update,
+            &BcrKeys::new(),
+            1731593928,
+        )
+        .unwrap();
+        store.add_block(&block2).await.unwrap();
+        let last_block = store.get_latest_block().await;
+        assert!(last_block.is_ok());
+        assert_eq!(last_block.as_ref().unwrap().id, 2);
+    }
+}
