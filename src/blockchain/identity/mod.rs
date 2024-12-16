@@ -157,3 +157,20 @@ impl IdentityBlockchain {
         Ok(created)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::tests::test::TEST_PUB_KEY;
+
+    #[test]
+    fn create_and_check_validity() {
+        let mut identity = Identity::new_empty();
+        identity.public_key_pem = TEST_PUB_KEY.to_string();
+
+        let chain = IdentityBlockchain::new(&identity, &BcrKeys::new(), 1731593928);
+        println!("{chain:?}");
+        assert!(chain.is_ok());
+        assert!(chain.as_ref().unwrap().is_chain_valid());
+    }
+}
