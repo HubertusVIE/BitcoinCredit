@@ -195,6 +195,7 @@ pub async fn create_service_context(
         db.identity_store.clone(),
         db.file_upload_store.clone(),
         bitcoin_client,
+        db.identity_chain_store.clone(),
     );
     let identity_service = IdentityService::new(
         client.clone(),
@@ -207,6 +208,7 @@ pub async fn create_service_context(
         db.file_upload_store.clone(),
         db.identity_store,
         db.contact_store,
+        db.identity_chain_store,
     );
     let file_upload_service = FileUploadService::new(db.file_upload_store);
 

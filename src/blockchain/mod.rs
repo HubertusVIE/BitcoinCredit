@@ -2,8 +2,9 @@ use thiserror::Error;
 
 use crate::util::{crypto, rsa};
 use crate::{external, util};
+use borsh::{to_vec, BorshSerialize};
+use borsh_derive::BorshSerialize;
 use log::{error, warn};
-use serde::{de::DeserializeOwned, Serialize};
 use std::string::FromUtf8Error;
 
 pub mod bill;
@@ -23,6 +24,10 @@ pub enum Error {
     #[error("Blockchain is invalid")]
     BlockchainInvalid,
 
+    /// If certain block is not valid and can't be added
+    #[error("Block is invalid")]
+    BlockInvalid,
+
     /// Errors stemming from json deserialization. Most of the time this is a
     #[error("unable to serialize/deserialize to/from JSON {0}")]
     Json(#[from] serde_json::Error),
@@ -35,9 +40,9 @@ pub enum Error {
     #[error("Secp256k1Cryptography error: {0}")]
     Secp256k1Cryptography(#[from] crypto::Error),
 
-    /// Errors stemming from decoding
-    #[error("Decode error: {0}")]
-    Decode(#[from] hex::FromHexError),
+    /// Errors stemming from base58 decoding
+    #[error("Base 58 Decode error: {0}")]
+    Base58Decode(#[from] util::Error),
 
     /// Errors stemming from converting from utf-8 strings
     #[error("UTF-8 error: {0}")]
@@ -55,7 +60,7 @@ pub enum Error {
 
 /// Generic trait for a Block within a Blockchain
 pub trait Block {
-    type OpCode: PartialEq + Clone + Serialize + DeserializeOwned;
+    type OpCode: PartialEq + Clone + BorshSerialize;
 
     fn id(&self) -> u64;
     fn timestamp(&self) -> i64;
@@ -68,15 +73,20 @@ pub trait Block {
 
     /// Validates that the block's hash is correct
     fn validate_hash(&self) -> bool {
-        self.hash()
-            == calculate_hash(
-                &self.id(),
-                self.previous_hash(),
-                self.data(),
-                &self.timestamp(),
-                self.public_key(),
-                self.op_code(),
-            )
+        match calculate_hash(
+            &self.id(),
+            self.previous_hash(),
+            self.data(),
+            &self.timestamp(),
+            self.public_key(),
+            self.op_code(),
+        ) {
+            Err(e) => {
+                error!("Error calculating hash: {e}");
+                false
+            }
+            Ok(calculated_hash) => self.hash() == calculated_hash,
+        }
     }
 
     /// Verifys the block by checking if the signature is correct
@@ -228,23 +238,35 @@ pub trait Blockchain {
     }
 }
 
-/// Calculates the sha256 hash over the given data as a JSON string
-/// returns the hex encoded hash
-fn calculate_hash<T: Serialize>(
+#[derive(BorshSerialize)]
+struct BlockDataToHash<'a, T: BorshSerialize> {
+    id: &'a u64,
+    previous_hash: &'a str,
+    data: &'a str,
+    timestamp: &'a i64,
+    public_key: &'a str,
+    operation_code: &'a T,
+}
+
+/// Calculates the sha256 hash over the block data serialized to binary, returning the base58
+/// encoded hash
+fn calculate_hash<T: BorshSerialize>(
     id: &u64,
     previous_hash: &str,
     data: &str,
     timestamp: &i64,
     public_key: &str,
     operation_code: &T,
-) -> String {
-    let data = serde_json::json!({
-        "id": id,
-        "previous_hash": previous_hash,
-        "data": data,
-        "timestamp": timestamp,
-        "public_key": public_key,
-        "operation_code": operation_code,
-    });
-    util::sha256_hash(data.to_string().as_bytes())
+) -> Result<String> {
+    let data = BlockDataToHash {
+        id,
+        previous_hash,
+        data,
+        timestamp,
+        public_key,
+        operation_code,
+    };
+
+    let serialized = to_vec(&data)?;
+    Ok(util::sha256_hash(&serialized))
 }

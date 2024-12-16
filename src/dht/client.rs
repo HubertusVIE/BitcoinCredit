@@ -3036,7 +3036,6 @@ mod test {
         )
         .check_new_bills()
         .await;
-        println!("{result:?}");
         assert!(result.is_ok());
     }
 

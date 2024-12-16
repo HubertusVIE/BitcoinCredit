@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use super::{base58_decode, base58_encode};
 use bitcoin::{
     secp256k1::{self, ecdsa::Signature, Keypair, SecretKey},
     Network,
@@ -30,9 +31,9 @@ pub enum Error {
     #[error("Signature had invalid length")]
     InvalidSignatureLength,
 
-    /// Errors stemming from decoding hex
-    #[error("Decode hex error: {0}")]
-    Decode(#[from] hex::FromHexError),
+    /// Errors stemming from decoding base58
+    #[error("Decode base58 error: {0}")]
+    Decode(#[from] super::Error),
 
     /// Errors stemming from parsing the recovery id
     #[error("Parse recovery id error: {0}")]
@@ -138,17 +139,17 @@ pub fn signature(hash: &str, private_key: &str) -> Result<String> {
     // create a signing context
     let secp = Secp256k1::signing_only();
     let secret_key = SecretKey::from_str(private_key)?;
-    let msg = Message::from_digest_slice(&hex::decode(hash)?)?;
+    let msg = Message::from_digest_slice(&base58_decode(hash)?)?;
     let signature = secp.sign_ecdsa(&msg, &secret_key);
-    Ok(hex::encode(signature.serialize_compact()))
+    Ok(base58_encode(&signature.serialize_compact()))
 }
 
 pub fn verify(hash: &str, signature: &str, public_key: &str) -> Result<bool> {
     // create a verification context
     let secp = Secp256k1::verification_only();
     let pub_key = PublicKey::from_str(public_key)?;
-    let msg = Message::from_digest_slice(&hex::decode(hash)?)?;
-    let decoded_signature = Signature::from_compact(&hex::decode(signature)?)?;
+    let msg = Message::from_digest_slice(&base58_decode(hash)?)?;
+    let decoded_signature = Signature::from_compact(&base58_decode(signature)?)?;
     Ok(secp
         .verify_ecdsa(&msg, &decoded_signature, &pub_key)
         .is_ok())

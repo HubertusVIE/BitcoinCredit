@@ -6,7 +6,7 @@ use crate::{
     util::{self, BcrKeys},
 };
 
-use crate::blockchain::identity::IdentityBlockchain;
+use crate::blockchain::identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData};
 use crate::blockchain::Blockchain;
 use crate::persistence::identity_chain::IdentityChainStoreApi;
 use async_trait::async_trait;
@@ -18,7 +18,14 @@ use std::sync::Arc;
 #[async_trait]
 pub trait IdentityServiceApi: Send + Sync {
     /// Updates the identity
-    async fn update_identity(&self, identity: &Identity) -> Result<()>;
+    async fn update_identity(
+        &self,
+        name: Option<String>,
+        company: Option<String>,
+        email: Option<String>,
+        postal_address: Option<String>,
+        timestamp: i64,
+    ) -> Result<()>;
     /// Gets the full local identity, including the key pair and peer id
     async fn get_full_identity(&self) -> Result<IdentityWithAll>;
     /// Gets the local identity
@@ -71,8 +78,50 @@ impl IdentityServiceApi for IdentityService {
         Ok(identity)
     }
 
-    async fn update_identity(&self, identity: &Identity) -> Result<()> {
-        self.store.save(identity).await?;
+    async fn update_identity(
+        &self,
+        name: Option<String>,
+        company: Option<String>,
+        email: Option<String>,
+        postal_address: Option<String>,
+        timestamp: i64,
+    ) -> Result<()> {
+        let mut identity = self.store.get().await?;
+
+        if let Some(ref name_to_set) = name {
+            identity.name = name_to_set.trim().to_owned();
+        }
+
+        if let Some(ref company_to_set) = company {
+            identity.company = company_to_set.trim().to_owned();
+        }
+
+        if let Some(ref email_to_set) = email {
+            identity.email = email_to_set.trim().to_owned();
+        }
+
+        if let Some(ref postal_address_to_set) = postal_address {
+            identity.postal_address = postal_address_to_set.trim().to_owned();
+        }
+
+        let keys = self.store.get_key_pair().await?;
+
+        let previous_block = self.blockchain_store.get_latest_block().await?;
+        let new_block = IdentityBlock::create_block_for_update(
+            &previous_block,
+            &IdentityUpdateBlockData {
+                name,
+                company,
+                email,
+                postal_address,
+            },
+            &keys,
+            &identity.public_key_pem,
+            timestamp,
+        )?;
+        self.blockchain_store.add_block(&new_block).await?;
+
+        self.store.save(&identity).await?;
         self.client
             .clone()
             .put_identity_public_data_in_dht()
@@ -108,6 +157,7 @@ impl IdentityServiceApi for IdentityService {
         let (private_key_pem, public_key_pem) = util::rsa::create_rsa_key_pair()?;
 
         let keys = self.store.get_key_pair().await?;
+        let node_id = self.store.get_node_id().await?.to_string();
 
         let s = bitcoin::secp256k1::Secp256k1::new();
 
@@ -135,8 +185,15 @@ impl IdentityServiceApi for IdentityService {
             nostr_relay: None,
         };
 
+        let rsa_pub_key = identity.public_key_pem.clone();
         // create new identity chain and persist it
-        let identity_chain = IdentityBlockchain::new(&identity, &keys, timestamp)?;
+        let identity_chain = IdentityBlockchain::new(
+            &identity.clone().into(),
+            &node_id,
+            &keys,
+            &rsa_pub_key,
+            timestamp,
+        )?;
         let first_block = identity_chain.get_first_block();
         self.blockchain_store.add_block(first_block).await?;
 
@@ -160,7 +217,6 @@ pub struct IdentityWithAll {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[serde(crate = "rocket::serde")]
 pub struct Identity {
     pub name: String,
     pub company: String,
@@ -175,14 +231,6 @@ pub struct Identity {
     pub bitcoin_private_key: String,
     pub nostr_npub: Option<String>,
     pub nostr_relay: Option<String>,
-}
-
-macro_rules! update_field {
-    ($self:expr, $other:expr, $field:ident) => {
-        if !$other.$field.is_empty() {
-            $self.$field = $other.$field.clone();
-        }
-    };
 }
 
 impl Identity {
@@ -203,46 +251,18 @@ impl Identity {
             nostr_relay: None,
         }
     }
-
-    fn all_changeable_fields_empty(&self) -> bool {
-        self.name.is_empty()
-            && self.company.is_empty()
-            && self.postal_address.is_empty()
-            && self.email.is_empty()
-    }
-
-    fn all_changeable_fields_equal_to(&self, other: &Self) -> bool {
-        self.name == other.name
-            && self.company == other.company
-            && self.postal_address == other.postal_address
-            && self.email == other.email
-    }
-
-    pub fn update_valid(&self, other: &Self) -> bool {
-        if other.all_changeable_fields_empty() {
-            return false;
-        }
-        if self.all_changeable_fields_equal_to(other) {
-            return false;
-        }
-        true
-    }
-
-    pub fn update_from(&mut self, other: &Identity) {
-        update_field!(self, other, name);
-        update_field!(self, other, company);
-        update_field!(self, other, postal_address);
-        update_field!(self, other, email);
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::persistence::{
-        self, bill::MockBillStoreApi, company::MockCompanyStoreApi,
-        file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
-        identity_chain::MockIdentityChainStoreApi,
+    use crate::{
+        persistence::{
+            self, bill::MockBillStoreApi, company::MockCompanyStoreApi,
+            file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
+            identity_chain::MockIdentityChainStoreApi,
+        },
+        tests::test::TEST_PUB_KEY,
     };
     use futures::channel::mpsc;
 
@@ -283,22 +303,6 @@ mod test {
         )
     }
 
-    #[test]
-    fn test_update() {
-        let mut identity = Identity::new_empty();
-        let mut other_identity = Identity::new_empty();
-        assert!(identity.all_changeable_fields_empty());
-        assert!(identity.all_changeable_fields_equal_to(&other_identity));
-        assert!(!identity.update_valid(&other_identity));
-        other_identity.name = String::from("changed");
-        assert!(!identity.all_changeable_fields_equal_to(&other_identity));
-        assert!(!other_identity.all_changeable_fields_empty());
-        assert!(identity.update_valid(&other_identity));
-        identity.update_from(&other_identity);
-        assert_eq!(identity.name, String::from("changed"));
-        assert!(!identity.update_valid(&other_identity));
-    }
-
     #[tokio::test]
     async fn create_identity_baseline() {
         let mut storage = MockIdentityStoreApi::new();
@@ -306,6 +310,9 @@ mod test {
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
+        storage
+            .expect_get_node_id()
+            .returning(move || Ok(PeerId::random()));
         let mut chain_storage = MockIdentityChainStoreApi::new();
         chain_storage.expect_add_block().returning(|_| Ok(()));
 
@@ -359,9 +366,35 @@ mod test {
     async fn update_identity_calls_storage() {
         let mut storage = MockIdentityStoreApi::new();
         storage.expect_save().returning(|_| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_get().returning(move || {
+            let mut identity = Identity::new_empty();
+            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            Ok(identity)
+        });
+        let mut chain_storage = MockIdentityChainStoreApi::new();
+        chain_storage.expect_get_latest_block().returning(|| {
+            let mut identity = Identity::new_empty();
+            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            Ok(IdentityBlockchain::new(
+                &identity.into(),
+                &PeerId::random().to_string(),
+                &BcrKeys::new(),
+                TEST_PUB_KEY,
+                1731593928,
+            )
+            .unwrap()
+            .get_latest_block()
+            .clone())
+        });
+        chain_storage.expect_add_block().returning(|_| Ok(()));
 
-        let service = get_service(storage);
-        let res = service.update_identity(&Identity::new_empty()).await;
+        let service = get_service_with_chain_storage(storage, chain_storage);
+        let res = service
+            .update_identity(Some("new_name".to_string()), None, None, None, 1731593928)
+            .await;
 
         assert!(res.is_ok());
     }
@@ -369,15 +402,41 @@ mod test {
     #[tokio::test]
     async fn update_identity_propagates_errors() {
         let mut storage = MockIdentityStoreApi::new();
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_get().returning(move || {
+            let mut identity = Identity::new_empty();
+            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            Ok(identity)
+        });
         storage.expect_save().returning(|_| {
             Err(persistence::Error::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "test error",
             )))
         });
+        let mut chain_storage = MockIdentityChainStoreApi::new();
+        chain_storage.expect_get_latest_block().returning(|| {
+            let mut identity = Identity::new_empty();
+            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            Ok(IdentityBlockchain::new(
+                &identity.into(),
+                &PeerId::random().to_string(),
+                &BcrKeys::new(),
+                TEST_PUB_KEY,
+                1731593928,
+            )
+            .unwrap()
+            .get_latest_block()
+            .clone())
+        });
+        chain_storage.expect_add_block().returning(|_| Ok(()));
 
-        let service = get_service(storage);
-        let res = service.update_identity(&Identity::new_empty()).await;
+        let service = get_service_with_chain_storage(storage, chain_storage);
+        let res = service
+            .update_identity(Some("new_name".to_string()), None, None, None, 1731593928)
+            .await;
 
         assert!(res.is_err());
     }

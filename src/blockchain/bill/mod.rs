@@ -1,3 +1,4 @@
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use super::{Blockchain, Result};
@@ -10,7 +11,7 @@ mod chain;
 pub use block::BillBlock;
 pub use chain::BillBlockchain;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum BillOpCode {
     Issue,
     Accept,

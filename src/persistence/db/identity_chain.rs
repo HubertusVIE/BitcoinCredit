@@ -1,7 +1,7 @@
 use super::super::{Error, Result};
 use crate::{
     blockchain::{
-        identity::{IdentityBlock, IdentityBlockchain, IdentityOpCode},
+        identity::{IdentityBlock, IdentityOpCode},
         Block,
     },
     persistence::identity_chain::IdentityChainStoreApi,
@@ -25,27 +25,6 @@ impl SurrealIdentityChainStore {
 
 #[async_trait]
 impl IdentityChainStoreApi for SurrealIdentityChainStore {
-    async fn get_chain(&self) -> Result<IdentityBlockchain> {
-        let all_blocks: Vec<IdentityBlockDb> = self.db.select(Self::TABLE).await?;
-
-        if all_blocks.is_empty() {
-            return Err(Error::InvalidIdentityChain(
-                "No identity blocks found".to_string(),
-            ));
-        }
-
-        let mut blocks: Vec<IdentityBlock> = all_blocks
-            .into_iter()
-            .map(|db_block| db_block.into())
-            .collect();
-        // sort the blocks by block id ascending
-        blocks.sort_by(|a, b| a.id.cmp(&b.id));
-
-        // create a new, valid chain from the blocks
-        let chain = IdentityBlockchain::create_valid_chain_from_blocks(blocks)?;
-        Ok(chain)
-    }
-
     async fn get_latest_block(&self) -> Result<IdentityBlock> {
         let result: Vec<IdentityBlockDb> = self
             .db
@@ -138,7 +117,10 @@ impl From<&IdentityBlock> for IdentityBlockDb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{blockchain::Blockchain, persistence::db::get_memory_db, util::BcrKeys};
+    use crate::{
+        blockchain::identity::IdentityUpdateBlockData, persistence::db::get_memory_db,
+        service::identity_service::Identity, tests::test::TEST_PUB_KEY, util::BcrKeys,
+    };
 
     async fn get_store() -> SurrealIdentityChainStore {
         let mem_db = get_memory_db("test", "identity_chain")
@@ -147,46 +129,33 @@ mod tests {
         SurrealIdentityChainStore::new(mem_db)
     }
 
-    fn get_valid_block() -> IdentityBlock {
-        IdentityBlock::new(
-            1,
-            "genesis hash".to_string(),
-            "some data".to_string(),
-            IdentityOpCode::Create,
-            &BcrKeys::new(),
-            1731593928,
-        )
-        .unwrap()
-    }
-
-    #[tokio::test]
-    async fn test_get_chain() {
-        let store = get_store().await;
-        let empty_chain = store.get_chain().await;
-        assert!(empty_chain.is_err());
-        let block = get_valid_block();
-        store.add_block(&block).await.unwrap();
-        let result = store.get_chain().await;
-        assert!(result.is_ok());
-        assert_eq!(result.as_ref().unwrap().blocks().len(), 1);
-        assert_eq!(result.as_ref().unwrap().get_first_block().id, 1);
-    }
-
     #[tokio::test]
     async fn test_add_block() {
         let store = get_store().await;
-        let block = get_valid_block();
+        let block = IdentityBlock::create_block_for_create(
+            1,
+            "genesis hash".to_string(),
+            &Identity::new_empty().into(),
+            &BcrKeys::new(),
+            TEST_PUB_KEY,
+            1731593928,
+        )
+        .unwrap();
         store.add_block(&block).await.unwrap();
         let last_block = store.get_latest_block().await;
         assert!(last_block.is_ok());
         assert_eq!(last_block.as_ref().unwrap().id, 1);
 
-        let block2 = IdentityBlock::new(
-            2,
-            block.hash.clone(),
-            "some data".to_string(),
-            IdentityOpCode::Update,
+        let block2 = IdentityBlock::create_block_for_update(
+            &block,
+            &IdentityUpdateBlockData {
+                name: None,
+                company: None,
+                email: None,
+                postal_address: None,
+            },
             &BcrKeys::new(),
+            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap();

@@ -87,10 +87,10 @@ pub struct AcceptBitcreditBillPayload {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct ChangeIdentityPayload {
-    pub name: String,
-    pub company: String,
-    pub email: String,
-    pub postal_address: String,
+    pub name: Option<String>,
+    pub company: Option<String>,
+    pub email: Option<String>,
+    pub postal_address: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

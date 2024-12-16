@@ -1,5 +1,6 @@
 use crate::{
     dht::{GossipsubEvent, GossipsubEventId},
+    external,
     service::{
         self,
         company_service::{CompanyPublicData, CompanyToReturn},
@@ -96,6 +97,7 @@ pub async fn create(
     create_company_payload: Json<CreateCompanyPayload>,
 ) -> Result<Json<CompanyToReturn>> {
     let payload = create_company_payload.0;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     let created_company = state
         .company_service
         .create_company(
@@ -108,6 +110,7 @@ pub async fn create(
             payload.registration_date,
             payload.proof_of_registration_file_upload_id,
             payload.logo_file_upload_id,
+            timestamp,
         )
         .await?;
 
@@ -159,9 +162,10 @@ pub async fn add_signatory(
     add_signatory_payload: Json<AddSignatoryPayload>,
 ) -> Result<()> {
     let payload = add_signatory_payload.0;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     state
         .company_service
-        .add_signatory(&payload.id, payload.signatory_node_id.clone())
+        .add_signatory(&payload.id, payload.signatory_node_id.clone(), timestamp)
         .await?;
 
     let mut dht_client = state.dht_client();
@@ -193,9 +197,10 @@ pub async fn remove_signatory(
     remove_signatory_payload: Json<RemoveSignatoryPayload>,
 ) -> Result<()> {
     let payload = remove_signatory_payload.0;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     state
         .company_service
-        .remove_signatory(&payload.id, payload.signatory_node_id.clone())
+        .remove_signatory(&payload.id, payload.signatory_node_id.clone(), timestamp)
         .await?;
 
     let mut dht_client = state.dht_client();

@@ -13,7 +13,7 @@ use crate::constants::{AMOUNT, SIGNED_BY};
 use crate::service::bill_service::BillKeys;
 use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
-use crate::util::{rsa, BcrKeys};
+use crate::util::{self, rsa, BcrKeys};
 use borsh::{from_slice, to_vec};
 use serde::{Deserialize, Serialize};
 
@@ -45,14 +45,13 @@ impl BillBlockchain {
         timestamp: i64,
     ) -> Result<Self> {
         let drawer_bytes = serde_json::to_vec(&drawer)?;
-        let data_for_new_block = format!("{}{}", SIGNED_BY, hex::encode(drawer_bytes));
+        let data_for_new_block = format!("{}{}", SIGNED_BY, util::base58_encode(&drawer_bytes));
 
-        let genesis_hash: String = hex::encode(data_for_new_block.as_bytes());
+        let genesis_hash: String = util::base58_encode(data_for_new_block.as_bytes());
 
-        let encrypted_and_hashed_bill_data = hex::encode(rsa::encrypt_bytes_with_public_key(
-            &to_vec(bill)?,
-            &bill_public_key_pem,
-        )?);
+        let encrypted_and_hashed_bill_data = util::base58_encode(
+            &rsa::encrypt_bytes_with_public_key(&to_vec(bill)?, &bill_public_key_pem)?,
+        );
 
         let first_block = BillBlock::new(
             1,
@@ -135,7 +134,7 @@ impl BillBlockchain {
             {
                 let block_data_decrypted =
                     last_version_block_sell.get_decrypted_block_data(bill_keys)?;
-                let buyer: IdentityPublicData = serde_json::from_slice(&hex::decode(
+                let buyer: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                     &extract_after_phrase(&block_data_decrypted, SOLD_TO).ok_or(
                         Error::InvalidBlockdata(String::from("Sell: No buyer found")),
                     )?,
@@ -147,7 +146,7 @@ impl BillBlockchain {
             {
                 let block_data_decrypted =
                     last_version_block_endorse.get_decrypted_block_data(bill_keys)?;
-                let endorsee: IdentityPublicData = serde_json::from_slice(&hex::decode(
+                let endorsee: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                     &extract_after_phrase(&block_data_decrypted, ENDORSED_TO).ok_or(
                         Error::InvalidBlockdata(String::from("Endorse: No endorsee found")),
                     )?,
@@ -159,7 +158,7 @@ impl BillBlockchain {
             {
                 let block_data_decrypted =
                     last_version_block_mint.get_decrypted_block_data(bill_keys)?;
-                let mint: IdentityPublicData = serde_json::from_slice(&hex::decode(
+                let mint: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                     &extract_after_phrase(&block_data_decrypted, ENDORSED_TO)
                         .ok_or(Error::InvalidBlockdata(String::from("Mint: No mint found")))?,
                 )?)?;
@@ -220,12 +219,12 @@ impl BillBlockchain {
             let block_data_decrypted =
                 last_version_block_sell.get_decrypted_block_data(bill_keys)?;
 
-            let buyer: IdentityPublicData = serde_json::from_slice(&hex::decode(
+            let buyer: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                 &extract_after_phrase(&block_data_decrypted, SOLD_TO).ok_or(
                     Error::InvalidBlockdata(String::from("Sell: No buyer found")),
                 )?,
             )?)?;
-            let seller: IdentityPublicData = serde_json::from_slice(&hex::decode(
+            let seller: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                 &extract_after_phrase(&block_data_decrypted, SOLD_BY).ok_or(
                     Error::InvalidBlockdata(String::from("Sell: No seller found")),
                 )?,
@@ -349,8 +348,8 @@ mod test {
         let mut seller = IdentityPublicData::new_empty();
         let endorser_peer_id = PeerId::random().to_string();
         seller.peer_id = endorser_peer_id.clone();
-        let hashed_buyer = hex::encode(serde_json::to_vec(&buyer).unwrap());
-        let hashed_seller = hex::encode(serde_json::to_vec(&seller).unwrap());
+        let hashed_buyer = util::base58_encode(&serde_json::to_vec(&buyer).unwrap());
+        let hashed_seller = util::base58_encode(&serde_json::to_vec(&seller).unwrap());
 
         let data = format!(
             "{}{}{}{}{}{}",
@@ -360,7 +359,9 @@ mod test {
         BillBlock::new(
             2,
             prevhash,
-            hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
+            util::base58_encode(
+                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+            ),
             BillOpCode::Sell,
             BcrKeys::new(),
             1731593928,

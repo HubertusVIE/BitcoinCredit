@@ -27,7 +27,6 @@ pub fn create_rsa_key_pair() -> Result<(String, String)> {
     ))
 }
 
-//-------------------------Bytes common-------------------------
 pub fn encrypt_bytes_with_public_key(bytes: &[u8], public_key: &str) -> Result<Vec<u8>> {
     let public_key = Rsa::public_key_from_pem(public_key.as_bytes())?;
 
