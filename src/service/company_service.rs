@@ -56,7 +56,6 @@ pub trait CompanyServiceApi: Send + Sync {
         &self,
         id: &str,
         signatory_node_id: String,
-
         timestamp: i64,
     ) -> Result<()>;
 
@@ -65,7 +64,6 @@ pub trait CompanyServiceApi: Send + Sync {
         &self,
         id: &str,
         signatory_node_id: String,
-
         timestamp: i64,
     ) -> Result<()>;
 
