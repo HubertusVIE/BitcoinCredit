@@ -163,7 +163,7 @@ impl IdentityBlock {
 
     pub fn create_block_for_create(
         id: u64,
-        previous_hash: String,
+        genesis_hash: String,
         identity: &IdentityCreateBlockData,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
@@ -178,7 +178,7 @@ impl IdentityBlock {
 
         Self::new(
             id,
-            previous_hash,
+            genesis_hash,
             encrypted_data,
             IdentityOpCode::Create,
             keys,
@@ -370,5 +370,99 @@ mod test {
         );
         assert!(chain.is_ok());
         assert!(chain.as_ref().unwrap().is_chain_valid());
+    }
+
+    #[test]
+    fn multi_block() {
+        let mut identity = Identity::new_empty();
+        identity.public_key_pem = TEST_PUB_KEY.to_string();
+        let keys = BcrKeys::new();
+
+        let chain = IdentityBlockchain::new(
+            &identity.into(),
+            &PeerId::random().to_string(),
+            &keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(chain.is_ok());
+        assert!(chain.as_ref().unwrap().is_chain_valid());
+        let mut chain = chain.unwrap();
+
+        let update_block = IdentityBlock::create_block_for_update(
+            chain.get_latest_block(),
+            &IdentityUpdateBlockData {
+                name: Some("newname".to_string()),
+                company: None,
+                email: None,
+                postal_address: None,
+            },
+            &keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(update_block.is_ok());
+        chain.try_add_block(update_block.unwrap());
+
+        let sign_person_bill_block = IdentityBlock::create_block_for_sign_person_bill(
+            chain.get_latest_block(),
+            &IdentitySignPersonBillBlockData {
+                bill_id: "some_bill".to_string(),
+                block_id: 1,
+                block_hash: "some hash".to_string(),
+                operation: BillOpCode::Issue,
+            },
+            &keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(sign_person_bill_block.is_ok());
+        chain.try_add_block(sign_person_bill_block.unwrap());
+
+        let create_company_block = IdentityBlock::create_block_for_create_company(
+            chain.get_latest_block(),
+            &IdentityCreateCompanyBlockData {
+                company_id: "some id".to_string(),
+                block_hash: "some hash".to_string(),
+            },
+            &keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(create_company_block.is_ok());
+        chain.try_add_block(create_company_block.unwrap());
+
+        let add_signatory_block = IdentityBlock::create_block_for_add_signatory(
+            chain.get_latest_block(),
+            &IdentityAddSignatoryBlockData {
+                company_id: "some_id".to_string(),
+                block_id: 2,
+                block_hash: "some_hash".to_string(),
+                signatory: "some_signatory".to_string(),
+            },
+            &keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(add_signatory_block.is_ok());
+        chain.try_add_block(add_signatory_block.unwrap());
+
+        let remove_signatory_block = IdentityBlock::create_block_for_remove_signatory(
+            chain.get_latest_block(),
+            &IdentityRemoveSignatoryBlockData {
+                company_id: "some_id".to_string(),
+                block_id: 2,
+                block_hash: "some_hash".to_string(),
+                signatory: "some_signatory".to_string(),
+            },
+            &keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(remove_signatory_block.is_ok());
+        chain.try_add_block(remove_signatory_block.unwrap());
+
+        assert_eq!(chain.blocks().len(), 6);
+        assert!(chain.is_chain_valid());
     }
 }
