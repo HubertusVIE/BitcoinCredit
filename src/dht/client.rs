@@ -630,7 +630,7 @@ impl Client {
         Ok(())
     }
 
-    /// Queries the DHT for the public identity data for the given peer id
+    /// Queries the DHT for the public identity data for the given node id
     pub async fn get_identity_public_data_from_dht(
         &mut self,
         node_id: String,
@@ -862,7 +862,7 @@ impl Client {
         }
     }
 
-    /// Requests the given file for the given bill name, decrypting it, checking it's hash,
+    /// Requests the given file for the given bill id, decrypting it, checking it's hash,
     /// encrypting it and returning it's bytes with it's file name
     async fn request_bill_attachment_data(
         &mut self,

@@ -1,5 +1,8 @@
 use super::Result;
-use crate::util::date::{self, DateTimeUtc};
+use crate::{
+    constants::DB_TABLE,
+    util::date::{self, DateTimeUtc},
+};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use surrealdb::{engine::any::Any, Surreal};
@@ -26,7 +29,7 @@ impl NostrEventOffsetStoreApi for SurrealNostrEventOffsetStore {
         let result: Vec<NostrEventOffsetDb> = self
             .db
             .query("SELECT * FROM type::table($table) ORDER BY time DESC LIMIT 1")
-            .bind(("table", Self::TABLE))
+            .bind((DB_TABLE, Self::TABLE))
             .await?
             .take(0)?;
         let value = result

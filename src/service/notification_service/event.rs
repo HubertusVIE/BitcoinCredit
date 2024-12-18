@@ -161,7 +161,7 @@ mod tests {
         );
         assert_eq!(
             &event.node_id, &envelope.node_id,
-            "envelope has wrong peer id"
+            "envelope has wrong node id"
         );
 
         // check that the deserialization works
@@ -176,7 +176,7 @@ mod tests {
         );
         assert_eq!(
             &deserialized_event.node_id, &event.node_id,
-            "deserialized event has wrong peer id"
+            "deserialized event has wrong node id"
         );
     }
 }

@@ -5,7 +5,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use surrealdb::{engine::any::Any, Surreal};
 
-use crate::{persistence::ContactStoreApi, service::contact_service::IdentityPublicData};
+use crate::{
+    constants::{DB_NAME, DB_NEW_NAME, DB_NPUB, DB_TABLE},
+    persistence::ContactStoreApi,
+    service::contact_service::IdentityPublicData,
+};
 
 #[derive(Clone)]
 pub struct SurrealContactStore {
@@ -35,8 +39,8 @@ impl ContactStoreApi for SurrealContactStore {
         let result: Vec<ContactDb> = self
             .db
             .query("SELECT * FROM type::table($table) WHERE name = $name")
-            .bind(("table", Self::TABLE))
-            .bind(("name", name.to_owned()))
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_NAME, name.to_owned()))
             .await?
             .take(0)?;
         Ok(result.first().map(|c| c.to_owned().into()))
@@ -56,8 +60,8 @@ impl ContactStoreApi for SurrealContactStore {
     async fn delete(&self, name: &str) -> Result<()> {
         self.db
             .query("DELETE FROM type::table($table) WHERE name = $name")
-            .bind(("table", Self::TABLE))
-            .bind(("name", name.to_owned()))
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_NAME, name.to_owned()))
             .await?;
         Ok(())
     }
@@ -65,9 +69,9 @@ impl ContactStoreApi for SurrealContactStore {
     async fn update_name(&self, name: &str, new_name: &str) -> Result<()> {
         self.db
             .query("UPDATE type::table($table) SET name = $new_name WHERE name = $name")
-            .bind(("table", Self::TABLE))
-            .bind(("new_name", new_name.to_owned()))
-            .bind(("name", name.to_owned()))
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_NEW_NAME, new_name.to_owned()))
+            .bind((DB_NAME, name.to_owned()))
             .await?;
         Ok(())
     }
@@ -87,8 +91,8 @@ impl ContactStoreApi for SurrealContactStore {
         let result: Vec<ContactDb> = self
             .db
             .query("SELECT * FROM type::table($table) WHERE nostr_npub = $npub")
-            .bind(("table", Self::TABLE))
-            .bind(("npub", npub.to_owned()))
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_NPUB, npub.to_owned()))
             .await?
             .take(0)?;
         Ok(result.first().map(|c| c.to_owned().into()))

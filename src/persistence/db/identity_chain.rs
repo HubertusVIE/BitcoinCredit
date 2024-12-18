@@ -4,11 +4,26 @@ use crate::{
         identity::{IdentityBlock, IdentityOpCode},
         Block,
     },
+    constants::{
+        DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PREVIOUS_HASH, DB_PUBLIC_KEY, DB_SIGNATURE,
+        DB_TABLE, DB_TIMESTAMP,
+    },
     persistence::identity_chain::IdentityChainStoreApi,
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use surrealdb::{engine::any::Any, Surreal};
+
+const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
+                                    block_id: $block_id,
+                                    hash: $hash,
+                                    previous_hash: $previous_hash,
+                                    signature: $signature,
+                                    timestamp: $timestamp,
+                                    public_key: $public_key,
+                                    data: $data,
+                                    op_code: $op_code
+                                };"#;
 
 #[derive(Clone)]
 pub struct SurrealIdentityChainStore {
@@ -21,6 +36,24 @@ impl SurrealIdentityChainStore {
     pub fn new(db: Surreal<Any>) -> Self {
         Self { db }
     }
+
+    async fn create_block(&self, query: &str, entity: IdentityBlockDb) -> Result<()> {
+        let _ = self
+            .db
+            .query(query)
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_BLOCK_ID, entity.block_id))
+            .bind((DB_HASH, entity.hash))
+            .bind((DB_PREVIOUS_HASH, entity.previous_hash))
+            .bind((DB_SIGNATURE, entity.signature))
+            .bind((DB_TIMESTAMP, entity.timestamp))
+            .bind((DB_PUBLIC_KEY, entity.public_key))
+            .bind((DB_DATA, entity.data))
+            .bind((DB_OP_CODE, entity.op_code))
+            .await?
+            .check()?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -29,7 +62,7 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
         let result: Vec<IdentityBlockDb> = self
             .db
             .query("SELECT * FROM type::table($table) ORDER BY block_id DESC LIMIT 1")
-            .bind(("table", Self::TABLE))
+            .bind((DB_TABLE, Self::TABLE))
             .await?
             .take(0)?;
 
@@ -45,8 +78,21 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
             Err(Error::NoIdentityBlock) => {
                 // if there is no latest block, ensure it's a valid first block
                 if block.id == 1 && block.verify() && block.validate_hash() {
-                    let _: Option<IdentityBlockDb> =
-                        self.db.create(Self::TABLE).content(entity).await?;
+                    // Atomically ensure it's the first block
+                    let query = format!(
+                        r#"
+                        BEGIN TRANSACTION;
+                        LET $blocks = (RETURN count(SELECT * FROM type::table($table)));
+                        IF $blocks = 0 AND $block_id = 1 {{
+                            {}
+                        }} ELSE {{
+                            THROW "invalid block - not the first block";
+                        }};
+                        COMMIT TRANSACTION;
+                    "#,
+                        CREATE_BLOCK_QUERY
+                    );
+                    self.create_block(&query, entity).await?;
                     Ok(())
                 } else {
                     return Err(Error::AddIdentityBlock(format!(
@@ -63,8 +109,21 @@ impl IdentityChainStoreApi for SurrealIdentityChainStore {
                         block.id, latest_block.id
                     )));
                 }
-                let _: Option<IdentityBlockDb> =
-                    self.db.create(Self::TABLE).content(entity).await?;
+                // Atomically ensure the block is valid
+                let query = format!(
+                    r#"
+                    BEGIN TRANSACTION;
+                    LET $latest_block = (SELECT block_id, hash FROM type::table($table) ORDER BY block_id DESC LIMIT 1)[0];
+                    IF $latest_block.block_id + 1 = $block_id AND $latest_block.hash = $previous_hash {{
+                        {}
+                    }} ELSE {{
+                        THROW "invalid block";
+                    }};
+                    COMMIT TRANSACTION;
+                "#,
+                    CREATE_BLOCK_QUERY
+                );
+                self.create_block(&query, entity).await?;
                 Ok(())
             }
             Err(e) => Err(e),

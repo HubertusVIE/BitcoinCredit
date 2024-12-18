@@ -31,7 +31,7 @@ pub trait ContactServiceApi: Send + Sync {
     /// Updates the identity with the given name with the new identity data.
     async fn update_identity(&self, name: &str, identity: IdentityPublicData) -> Result<()>;
 
-    /// Adds a new peer identity to the identity with the given name. The data will be
+    /// Adds a new node identity to the identity with the given name. The data will be
     /// fetched from the dht. It will be stored with name and node_id only if no dht entry
     /// exists.
     async fn add_node_identity(&self, name: &str, node_id: &str) -> Result<IdentityPublicData>;

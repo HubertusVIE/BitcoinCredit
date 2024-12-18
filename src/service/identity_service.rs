@@ -26,7 +26,7 @@ pub trait IdentityServiceApi: Send + Sync {
         postal_address: Option<String>,
         timestamp: i64,
     ) -> Result<()>;
-    /// Gets the full local identity, including the key pair and peer id
+    /// Gets the full local identity, including the key pair and node id
     async fn get_full_identity(&self) -> Result<IdentityWithAll>;
     /// Gets the local identity
     async fn get_identity(&self) -> Result<Identity>;
@@ -34,7 +34,7 @@ pub trait IdentityServiceApi: Send + Sync {
     async fn get_node_id(&self) -> Result<PeerId>;
     /// Checks if the identity has been created
     async fn identity_exists(&self) -> bool;
-    /// Creates the identity and returns it with it's key pair and peer id
+    /// Creates the identity and returns it with it's key pair and node id
     async fn create_identity(
         &self,
         name: String,
@@ -87,21 +87,38 @@ impl IdentityServiceApi for IdentityService {
         timestamp: i64,
     ) -> Result<()> {
         let mut identity = self.store.get().await?;
+        let mut changed = false;
 
         if let Some(ref name_to_set) = name {
-            identity.name = name_to_set.trim().to_owned();
+            if identity.name != name_to_set.trim() {
+                identity.name = name_to_set.trim().to_owned();
+                changed = true;
+            }
         }
 
         if let Some(ref company_to_set) = company {
-            identity.company = company_to_set.trim().to_owned();
+            if identity.company != company_to_set.trim() {
+                identity.company = company_to_set.trim().to_owned();
+                changed = true;
+            }
         }
 
         if let Some(ref email_to_set) = email {
-            identity.email = email_to_set.trim().to_owned();
+            if identity.email != email_to_set.trim() {
+                identity.email = email_to_set.trim().to_owned();
+                changed = true;
+            }
         }
 
         if let Some(ref postal_address_to_set) = postal_address {
-            identity.postal_address = postal_address_to_set.trim().to_owned();
+            if identity.postal_address != postal_address_to_set.trim() {
+                identity.postal_address = postal_address_to_set.trim().to_owned();
+                changed = true;
+            }
+        }
+
+        if !changed {
+            return Ok(());
         }
 
         let keys = self.store.get_key_pair().await?;
@@ -394,6 +411,28 @@ mod test {
         let service = get_service_with_chain_storage(storage, chain_storage);
         let res = service
             .update_identity(Some("new_name".to_string()), None, None, None, 1731593928)
+            .await;
+
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_identity_returns_if_no_changes_were_made() {
+        let mut storage = MockIdentityStoreApi::new();
+        storage.expect_save().returning(|_| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()));
+        storage.expect_get().returning(move || {
+            let mut identity = Identity::new_empty();
+            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            identity.name = "name".to_string();
+            Ok(identity)
+        });
+
+        let service = get_service(storage);
+        let res = service
+            .update_identity(Some("name".to_string()), None, None, None, 1731593928)
             .await;
 
         assert!(res.is_ok());

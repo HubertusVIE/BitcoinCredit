@@ -26,7 +26,7 @@ pub trait BillStoreApi: Send + Sync {
     /// Reads the keys for the given bill as bytes
     async fn get_bill_keys_as_bytes(&self, bill_id: &str) -> Result<Vec<u8>>;
 
-    /// Gets all bill names
+    /// Gets all bill ids
     async fn get_bill_ids(&self) -> Result<Vec<String>>;
 
     /// Gets all bills

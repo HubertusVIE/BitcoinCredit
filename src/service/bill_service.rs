@@ -114,17 +114,17 @@ pub trait BillServiceApi: Send + Sync {
     /// Gets all bills
     async fn get_bills(&self) -> Result<Vec<BitcreditBillToReturn>>;
 
-    /// Gets the full bill for the given bill name
+    /// Gets the full bill for the given bill id
     async fn get_full_bill(
         &self,
         bill_id: &str,
         current_timestamp: i64,
     ) -> Result<BitcreditBillToReturn>;
 
-    /// Gets the bill for the given bill name
+    /// Gets the bill for the given bill id
     async fn get_bill(&self, bill_id: &str) -> Result<BitcreditBill>;
 
-    /// Gets the blockchain for the given bill name
+    /// Gets the blockchain for the given bill id
     async fn get_blockchain_for_bill(&self, bill_id: &str) -> Result<BillBlockchain>;
 
     /// Try to get the given bill from the dht and saves it locally, if found

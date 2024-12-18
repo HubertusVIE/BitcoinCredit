@@ -478,7 +478,7 @@ impl EventLoop {
                     .to_string()
                     .parse()
                     .map_err(|e| {
-                        anyhow!("Error parsing relay peer id when putting record: {e:?}")
+                        anyhow!("Error parsing relay node id when putting record: {e:?}")
                     })?;
 
                 let _query_id = self
