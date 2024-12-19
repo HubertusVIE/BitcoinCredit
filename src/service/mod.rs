@@ -207,6 +207,7 @@ pub async fn create_service_context(
         db.identity_store.clone(),
         db.contact_store,
         db.identity_chain_store,
+        db.company_chain_store,
     );
     let file_upload_service = FileUploadService::new(db.file_upload_store);
 

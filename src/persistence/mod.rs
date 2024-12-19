@@ -4,7 +4,6 @@ pub mod contact;
 pub mod db;
 pub mod file_upload;
 pub mod identity;
-pub mod identity_chain;
 pub mod nostr;
 
 use crate::util;
@@ -41,6 +40,15 @@ pub enum Error {
 
     #[error("no such {0} entity {1}")]
     NoSuchEntity(String, String),
+
+    #[error("Company Block could not be added: {0}")]
+    AddCompanyBlock(String),
+
+    #[error("company chain was invalid: {0}")]
+    InvalidCompanyChain(String),
+
+    #[error("no company block found")]
+    NoCompanyBlock,
 
     #[error("Identity Block could not be added: {0}")]
     AddIdentityBlock(String),
@@ -96,7 +104,8 @@ pub struct DbContext {
     pub contact_store: Arc<dyn ContactStoreApi>,
     pub bill_store: Arc<dyn bill::BillStoreApi>,
     pub identity_store: Arc<dyn identity::IdentityStoreApi>,
-    pub identity_chain_store: Arc<dyn identity_chain::IdentityChainStoreApi>,
+    pub identity_chain_store: Arc<dyn identity::IdentityChainStoreApi>,
+    pub company_chain_store: Arc<dyn company::CompanyChainStoreApi>,
     pub company_store: Arc<dyn company::CompanyStoreApi>,
     pub file_upload_store: Arc<dyn file_upload::FileUploadStoreApi>,
     pub nostr_event_offset_store: Arc<dyn nostr::NostrEventOffsetStoreApi>,
@@ -122,6 +131,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
 
     let identity_store = Arc::new(SurrealIdentityStore::new(db.clone()));
     let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(db.clone()));
+    let company_chain_store = Arc::new(SurrealCompanyChainStore::new(db.clone()));
 
     let nostr_event_offset_store = Arc::new(SurrealNostrEventOffsetStore::new(db.clone()));
 
@@ -130,6 +140,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         bill_store,
         identity_store,
         identity_chain_store,
+        company_chain_store,
         company_store,
         file_upload_store,
         nostr_event_offset_store,

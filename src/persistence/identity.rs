@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use libp2p::PeerId;
 
 use crate::{
+    blockchain::identity::IdentityBlock,
     service::identity_service::{Identity, IdentityWithAll},
     util::crypto::BcrKeys,
 };
@@ -34,4 +35,13 @@ pub trait IdentityStoreApi: Send + Sync {
     /// Gets the local key pair or creates a new one if it doesn't exist.
     /// The new key pair is saved to the store together with the node id.
     async fn get_or_create_key_pair(&self) -> Result<BcrKeys>;
+}
+
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait IdentityChainStoreApi: Send + Sync {
+    /// Gets the latest block of the chain
+    async fn get_latest_block(&self) -> Result<IdentityBlock>;
+    /// Adds the block to the chain
+    async fn add_block(&self, block: &IdentityBlock) -> Result<()>;
 }

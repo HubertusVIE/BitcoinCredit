@@ -12,8 +12,7 @@ use crate::constants::{
 };
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::persistence::file_upload::FileUploadStoreApi;
-use crate::persistence::identity::IdentityStoreApi;
-use crate::persistence::identity_chain::IdentityChainStoreApi;
+use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::util::{rsa, BcrKeys};
 use crate::web::data::File;
 use crate::{dht, external, persistence, util};
@@ -1233,7 +1232,7 @@ pub mod test {
     use mockall::predicate::{always, eq};
     use persistence::{
         bill::MockBillStoreApi, company::MockCompanyStoreApi, file_upload::MockFileUploadStoreApi,
-        identity::MockIdentityStoreApi, identity_chain::MockIdentityChainStoreApi,
+        identity::MockIdentityChainStoreApi, identity::MockIdentityStoreApi,
     };
     use std::sync::Arc;
     use util::crypto::BcrKeys;
