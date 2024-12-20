@@ -1,5 +1,3 @@
-use core::str;
-
 use super::Result;
 use crate::{
     persistence::{identity::IdentityStoreApi, Error},
@@ -62,9 +60,9 @@ impl IdentityStoreApi for SurrealIdentityStore {
     async fn get_full(&self) -> Result<IdentityWithAll> {
         let results = tokio::join!(self.get(), self.get_node_id(), self.get_key_pair());
         match results {
-            (Ok(identity), Ok(peer_id), Ok(key_pair)) => Ok(IdentityWithAll {
+            (Ok(identity), Ok(node_id), Ok(key_pair)) => Ok(IdentityWithAll {
                 identity,
-                peer_id,
+                node_id,
                 key_pair,
             }),
             _ => {
@@ -289,7 +287,7 @@ mod tests {
         assert_eq!(identity.name, fetched_full_identity.identity.name);
         assert_eq!(
             node_id.to_string(),
-            fetched_full_identity.peer_id.to_string()
+            fetched_full_identity.node_id.to_string()
         );
         assert_eq!(
             key_pair.get_public_key(),

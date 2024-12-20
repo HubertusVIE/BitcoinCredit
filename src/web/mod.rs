@@ -52,14 +52,13 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .register("/", catchers![default_catcher, not_found])
         .manage(context)
         .mount("/exit", routes![handlers::exit])
-        .mount("/opcodes", routes![handlers::return_operation_codes])
         .mount(
             "/identity",
             routes![
                 handlers::identity::create_identity,
                 handlers::identity::change_identity,
                 handlers::identity::return_identity,
-                handlers::identity::return_peer_id
+                handlers::identity::return_node_id
             ],
         )
         .mount("/bitcredit", FileServer::from("frontend_build"))

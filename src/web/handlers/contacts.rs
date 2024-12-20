@@ -33,7 +33,7 @@ pub async fn new_contact(
     }
     state
         .contact_service
-        .add_peer_identity(&new_contact_payload.name, &new_contact_payload.node_id)
+        .add_node_identity(&new_contact_payload.name, &new_contact_payload.node_id)
         .await?;
     let res = state.contact_service.get_contacts().await?;
     Ok(Json(res))

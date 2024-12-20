@@ -1,43 +1,71 @@
-use super::block::Block;
-use super::calculate_hash;
+use super::super::{Error, Result};
+use super::block::BillBlock;
 use super::extract_after_phrase;
-use super::Error;
-use super::OperationCode;
+use super::BillOpCode;
+use super::BillOpCode::{Endorse, Mint, Sell};
 use super::PaymentInfo;
-use super::Result;
 use super::WaitingForPayment;
-use crate::blockchain::OperationCode::{Endorse, Mint, Sell};
-use crate::constants::AMOUNT;
+use crate::blockchain::Blockchain;
 use crate::constants::ENDORSED_TO;
 use crate::constants::SOLD_BY;
 use crate::constants::SOLD_TO;
+use crate::constants::{AMOUNT, SIGNED_BY};
 use crate::service::bill_service::BillKeys;
 use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
-use borsh::from_slice;
-use borsh_derive::BorshDeserialize;
-use borsh_derive::BorshSerialize;
-use log::error;
-use log::warn;
+use crate::util::{self, rsa, BcrKeys};
+use borsh::{from_slice, to_vec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Chain {
-    pub blocks: Vec<Block>,
+pub struct BillBlockchain {
+    blocks: Vec<BillBlock>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
-pub struct BlockForHistory {
-    id: u64,
-    text: String,
-    bill_name: String,
+impl Blockchain for BillBlockchain {
+    type Block = BillBlock;
+
+    fn blocks(&self) -> &Vec<Self::Block> {
+        &self.blocks
+    }
+
+    fn blocks_mut(&mut self) -> &mut Vec<Self::Block> {
+        &mut self.blocks
+    }
 }
 
-impl Chain {
-    pub fn new(first_block: Block) -> Self {
-        let blocks = vec![first_block];
+impl BillBlockchain {
+    /// Creates a new blockchain for the given bill, encrypting the metadata using the bill's public
+    /// key
+    pub fn new(
+        bill: &BitcreditBill,
+        drawer: IdentityPublicData,
+        drawer_key_pair: BcrKeys,
+        bill_public_key_pem: String,
+        timestamp: i64,
+    ) -> Result<Self> {
+        let drawer_bytes = serde_json::to_vec(&drawer)?;
+        let data_for_new_block = format!("{}{}", SIGNED_BY, util::base58_encode(&drawer_bytes));
 
-        Self { blocks }
+        let genesis_hash: String = util::base58_encode(data_for_new_block.as_bytes());
+
+        let encrypted_and_hashed_bill_data = util::base58_encode(
+            &rsa::encrypt_bytes_with_public_key(&to_vec(bill)?, &bill_public_key_pem)?,
+        );
+
+        let first_block = BillBlock::new(
+            1,
+            genesis_hash,
+            encrypted_and_hashed_bill_data,
+            BillOpCode::Issue,
+            drawer_key_pair,
+            timestamp,
+        )?;
+
+        let chain = Self {
+            blocks: vec![first_block],
+        };
+        Ok(chain)
     }
 
     /// Transforms the whole chain to pretty-printed JSON
@@ -46,115 +74,21 @@ impl Chain {
         Ok(res)
     }
 
-    /// Validates the integrity of the blockchain by checking the validity of each block in the chain.
-    ///
-    /// # Returns
-    /// * `true` - If all blocks in the chain are valid.
-    /// * `false` - If any block in the chain is found to be invalid.
-    ///
-    pub fn is_chain_valid(&self) -> bool {
-        for i in 0..self.blocks.len() {
-            if i == 0 {
-                continue;
-            }
-            let first: &Block = &self.blocks[i - 1];
-            let second: &Block = &self.blocks[i];
-            if !is_block_valid(second, first) {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// This function checks whether the provided `block` is valid by comparing it with the latest block
-    /// in the current list of blocks. If the block is valid, it is added to the list and the function returns `true`.
-    /// If the block is not valid, it logs an error and returns `false`.
-    ///
-    /// # Arguments
-    /// * `block` - The `Block` to be added to the list.
-    ///
-    /// # Returns
-    /// * `true` if the block is successfully added to the list.
-    /// * `false` if the block is invalid and cannot be added.
-    ///
-    pub fn try_add_block(&mut self, block: Block) -> bool {
-        let latest_block = self.blocks.last().expect("there is at least one block");
-        if is_block_valid(&block, latest_block) {
-            self.blocks.push(block);
-            true
-        } else {
-            error!("could not add block - invalid");
-            false
-        }
-    }
-    /// Retrieves the latest (most recent) block in the blocks list.
-    ///
-    /// # Returns
-    /// * A reference to the latest block in the blocks list.
-    ///
-    pub fn get_latest_block(&self) -> &Block {
-        self.blocks.last().expect("there is at least one block")
-    }
-
-    /// Retrieves the first block in the blocks list.
-    ///
-    /// # Returns
-    /// * A reference to the first block in the blocks list.
-    ///
-    pub fn get_first_block(&self) -> &Block {
-        self.blocks.first().expect("there is at least one block")
-    }
-
-    /// Retrieves the last block with the specified operation code.
-    /// # Arguments
-    /// * `operation_code` - The `OperationCode` to search for in the blocks.
-    ///
-    /// # Returns
-    /// * A reference to the last block with the specified operation code, or the first block if none is found.
-    ///
-    pub fn get_last_version_block_with_operation_code(
-        &self,
-        operation_code: OperationCode,
-    ) -> &Block {
-        self.blocks
-            .iter()
-            .filter(|block| block.operation_code == operation_code)
-            .last()
-            .unwrap_or_else(|| self.get_first_block())
-    }
-
-    /// Checks if there is any block with a given operation code in the current blocks list.
-    ///
-    /// # Arguments
-    /// * `operation_code` - The `OperationCode` to search for within the blocks.
-    ///
-    /// # Returns
-    /// * `true` if a block with the specified operation code exists in the blocks list, otherwise `false`.
-    ///
-    pub fn exist_block_with_operation_code(&self, operation_code: OperationCode) -> bool {
-        self.blocks
-            .iter()
-            .any(|b| b.operation_code == operation_code)
-    }
-
     /// Checks if the the chain has Endorse, Mint, or Sell blocks in it
     pub fn has_been_endorsed_sold_or_minted(&self) -> bool {
         self.blocks.iter().any(|block| {
             matches!(
                 block.operation_code,
-                OperationCode::Mint | OperationCode::Sell | OperationCode::Endorse
+                BillOpCode::Mint | BillOpCode::Sell | BillOpCode::Endorse
             )
         })
     }
 
     /// Checks if the the chain has Endorse, or Sell blocks in it
     pub fn has_been_endorsed_or_sold(&self) -> bool {
-        self.blocks.iter().any(|block| {
-            matches!(
-                block.operation_code,
-                OperationCode::Sell | OperationCode::Endorse
-            )
-        })
+        self.blocks
+            .iter()
+            .any(|block| matches!(block.operation_code, BillOpCode::Sell | BillOpCode::Endorse))
     }
 
     /// Retrieves the last version of the Bitcredit bill by decrypting and processing the relevant blocks.
@@ -172,7 +106,7 @@ impl Chain {
         let bill_first_version: BitcreditBill = from_slice(&decrypted_bytes)?;
 
         let mut last_endorsee = IdentityPublicData {
-            peer_id: "".to_string(),
+            node_id: "".to_string(),
             name: "".to_string(),
             company: "".to_string(),
             bitcoin_public_key: "".to_string(),
@@ -184,10 +118,9 @@ impl Chain {
         };
 
         if self.blocks.len() > 1 && self.has_been_endorsed_sold_or_minted() {
-            let last_version_block_endorse =
-                self.get_last_version_block_with_operation_code(Endorse);
-            let last_version_block_mint = self.get_last_version_block_with_operation_code(Mint);
-            let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
+            let last_version_block_endorse = self.get_last_version_block_with_op_code(Endorse);
+            let last_version_block_mint = self.get_last_version_block_with_op_code(Mint);
+            let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
             let last_block = self.get_latest_block();
 
             // TODO: check if the last sell block is paid
@@ -201,31 +134,31 @@ impl Chain {
             {
                 let block_data_decrypted =
                     last_version_block_sell.get_decrypted_block_data(bill_keys)?;
-                let buyer: IdentityPublicData = serde_json::from_slice(&hex::decode(
+                let buyer: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                     &extract_after_phrase(&block_data_decrypted, SOLD_TO).ok_or(
                         Error::InvalidBlockdata(String::from("Sell: No buyer found")),
                     )?,
                 )?)?;
 
                 last_endorsee = buyer;
-            } else if self.exist_block_with_operation_code(Endorse.clone())
+            } else if self.block_with_operation_code_exists(Endorse.clone())
                 && (last_version_block_endorse.id > last_version_block_mint.id)
             {
                 let block_data_decrypted =
                     last_version_block_endorse.get_decrypted_block_data(bill_keys)?;
-                let endorsee: IdentityPublicData = serde_json::from_slice(&hex::decode(
+                let endorsee: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                     &extract_after_phrase(&block_data_decrypted, ENDORSED_TO).ok_or(
                         Error::InvalidBlockdata(String::from("Endorse: No endorsee found")),
                     )?,
                 )?)?;
 
                 last_endorsee = endorsee;
-            } else if self.exist_block_with_operation_code(Mint.clone())
+            } else if self.block_with_operation_code_exists(Mint.clone())
                 && (last_version_block_mint.id > last_version_block_endorse.id)
             {
                 let block_data_decrypted =
                     last_version_block_mint.get_decrypted_block_data(bill_keys)?;
-                let mint: IdentityPublicData = serde_json::from_slice(&hex::decode(
+                let mint: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                     &extract_after_phrase(&block_data_decrypted, ENDORSED_TO)
                         .ok_or(Error::InvalidBlockdata(String::from("Mint: No mint found")))?,
                 )?)?;
@@ -236,7 +169,7 @@ impl Chain {
 
         let mut payee = bill_first_version.payee;
 
-        if !last_endorsee.peer_id.is_empty() {
+        if !last_endorsee.node_id.is_empty() {
             payee = last_endorsee.clone();
         }
 
@@ -273,9 +206,9 @@ impl Chain {
         current_timestamp: i64,
     ) -> Result<WaitingForPayment> {
         let last_block = self.get_latest_block();
-        let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
+        let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
         // we only wait for payment, if the last block is a Sell block
-        if self.exist_block_with_operation_code(Sell.clone())
+        if self.block_with_operation_code_exists(Sell.clone())
             && last_block.id == last_version_block_sell.id
         {
             // if the deadline is up, we're not waiting for payment anymore
@@ -286,12 +219,12 @@ impl Chain {
             let block_data_decrypted =
                 last_version_block_sell.get_decrypted_block_data(bill_keys)?;
 
-            let buyer: IdentityPublicData = serde_json::from_slice(&hex::decode(
+            let buyer: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                 &extract_after_phrase(&block_data_decrypted, SOLD_TO).ok_or(
                     Error::InvalidBlockdata(String::from("Sell: No buyer found")),
                 )?,
             )?)?;
-            let seller: IdentityPublicData = serde_json::from_slice(&hex::decode(
+            let seller: IdentityPublicData = serde_json::from_slice(&util::base58_decode(
                 &extract_after_phrase(&block_data_decrypted, SOLD_BY).ok_or(
                     Error::InvalidBlockdata(String::from("Sell: No seller found")),
                 )?,
@@ -324,8 +257,8 @@ impl Chain {
     /// - `false` if no sell block exists or the deadline has not passed.
     ///
     fn check_if_payment_deadline_has_passed(&self, current_timestamp: i64) -> bool {
-        if self.exist_block_with_operation_code(Sell) {
-            let last_version_block_sell = self.get_last_version_block_with_operation_code(Sell);
+        if self.block_with_operation_code_exists(Sell) {
+            let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
             let timestamp = last_version_block_sell.timestamp;
 
             let period: i64 = (86400 * 2) as i64; // 2 days deadline
@@ -352,62 +285,6 @@ impl Chain {
         let decrypted_bytes = first_block_data.get_decrypted_block_bytes(bill_keys)?;
         let bill_first_version: BitcreditBill = from_slice(&decrypted_bytes)?;
         Ok(bill_first_version)
-    }
-
-    /// This function iterates over the list of blocks in the chain and returns the first block
-    /// that matches the provided `id`. If no block is found with the given ID, the function
-    /// returns a clone of the first block in the chain as a fallback.
-    /// # Arguments
-    ///
-    /// * `id` - A `u64` representing the ID of the block to retrieve.
-    ///
-    /// # Returns
-    ///
-    /// * `Block` - The block corresponding to the given `id`, or the first block in the chain
-    ///   if no match is found.
-    ///
-    pub fn get_block_by_id(&self, id: u64) -> Block {
-        self.blocks
-            .iter()
-            .find(|b| b.id == id)
-            .cloned()
-            .unwrap_or_else(|| self.get_first_block().clone())
-    }
-
-    /// This function compares the latest block ID of the local chain with that
-    /// of the `other_chain`. If the `other_chain` is ahead, it attempts to add missing
-    /// blocks from the `other_chain` to the local chain. If the addition of a block
-    /// fails or the resulting chain becomes invalid, the synchronization is aborted.
-    ///
-    /// # Parameters
-    /// - `other_chain: Chain`  
-    ///   The chain to compare and synchronize with.
-    ///
-    /// # Returns
-    /// `bool` - whether the given chain needs to be persisted locally after this comparison
-    ///
-    pub fn compare_chain(&mut self, other_chain: &Chain) -> bool {
-        let local_chain_last_id = self.get_latest_block().id;
-        let other_chain_last_id = other_chain.get_latest_block().id;
-        let mut needs_to_persist = false;
-
-        // if it's not the same id, and the local chain is shorter
-        if !(local_chain_last_id.eq(&other_chain_last_id)
-            || local_chain_last_id > other_chain_last_id)
-        {
-            let difference_in_id = other_chain_last_id - local_chain_last_id;
-            for block_id in 1..difference_in_id + 1 {
-                let block = other_chain.get_block_by_id(local_chain_last_id + block_id);
-                let try_add_block = self.try_add_block(block);
-                if try_add_block && self.is_chain_valid() {
-                    needs_to_persist = true;
-                    continue;
-                } else {
-                    return false;
-                }
-            }
-        }
-        needs_to_persist
     }
 
     /// This function iterates over all the blocks in the blockchain, extracts the nodes
@@ -455,80 +332,38 @@ impl Chain {
     }
 }
 
-/// This function performs a series of checks to ensure the integrity of the current block
-/// in relation to the previous block in the blockchain. These checks include verifying
-/// the hash chain, sequential IDs, hash validity, and block signature.
-///
-/// # Parameters
-/// - `block`: A reference to the current `Block` that needs validation.
-/// - `previous_block`: A reference to the previous `Block` in the chain for comparison.
-///
-/// # Returns
-/// `bool`:
-/// - `true` if the block is valid.
-/// - `false` if any of the validation checks fail.
-///
-fn is_block_valid(block: &Block, previous_block: &Block) -> bool {
-    if block.previous_hash != previous_block.hash {
-        warn!("block with id: {} has wrong previous hash", block.id);
-        return false;
-    } else if block.id != &previous_block.id + 1 {
-        warn!(
-            "block with id: {} is not the next block after the latest: {}",
-            block.id, previous_block.id
-        );
-        return false;
-    } else if hex::encode(calculate_hash(
-        &block.id,
-        &block.bill_name,
-        &block.previous_hash,
-        &block.data,
-        &block.timestamp,
-        &block.public_key,
-        &block.operation_code,
-    )) != block.hash
-    {
-        warn!("block with id: {} has invalid hash", block.id);
-        return false;
-    } else if !block.verify() {
-        warn!("block with id: {} has invalid signature", block.id);
-        return false;
-    }
-    true
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::{
-        blockchain::{start_blockchain_for_new_bill, test::get_baseline_identity},
-        tests::test::{get_bill_keys, TEST_PRIVATE_KEY, TEST_PUB_KEY},
+        blockchain::bill::test::get_baseline_identity,
+        tests::test::{get_bill_keys, TEST_PUB_KEY},
         util::rsa,
     };
     use libp2p::PeerId;
 
-    fn get_sell_block(peer_id: String, prevhash: String) -> Block {
+    fn get_sell_block(node_id: String, prevhash: String) -> BillBlock {
         let mut buyer = IdentityPublicData::new_empty();
-        buyer.peer_id = peer_id.clone();
+        buyer.node_id = node_id.clone();
         let mut seller = IdentityPublicData::new_empty();
-        let endorser_peer_id = PeerId::random().to_string();
-        seller.peer_id = endorser_peer_id.clone();
-        let hashed_buyer = hex::encode(serde_json::to_vec(&buyer).unwrap());
-        let hashed_seller = hex::encode(serde_json::to_vec(&seller).unwrap());
+        let endorser_node_id = PeerId::random().to_string();
+        seller.node_id = endorser_node_id.clone();
+        let hashed_buyer = util::base58_encode(&serde_json::to_vec(&buyer).unwrap());
+        let hashed_seller = util::base58_encode(&serde_json::to_vec(&seller).unwrap());
 
         let data = format!(
             "{}{}{}{}{}{}",
             SOLD_TO, &hashed_buyer, SOLD_BY, &hashed_seller, AMOUNT, "5000"
         );
 
-        Block::new(
+        BillBlock::new(
             2,
             prevhash,
-            hex::encode(rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap()),
-            String::from("some_bill"),
-            TEST_PUB_KEY.to_owned(),
-            OperationCode::Sell,
-            TEST_PRIVATE_KEY.to_owned(),
+            util::base58_encode(
+                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+            ),
+            BillOpCode::Sell,
+            BcrKeys::new(),
             1731593928,
         )
         .unwrap()
@@ -539,12 +374,10 @@ mod test {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
-        let chain = start_blockchain_for_new_bill(
+        let chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
@@ -558,12 +391,10 @@ mod test {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
-        let mut chain = start_blockchain_for_new_bill(
+        let mut chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
@@ -580,19 +411,17 @@ mod test {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
-        let mut chain = start_blockchain_for_new_bill(
+        let mut chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
         .unwrap();
-        let peer_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = PeerId::random().to_string();
         assert!(chain.try_add_block(get_sell_block(
-            peer_id_last_endorsee.clone(),
+            node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
         ),));
 
@@ -600,8 +429,8 @@ mod test {
         let result = chain.get_last_version_bill(&keys);
         assert!(result.is_ok());
         assert_eq!(
-            result.as_ref().unwrap().endorsee.peer_id,
-            peer_id_last_endorsee
+            result.as_ref().unwrap().endorsee.node_id,
+            node_id_last_endorsee
         );
     }
 
@@ -610,19 +439,17 @@ mod test {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
-        let mut chain = start_blockchain_for_new_bill(
+        let mut chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
         .unwrap();
-        let peer_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = PeerId::random().to_string();
         assert!(chain.try_add_block(get_sell_block(
-            peer_id_last_endorsee.clone(),
+            node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
         ),));
 
@@ -638,19 +465,17 @@ mod test {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
-        let mut chain = start_blockchain_for_new_bill(
+        let mut chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
         .unwrap();
-        let peer_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = PeerId::random().to_string();
         assert!(chain.try_add_block(get_sell_block(
-            peer_id_last_endorsee.clone(),
+            node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
         ),));
 
@@ -660,7 +485,7 @@ mod test {
         assert!(result.is_ok());
         if let WaitingForPayment::Yes(info) = result.unwrap() {
             assert_eq!(info.amount, 5000);
-            assert_eq!(info.buyer.peer_id, peer_id_last_endorsee);
+            assert_eq!(info.buyer.node_id, node_id_last_endorsee);
         } else {
             panic!("wrong result");
         }
@@ -671,21 +496,19 @@ mod test {
         let mut bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
         bill.drawer =
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string());
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string());
 
-        let mut chain = start_blockchain_for_new_bill(
+        let mut chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
         .unwrap();
-        let peer_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = PeerId::random().to_string();
         assert!(chain.try_add_block(get_sell_block(
-            peer_id_last_endorsee.clone(),
+            node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
         ),));
 
@@ -701,20 +524,18 @@ mod test {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
-        let mut chain = start_blockchain_for_new_bill(
+        let mut chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
         .unwrap();
         let chain2 = chain.clone();
-        let peer_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = PeerId::random().to_string();
         assert!(chain.try_add_block(get_sell_block(
-            peer_id_last_endorsee.clone(),
+            node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
         ),));
 
@@ -728,20 +549,18 @@ mod test {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
-        let mut chain = start_blockchain_for_new_bill(
+        let mut chain = BillBlockchain::new(
             &bill,
-            OperationCode::Issue,
-            IdentityPublicData::new(identity.identity.clone(), identity.peer_id.to_string()),
-            identity.identity.public_key_pem,
-            identity.identity.private_key_pem,
+            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            identity.key_pair,
             TEST_PUB_KEY.to_owned(),
             1731593928,
         )
         .unwrap();
         let mut chain2 = chain.clone();
-        let peer_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = PeerId::random().to_string();
         assert!(chain.try_add_block(get_sell_block(
-            peer_id_last_endorsee.clone(),
+            node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
         ),));
 

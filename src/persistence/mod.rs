@@ -4,14 +4,15 @@ pub mod contact;
 pub mod db;
 pub mod file_upload;
 pub mod identity;
+pub mod identity_chain;
 pub mod nostr;
 
 use crate::util;
 use bill::FileBasedBillStore;
 use db::{
     company::SurrealCompanyStore, contact::SurrealContactStore, get_surreal_db,
-    identity::SurrealIdentityStore, nostr_event_offset::SurrealNostrEventOffsetStore,
-    SurrealDbConfig,
+    identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
+    nostr_event_offset::SurrealNostrEventOffsetStore, SurrealDbConfig,
 };
 use log::error;
 use std::{path::Path, sync::Arc};
@@ -40,6 +41,15 @@ pub enum Error {
 
     #[error("no such {0} entity {1}")]
     NoSuchEntity(String, String),
+
+    #[error("Identity Block could not be added: {0}")]
+    AddIdentityBlock(String),
+
+    #[error("identity chain was invalid: {0}")]
+    InvalidIdentityChain(String),
+
+    #[error("no identity block found")]
+    NoIdentityBlock,
 
     #[error("no identity found")]
     NoIdentity,
@@ -86,6 +96,7 @@ pub struct DbContext {
     pub contact_store: Arc<dyn ContactStoreApi>,
     pub bill_store: Arc<dyn bill::BillStoreApi>,
     pub identity_store: Arc<dyn identity::IdentityStoreApi>,
+    pub identity_chain_store: Arc<dyn identity_chain::IdentityChainStoreApi>,
     pub company_store: Arc<dyn company::CompanyStoreApi>,
     pub file_upload_store: Arc<dyn file_upload::FileUploadStoreApi>,
     pub nostr_event_offset_store: Arc<dyn nostr::NostrEventOffsetStoreApi>,
@@ -110,6 +121,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "bills_keys").await?);
 
     let identity_store = Arc::new(SurrealIdentityStore::new(db.clone()));
+    let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(db.clone()));
 
     let nostr_event_offset_store = Arc::new(SurrealNostrEventOffsetStore::new(db.clone()));
 
@@ -117,6 +129,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         contact_store,
         bill_store,
         identity_store,
+        identity_chain_store,
         company_store,
         file_upload_store,
         nostr_event_offset_store,

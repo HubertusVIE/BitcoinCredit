@@ -31,10 +31,10 @@ pub trait ContactServiceApi: Send + Sync {
     /// Updates the identity with the given name with the new identity data.
     async fn update_identity(&self, name: &str, identity: IdentityPublicData) -> Result<()>;
 
-    /// Adds a new peer identity to the identity with the given name. The data will be
-    /// fetched from the dht. It will be stored with name and peer_id only if no dht entry
+    /// Adds a new node identity to the identity with the given name. The data will be
+    /// fetched from the dht. It will be stored with name and node_id only if no dht entry
     /// exists.
-    async fn add_peer_identity(&self, name: &str, peer_id: &str) -> Result<IdentityPublicData>;
+    async fn add_node_identity(&self, name: &str, node_id: &str) -> Result<IdentityPublicData>;
 
     /// Returns whether a given npub is in our contact list.
     async fn is_known_npub(&self, npub: &str) -> Result<bool>;
@@ -66,7 +66,7 @@ impl ContactServiceApi for ContactService {
             let public = self
                 .client
                 .clone()
-                .get_identity_public_data_from_dht(identity.peer_id.clone())
+                .get_identity_public_data_from_dht(identity.node_id.clone())
                 .await?;
 
             if !public.name.is_empty() && public.ne(&identity) {
@@ -95,12 +95,12 @@ impl ContactServiceApi for ContactService {
         Ok(())
     }
 
-    async fn add_peer_identity(&self, name: &str, peer_id: &str) -> Result<IdentityPublicData> {
-        let default = IdentityPublicData::new_only_peer_id(peer_id.to_owned());
+    async fn add_node_identity(&self, name: &str, node_id: &str) -> Result<IdentityPublicData> {
+        let default = IdentityPublicData::new_only_node_id(node_id.to_owned());
         let public = self
             .client
             .clone()
-            .get_identity_public_data_from_dht(peer_id.to_owned())
+            .get_identity_public_data_from_dht(node_id.to_owned())
             .await?;
 
         if public.name.is_empty() {
@@ -121,7 +121,7 @@ impl ContactServiceApi for ContactService {
 #[serde(crate = "rocket::serde")]
 pub struct Contact {
     pub name: String,
-    pub peer_id: String,
+    pub node_id: String,
 }
 
 // converts identity data to contact data
@@ -130,7 +130,7 @@ fn as_contacts(identities: HashMap<String, IdentityPublicData>) -> Vec<Contact> 
         .into_iter()
         .map(|(name, public_data)| Contact {
             name,
-            peer_id: public_data.peer_id,
+            node_id: public_data.node_id,
         })
         .collect()
 }
@@ -138,7 +138,7 @@ fn as_contacts(identities: HashMap<String, IdentityPublicData>) -> Vec<Contact> 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 #[serde(crate = "rocket::serde")]
 pub struct IdentityPublicData {
-    pub peer_id: String,
+    pub node_id: String,
     pub name: String,
     pub company: String,
     pub bitcoin_public_key: String,
@@ -150,9 +150,9 @@ pub struct IdentityPublicData {
 }
 
 impl IdentityPublicData {
-    pub fn new(identity: Identity, peer_id: String) -> Self {
+    pub fn new(identity: Identity, node_id: String) -> Self {
         Self {
-            peer_id,
+            node_id,
             name: identity.name,
             company: identity.company,
             bitcoin_public_key: identity.bitcoin_public_key,
@@ -166,7 +166,7 @@ impl IdentityPublicData {
 
     pub fn new_empty() -> Self {
         Self {
-            peer_id: "".to_string(),
+            node_id: "".to_string(),
             name: "".to_string(),
             company: "".to_string(),
             bitcoin_public_key: "".to_string(),
@@ -178,9 +178,9 @@ impl IdentityPublicData {
         }
     }
 
-    pub fn new_only_peer_id(peer_id: String) -> Self {
+    pub fn new_only_node_id(node_id: String) -> Self {
         Self {
-            peer_id,
+            node_id,
             name: "".to_string(),
             company: "".to_string(),
             bitcoin_public_key: "".to_string(),
@@ -222,7 +222,7 @@ pub mod test {
         store.expect_get_map().returning(|| {
             let mut identity = IdentityPublicData::new_empty();
             identity.name = "Minka".to_string();
-            identity.peer_id = "some_node_id".to_string();
+            identity.node_id = "some_node_id".to_string();
             let mut map = HashMap::new();
             map.insert("Minka".to_string(), identity);
             Ok(map)
@@ -231,7 +231,7 @@ pub mod test {
         assert!(result.is_ok());
         assert_eq!(result.as_ref().unwrap().first().unwrap().name, *"Minka");
         assert_eq!(
-            result.as_ref().unwrap().first().unwrap().peer_id,
+            result.as_ref().unwrap().first().unwrap().node_id,
             *"some_node_id"
         );
     }
@@ -242,7 +242,7 @@ pub mod test {
         store.expect_by_name().returning(|_| {
             let mut identity = IdentityPublicData::new_empty();
             identity.name = "Minka".to_string();
-            identity.peer_id = "some_node_id".to_string();
+            identity.node_id = "some_node_id".to_string();
             Ok(Some(identity))
         });
         let result = get_service(store).get_identity_by_name("Minka").await;
@@ -286,7 +286,7 @@ pub mod test {
         store.expect_get_by_npub().returning(|_| {
             let mut identity = IdentityPublicData::new_empty();
             identity.name = "Minka".to_string();
-            identity.peer_id = "some_node_id".to_string();
+            identity.node_id = "some_node_id".to_string();
             identity.nostr_npub = Some("some_npub".to_string());
             Ok(Some(identity))
         });

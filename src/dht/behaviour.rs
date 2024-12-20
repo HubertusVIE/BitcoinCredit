@@ -42,7 +42,7 @@ pub struct MyBehaviour {
 
 impl MyBehaviour {
     pub fn new(
-        local_peer_id: PeerId,
+        local_node_id: PeerId,
         local_keypair: Keypair,
         client: relay::client::Behaviour,
     ) -> Self {
@@ -55,8 +55,8 @@ impl MyBehaviour {
                 )
             },
             kademlia: {
-                let store = MemoryStore::new(local_peer_id);
-                Kademlia::new(local_peer_id, store)
+                let store = MemoryStore::new(local_node_id);
+                Kademlia::new(local_node_id, store)
             },
             identify: {
                 let cfg_identify =
@@ -71,7 +71,7 @@ impl MyBehaviour {
                     .expect("Correct configuration")
             },
             relay_client: { client },
-            dcutr: { dcutr::Behaviour::new(local_peer_id) },
+            dcutr: { dcutr::Behaviour::new(local_node_id) },
         }
     }
 
@@ -239,7 +239,7 @@ pub struct CompanyProofRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillFileRequest {
-    pub bill_name: String,
+    pub bill_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,20 +251,20 @@ pub struct BillKeysFileRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillAttachmentFileRequest {
     pub node_id: String,
-    pub bill_name: String,
+    pub bill_id: String,
     pub file_name: String,
 }
 
-pub fn file_request_for_bill_attachment(node_id: &str, bill_name: &str, file_name: &str) -> String {
-    format!("{node_id}_{BILL_ATTACHMENT_PREFIX}_{bill_name}_{file_name}")
+pub fn file_request_for_bill_attachment(node_id: &str, bill_id: &str, file_name: &str) -> String {
+    format!("{node_id}_{BILL_ATTACHMENT_PREFIX}_{bill_id}_{file_name}")
 }
 
-pub fn file_request_for_bill(node_id: &str, bill_name: &str) -> String {
-    format!("{node_id}_{BILL_PREFIX}_{bill_name}")
+pub fn file_request_for_bill(node_id: &str, bill_id: &str) -> String {
+    format!("{node_id}_{BILL_PREFIX}_{bill_id}")
 }
 
-pub fn file_request_for_bill_keys(node_id: &str, bill_name: &str) -> String {
-    format!("{node_id}_{KEY_PREFIX}_{bill_name}")
+pub fn file_request_for_bill_keys(node_id: &str, bill_id: &str) -> String {
+    format!("{node_id}_{KEY_PREFIX}_{bill_id}")
 }
 
 pub fn file_request_for_company_data(node_id: &str, company_id: &str) -> String {
@@ -295,7 +295,7 @@ pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequ
     let prefix = parts[1];
     match prefix {
         BILL_PREFIX => Ok(ParsedInboundFileRequest::Bill(BillFileRequest {
-            bill_name: parts[2].to_owned(),
+            bill_id: parts[2].to_owned(),
         })),
         KEY_PREFIX => Ok(ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
             node_id,
@@ -310,7 +310,7 @@ pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequ
             Ok(ParsedInboundFileRequest::BillAttachment(
                 BillAttachmentFileRequest {
                     node_id,
-                    bill_name: parts[2].to_owned(),
+                    bill_id: parts[2].to_owned(),
                     file_name: parts[3].to_owned(),
                 },
             ))
@@ -476,7 +476,7 @@ mod test {
         assert_eq!(
             parse_inbound_file_request("nodeid_BILL_TEST").unwrap(),
             ParsedInboundFileRequest::Bill(BillFileRequest {
-                bill_name: "TEST".to_string()
+                bill_id: "TEST".to_string()
             })
         );
     }
@@ -486,7 +486,7 @@ mod test {
         assert_eq!(
             parse_inbound_file_request(&file_request_for_bill("nodeid", "TEST")).unwrap(),
             ParsedInboundFileRequest::Bill(BillFileRequest {
-                bill_name: "TEST".to_string()
+                bill_id: "TEST".to_string()
             })
         );
     }
@@ -524,7 +524,7 @@ mod test {
             parse_inbound_file_request("nodeid_BILLATT_TEST_FILE").unwrap(),
             ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
                 node_id: "nodeid".to_string(),
-                bill_name: "TEST".to_string(),
+                bill_id: "TEST".to_string(),
                 file_name: "FILE".to_string(),
             })
         );
@@ -537,7 +537,7 @@ mod test {
                 .unwrap(),
             ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
                 node_id: "nodeid".to_string(),
-                bill_name: "TEST".to_string(),
+                bill_id: "TEST".to_string(),
                 file_name: "FILE".to_string(),
             })
         );

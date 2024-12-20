@@ -1,4 +1,5 @@
-use crate::blockchain::Chain;
+use crate::blockchain::bill::BillBlockchain;
+use crate::blockchain::Blockchain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
@@ -23,20 +24,20 @@ use std::thread;
 pub async fn holder(state: &State<ServiceContext>, id: String) -> Result<Json<bool>> {
     let identity = state.identity_service.get_full_identity().await?;
     let bill = state.bill_service.get_bill(&id).await?;
-    let am_i_holder = identity.peer_id.to_string().eq(&bill.payee.peer_id);
+    let am_i_holder = identity.node_id.to_string().eq(&bill.payee.node_id);
     Ok(Json(am_i_holder))
 }
 
-#[get("/attachment/<bill_name>/<file_name>")]
+#[get("/attachment/<bill_id>/<file_name>")]
 pub async fn attachment(
     state: &State<ServiceContext>,
-    bill_name: &str,
+    bill_id: &str,
     file_name: &str,
 ) -> Result<(ContentType, Vec<u8>)> {
-    let keys = state.bill_service.get_bill_keys(bill_name).await?;
+    let keys = state.bill_service.get_bill_keys(bill_id).await?;
     let file_bytes = state
         .bill_service
-        .open_and_decrypt_attached_file(bill_name, file_name, &keys.private_key_pem)
+        .open_and_decrypt_attached_file(bill_id, file_name, &keys.private_key_pem)
         .await?;
 
     let content_type = match detect_content_type_for_bytes(&file_bytes) {
@@ -71,7 +72,7 @@ pub async fn return_basic_bill(
 pub async fn return_chain_of_blocks(
     state: &State<ServiceContext>,
     id: String,
-) -> Result<Json<Chain>> {
+) -> Result<Json<BillBlockchain>> {
     let chain = state.bill_service.get_blockchain_for_bill(&id).await?;
     Ok(Json(chain))
 }
@@ -171,14 +172,14 @@ pub async fn issue_bill(
                     })?;
 
                 let public_data_payee =
-                    IdentityPublicData::new(drawer.identity.clone(), drawer.peer_id.to_string());
+                    IdentityPublicData::new(drawer.identity.clone(), drawer.node_id.to_string());
 
                 (public_data_drawee, public_data_payee)
             }
             // Drawer is drawee
             (false, true) => {
                 let public_data_drawee =
-                    IdentityPublicData::new(drawer.identity.clone(), drawer.peer_id.to_string());
+                    IdentityPublicData::new(drawer.identity.clone(), drawer.node_id.to_string());
 
                 let public_data_payee = state
                     .contact_service
@@ -250,9 +251,9 @@ pub async fn issue_bill(
         .bill_service
         .propagate_bill(
             &bill.name,
-            &bill.drawer.peer_id,
-            &bill.drawee.peer_id,
-            &bill.payee.peer_id,
+            &bill.drawer.node_id,
+            &bill.drawee.node_id,
+            &bill.payee.node_id,
         )
         .await?;
 
@@ -290,7 +291,7 @@ pub async fn sell_bill(
     let chain = state
         .bill_service
         .sell_bitcredit_bill(
-            &sell_bill_payload.bill_name,
+            &sell_bill_payload.bill_id,
             public_data_buyer.clone(),
             timestamp,
             sell_bill_payload.amount_numbers,
@@ -299,14 +300,14 @@ pub async fn sell_bill(
 
     state
         .bill_service
-        .propagate_block(&sell_bill_payload.bill_name, chain.get_latest_block())
+        .propagate_block(&sell_bill_payload.bill_id, chain.get_latest_block())
         .await?;
 
     state
         .bill_service
         .propagate_bill_for_node(
-            &sell_bill_payload.bill_name,
-            &public_data_buyer.peer_id.to_string(),
+            &sell_bill_payload.bill_id,
+            &public_data_buyer.node_id.to_string(),
         )
         .await?;
     Ok(Status::Ok)
@@ -334,7 +335,7 @@ pub async fn endorse_bill(
     let chain = state
         .bill_service
         .endorse_bitcredit_bill(
-            &endorse_bill_payload.bill_name,
+            &endorse_bill_payload.bill_id,
             public_data_endorsee.clone(),
             timestamp,
         )
@@ -342,14 +343,14 @@ pub async fn endorse_bill(
 
     state
         .bill_service
-        .propagate_block(&endorse_bill_payload.bill_name, chain.get_latest_block())
+        .propagate_block(&endorse_bill_payload.bill_id, chain.get_latest_block())
         .await?;
 
     state
         .bill_service
         .propagate_bill_for_node(
-            &endorse_bill_payload.bill_name,
-            &public_data_endorsee.peer_id.to_string(),
+            &endorse_bill_payload.bill_id,
+            &public_data_endorsee.node_id.to_string(),
         )
         .await?;
     Ok(Status::Ok)
@@ -371,13 +372,13 @@ pub async fn request_to_pay_bill(
 
     let chain = state
         .bill_service
-        .request_pay(&request_to_pay_bill_payload.bill_name, timestamp)
+        .request_pay(&request_to_pay_bill_payload.bill_id, timestamp)
         .await?;
 
     state
         .bill_service
         .propagate_block(
-            &request_to_pay_bill_payload.bill_name,
+            &request_to_pay_bill_payload.bill_id,
             chain.get_latest_block(),
         )
         .await?;
@@ -400,12 +401,12 @@ pub async fn request_to_accept_bill(
 
     let chain = state
         .bill_service
-        .request_acceptance(&request_to_accept_bill_payload.bill_name, timestamp)
+        .request_acceptance(&request_to_accept_bill_payload.bill_id, timestamp)
         .await?;
     state
         .bill_service
         .propagate_block(
-            &request_to_accept_bill_payload.bill_name,
+            &request_to_accept_bill_payload.bill_id,
             chain.get_latest_block(),
         )
         .await?;
@@ -423,11 +424,11 @@ pub async fn accept_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     let chain = state
         .bill_service
-        .accept_bill(&accept_bill_payload.bill_name, timestamp)
+        .accept_bill(&accept_bill_payload.bill_id, timestamp)
         .await?;
     state
         .bill_service
-        .propagate_block(&accept_bill_payload.bill_name, chain.get_latest_block())
+        .propagate_block(&accept_bill_payload.bill_id, chain.get_latest_block())
         .await?;
     Ok(Status::Ok)
 }
@@ -451,8 +452,8 @@ pub async fn accept_bill(
 //         if !public_mint_node.name.is_empty() {
 //             client
 //                 .add_bill_to_dht_for_node(
-//                     &mint_bill_payload.bill_name,
-//                     &public_mint_node.peer_id.to_string().clone(),
+//                     &mint_bill_payload.bill_id,
+//                     &public_mint_node.node_id.to_string().clone(),
 //                 )
 //                 .await;
 //
@@ -485,14 +486,14 @@ pub async fn request_to_mint_bill(
         state
             .bill_service
             .propagate_bill_for_node(
-                &request_to_mint_bill_payload.bill_name,
-                &public_mint_node.peer_id.to_string(),
+                &request_to_mint_bill_payload.bill_id,
+                &public_mint_node.node_id.to_string(),
             )
             .await?;
     }
     let bill_keys = state
         .bill_service
-        .get_bill_keys(&request_to_mint_bill_payload.bill_name)
+        .get_bill_keys(&request_to_mint_bill_payload.bill_id)
         .await?;
 
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
@@ -516,10 +517,10 @@ pub async fn accept_mint_bill(
     }
     let bill = state
         .bill_service
-        .get_bill(&accept_mint_bill_payload.bill_name)
+        .get_bill(&accept_mint_bill_payload.bill_id)
         .await?;
     let bill_amount = bill.amount_numbers;
-    let holder_node_id = bill.payee.peer_id.clone();
+    let holder_node_id = bill.payee.node_id.clone();
 
     //TODO: calculate percent
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
@@ -527,7 +528,7 @@ pub async fn accept_mint_bill(
     thread::spawn(move || {
         accept_mint_bitcredit(
             bill_amount,
-            accept_mint_bill_payload.bill_name.clone(),
+            accept_mint_bill_payload.bill_id.clone(),
             holder_node_id,
         )
     })
@@ -559,7 +560,7 @@ pub async fn mint_bill(
     let chain = state
         .bill_service
         .mint_bitcredit_bill(
-            &mint_bill_payload.bill_name,
+            &mint_bill_payload.bill_id,
             public_mint_node.clone(),
             timestamp,
         )
@@ -567,14 +568,14 @@ pub async fn mint_bill(
 
     state
         .bill_service
-        .propagate_block(&mint_bill_payload.bill_name, chain.get_latest_block())
+        .propagate_block(&mint_bill_payload.bill_id, chain.get_latest_block())
         .await?;
 
     state
         .bill_service
         .propagate_bill_for_node(
-            &mint_bill_payload.bill_name,
-            &public_mint_node.peer_id.to_string(),
+            &mint_bill_payload.bill_id,
+            &public_mint_node.node_id.to_string(),
         )
         .await?;
 

@@ -21,7 +21,7 @@ pub trait IdentityStoreApi: Send + Sync {
     async fn save(&self, identity: &Identity) -> Result<()>;
     /// Gets the local identity
     async fn get(&self) -> Result<Identity>;
-    /// Gets the local identity with it's peer id and key pair
+    /// Gets the local identity with it's node id and key pair
     async fn get_full(&self) -> Result<IdentityWithAll>;
     /// Saves the node id
     async fn save_node_id(&self, node_id: &PeerId) -> Result<()>;

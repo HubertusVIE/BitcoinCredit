@@ -53,7 +53,7 @@ pub enum ActionType {
 /// add more fields here and create multiple event types.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BillActionEventPayload {
-    pub bill_name: String,
+    pub bill_id: String,
     pub action_type: ActionType,
 }
 
@@ -66,17 +66,17 @@ pub struct BillActionEventPayload {
 pub struct Event<T: Serialize> {
     pub event_type: EventType,
     pub version: String,
-    pub peer_id: String,
+    pub node_id: String,
     pub data: T,
 }
 
 impl<T: Serialize> Event<T> {
     #[allow(dead_code)]
-    pub fn new(event_type: &EventType, peer_id: String, data: T) -> Self {
+    pub fn new(event_type: &EventType, node_id: String, data: T) -> Self {
         Self {
             event_type: event_type.to_owned(),
             version: get_version(event_type),
-            peer_id,
+            node_id,
             data,
         }
     }
@@ -100,7 +100,7 @@ fn get_version(_event_type: &EventType) -> String {
 pub struct EventEnvelope {
     pub event_type: EventType,
     pub version: String,
-    pub peer_id: String,
+    pub node_id: String,
     pub data: Value,
 }
 
@@ -111,7 +111,7 @@ impl<T: Serialize> TryFrom<Event<T>> for EventEnvelope {
         Ok(Self {
             event_type: event.event_type,
             version: event.version,
-            peer_id: event.peer_id,
+            node_id: event.node_id,
             data: serde_json::to_value(event.data)?,
         })
     }
@@ -148,7 +148,7 @@ impl<T: DeserializeOwned + Serialize> TryFrom<EventEnvelope> for Event<T> {
         Ok(Self {
             event_type: envelope.event_type,
             version: envelope.version,
-            peer_id: envelope.peer_id,
+            node_id: envelope.node_id,
             data,
         })
     }
@@ -166,7 +166,7 @@ mod tests {
         // create event
         let event = Event::new(
             &EventType::BillSigned,
-            "peer_id".to_string(),
+            "node_id".to_string(),
             payload.clone(),
         );
         // create envelope
@@ -178,8 +178,8 @@ mod tests {
             "envelope has wrong event type"
         );
         assert_eq!(
-            &event.peer_id, &envelope.peer_id,
-            "envelope has wrong peer id"
+            &event.node_id, &envelope.node_id,
+            "envelope has wrong node id"
         );
 
         // check that the deserialization works
@@ -193,8 +193,8 @@ mod tests {
             "deserialized event has wrong event type"
         );
         assert_eq!(
-            &deserialized_event.peer_id, &event.peer_id,
-            "deserialized event has wrong peer id"
+            &deserialized_event.node_id, &event.node_id,
+            "deserialized event has wrong node id"
         );
     }
 }

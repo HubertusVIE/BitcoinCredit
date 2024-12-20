@@ -30,7 +30,7 @@ pub const COMPOUNDING_INTEREST_RATE_ZERO: u64 = 0;
 // Relay
 pub const RELAY_BOOTSTRAP_NODE_ONE_IP: Ipv4Addr = Ipv4Addr::new(45, 147, 248, 87);
 pub const RELAY_BOOTSTRAP_NODE_ONE_TCP: u16 = 1908;
-pub const RELAY_BOOTSTRAP_NODE_ONE_PEER_ID: &str =
+pub const RELAY_BOOTSTRAP_NODE_ONE_NODE_ID: &str =
     "12D3KooWL5y2jyVFtk541g9ySSoKGjNf61GEPG1XbPhop5MRfyA8";
 
 // Bill Data constants
@@ -43,3 +43,19 @@ pub const ACCEPTED_BY: &str = "Accepted by ";
 pub const SOLD_TO: &str = "Sold to ";
 pub const SOLD_BY: &str = " sold by ";
 pub const AMOUNT: &str = " amount: ";
+
+// DB constants
+pub const DB_TABLE: &str = "table";
+
+pub const DB_BLOCK_ID: &str = "block_id";
+pub const DB_HASH: &str = "hash";
+pub const DB_PREVIOUS_HASH: &str = "previous_hash";
+pub const DB_SIGNATURE: &str = "signature";
+pub const DB_TIMESTAMP: &str = "timestamp";
+pub const DB_PUBLIC_KEY: &str = "public_key";
+pub const DB_DATA: &str = "data";
+pub const DB_OP_CODE: &str = "op_code";
+
+pub const DB_NAME: &str = "name";
+pub const DB_NPUB: &str = "npub";
+pub const DB_NEW_NAME: &str = "new_name";

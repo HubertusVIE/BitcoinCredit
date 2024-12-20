@@ -8,15 +8,16 @@ pub mod notification_service;
 use super::{dht::Client, Config};
 use crate::external::bitcoin::BitcoinClient;
 use crate::persistence::DbContext;
-use crate::persistence::{self};
 use crate::util::rsa;
 use crate::web::ErrorResponse;
-use crate::{dht, error, external, util};
+use crate::{blockchain, dht, external};
+use crate::{persistence, util};
 use bill_service::{BillService, BillServiceApi};
 use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
 use file_upload_service::{FileUploadService, FileUploadServiceApi};
 use identity_service::{IdentityService, IdentityServiceApi};
+use log::error;
 use notification_service::{
     create_nostr_client, create_nostr_consumer, create_notification_service, NostrConsumer,
 };
@@ -73,6 +74,10 @@ pub enum Error {
 
     #[error("External API error: {0}")]
     ExternalApi(#[from] external::Error),
+
+    /// errors that stem from interacting with a blockchain
+    #[error("Blockchain error: {0}")]
+    Blockchain(#[from] blockchain::Error),
 }
 
 /// Map from service errors directly to rocket status codes. This allows us to
@@ -98,6 +103,10 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             // for now handle all persistence errors as InternalServerError, there
             // will be cases where we want to handle them differently (eg. 409 Conflict)
             Error::Persistence(e) => {
+                error!("{e}");
+                Status::InternalServerError.respond_to(req)
+            }
+            Error::Blockchain(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
@@ -184,14 +193,20 @@ pub async fn create_service_context(
         db.file_upload_store.clone(),
         bitcoin_client,
         notification_service.clone(),
+        db.identity_chain_store.clone(),
     );
-    let identity_service = IdentityService::new(client.clone(), db.identity_store.clone());
+    let identity_service = IdentityService::new(
+        client.clone(),
+        db.identity_store.clone(),
+        db.identity_chain_store.clone(),
+    );
 
     let company_service = CompanyService::new(
         db.company_store,
         db.file_upload_store.clone(),
         db.identity_store.clone(),
         db.contact_store,
+        db.identity_chain_store,
     );
     let file_upload_service = FileUploadService::new(db.file_upload_store);
 

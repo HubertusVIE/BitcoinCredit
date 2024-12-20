@@ -325,7 +325,7 @@ mod tests {
             Some(&url),
         );
         let mut event = create_test_event(&EventType::BillSigned);
-        event.peer_id = contact.peer_id.to_owned();
+        event.node_id = contact.node_id.to_owned();
 
         // expect the receiver to check if the sender contact is known
         let mut contact_service = MockContactServiceApi::new();
@@ -350,7 +350,7 @@ mod tests {
                 let received: Event<TestEventPayload> =
                     e.clone().try_into().expect("could not convert event");
                 let valid_type = received.event_type == expected.event_type;
-                let valid_receiver = received.peer_id == expected.peer_id;
+                let valid_receiver = received.node_id == expected.node_id;
                 let valid_payload = received.data.foo == expected.data.foo;
                 valid_type && valid_receiver && valid_payload
             })

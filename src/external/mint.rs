@@ -154,10 +154,10 @@ pub async fn request_to_mint_bitcredit(
         public_key_pem: bill_keys.public_key_pem,
     };
 
-    let req = wallet.send_request_to_mint_bitcredit(&mint_url, payload.bill_name.clone(), keys);
+    let req = wallet.send_request_to_mint_bitcredit(&mint_url, payload.bill_id.clone(), keys);
 
     let quote: BitcreditEbillQuote = BitcreditEbillQuote {
-        bill_id: payload.bill_name.clone(),
+        bill_id: payload.bill_id.clone(),
         quote_id: "".to_string(),
         amount: 0,
         mint_node_id: payload.mint_node.clone(),

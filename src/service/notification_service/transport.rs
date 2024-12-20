@@ -19,7 +19,7 @@ impl NotificationJsonTransportApi for LoggingNotificationJsonTransport {
     async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()> {
         info!(
             "Sending json event: {:?}({}) with payload: {:?} to peer: {}",
-            event.event_type, event.version, event.data, recipient.peer_id
+            event.event_type, event.version, event.data, recipient.node_id
         );
         Ok(())
     }

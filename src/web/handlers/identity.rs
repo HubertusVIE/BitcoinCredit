@@ -1,4 +1,5 @@
-use crate::service::{self, Result};
+use crate::external;
+use crate::service::Result;
 use crate::web::data::{ChangeIdentityPayload, IdentityPayload, NodeId};
 use crate::{service::identity_service::Identity, service::ServiceContext};
 use rocket::http::Status;
@@ -15,8 +16,8 @@ pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<Ident
     Ok(Json(my_identity))
 }
 
-#[get("/peer_id/return")]
-pub async fn return_peer_id(state: &State<ServiceContext>) -> Result<Json<NodeId>> {
+#[get("/node_id/return")]
+pub async fn return_node_id(state: &State<ServiceContext>) -> Result<Json<NodeId>> {
     let node_id = state.identity_service.get_node_id().await?;
     let node_id = NodeId::new(node_id.to_string());
     Ok(Json(node_id))
@@ -28,6 +29,7 @@ pub async fn create_identity(
     identity_payload: Json<IdentityPayload>,
 ) -> Result<Status> {
     let identity = identity_payload.into_inner();
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     state
         .identity_service
         .create_identity(
@@ -38,6 +40,7 @@ pub async fn create_identity(
             identity.country_of_birth,
             identity.email,
             identity.postal_address,
+            timestamp,
         )
         .await?;
     Ok(Status::Ok)
@@ -49,24 +52,23 @@ pub async fn change_identity(
     identity_payload: Json<ChangeIdentityPayload>,
 ) -> Result<Status> {
     let identity_payload = identity_payload.into_inner();
-    let mut identity_changes: Identity = Identity::new_empty();
-    identity_changes.name = identity_payload.name.trim().to_string();
-    identity_changes.company = identity_payload.company.trim().to_string();
-    identity_changes.email = identity_payload.email.trim().to_string();
-    identity_changes.postal_address = identity_payload.postal_address.trim().to_string();
-
-    let mut my_identity: Identity;
-    if !state.identity_service.identity_exists().await {
-        return Err(service::Error::PreconditionFailed);
+    if identity_payload.name.is_none()
+        && identity_payload.company.is_none()
+        && identity_payload.email.is_none()
+        && identity_payload.postal_address.is_none()
+    {
+        return Ok(Status::Ok);
     }
-    my_identity = state.identity_service.get_identity().await?;
-
-    if !my_identity.update_valid(&identity_changes) {
-        return Err(service::Error::PreconditionFailed);
-    }
-    my_identity.update_from(&identity_changes);
-
-    state.identity_service.update_identity(&my_identity).await?;
-
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    state
+        .identity_service
+        .update_identity(
+            identity_payload.name,
+            identity_payload.company,
+            identity_payload.email,
+            identity_payload.postal_address,
+            timestamp,
+        )
+        .await?;
     Ok(Status::Ok)
 }

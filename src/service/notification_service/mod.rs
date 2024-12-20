@@ -137,17 +137,17 @@ impl NotificationServiceApi for DefaultNotificationService {
 
         let payer_event = Event::new(
             &event_type,
-            bill.drawee.peer_id.clone(),
+            bill.drawee.node_id.clone(),
             BillActionEventPayload {
-                bill_name: bill.name.clone(),
+                bill_id: bill.name.clone(),
                 action_type: ActionType::ApproveBill,
             },
         );
         let payee_event = Event::new(
             &event_type,
-            bill.payee.peer_id.clone(),
+            bill.payee.node_id.clone(),
             BillActionEventPayload {
-                bill_name: bill.name.clone(),
+                bill_id: bill.name.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
@@ -186,10 +186,10 @@ mod tests {
         let mut mock = MockNotificationJsonTransportApi::new();
         mock.expect_send()
             .withf(|r, e| {
-                let valid_peer_id = r.peer_id == "payer" && e.peer_id == "payer";
+                let valid_node_id = r.node_id == "payer" && e.node_id == "payer";
                 let valid_event_type = e.event_type == EventType::BillSigned;
                 let event: Event<BillActionEventPayload> = e.clone().try_into().unwrap();
-                valid_peer_id
+                valid_node_id
                     && valid_event_type
                     && event.data.action_type == ActionType::ApproveBill
             })
@@ -197,10 +197,10 @@ mod tests {
 
         mock.expect_send()
             .withf(|r, e| {
-                let valid_peer_id = r.peer_id == "payee" && e.peer_id == "payee";
+                let valid_node_id = r.node_id == "payee" && e.node_id == "payee";
                 let valid_event_type = e.event_type == EventType::BillSigned;
                 let event: Event<BillActionEventPayload> = e.clone().try_into().unwrap();
-                valid_peer_id && valid_event_type && event.data.action_type == ActionType::CheckBill
+                valid_node_id && valid_event_type && event.data.action_type == ActionType::CheckBill
             })
             .returning(|_, _| Ok(()));
 
