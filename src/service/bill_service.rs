@@ -1096,10 +1096,7 @@ pub struct BillKeys {
 pub mod test {
     use super::*;
     use crate::{
-        service::{
-            identity_service::Identity,
-            notification_service::{self, MockNotificationServiceApi},
-        },
+        service::{identity_service::Identity, notification_service::MockNotificationServiceApi},
         tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
     };
     use borsh::to_vec;
@@ -1190,6 +1187,7 @@ pub mod test {
     fn get_service_with_file_upload_store(
         mock_storage: MockBillStoreApi,
         mock_file_upload_storage: MockFileUploadStoreApi,
+        mock_notification_service: MockNotificationServiceApi,
     ) -> BillService {
         let (sender, _) = mpsc::channel(0);
         BillService::new(
@@ -1204,7 +1202,7 @@ pub mod test {
             Arc::new(MockIdentityStoreApi::new()),
             Arc::new(mock_file_upload_storage),
             Arc::new(MockBitcoinClientApi::new()),
-            Arc::new(MockNotificationServiceApi::new()),
+            Arc::new(mock_notification_service),
         )
     }
 
@@ -1240,6 +1238,8 @@ pub mod test {
         let expected_file_name = "invoice_00000000-0000-0000-0000-000000000000.pdf";
         let file_bytes = String::from("hello world").as_bytes().to_vec();
         let mut file_upload_storage = MockFileUploadStoreApi::new();
+        let mut notification_service = MockNotificationServiceApi::new();
+
         file_upload_storage
             .expect_read_temp_upload_files()
             .returning(move |_| Ok(vec![(expected_file_name.to_string(), file_bytes.clone())]));
@@ -1257,7 +1257,13 @@ pub mod test {
             .expect_write_blockchain_to_file()
             .returning(|_, _| Ok(()));
 
-        let service = get_service_with_file_upload_store(storage, file_upload_storage);
+        // should send a bill is signed event
+        notification_service
+            .expect_send_bill_is_signed_event()
+            .returning(|_| Ok(()));
+
+        let service =
+            get_service_with_file_upload_store(storage, file_upload_storage, notification_service);
 
         let mut identity = Identity::new_empty();
         identity.public_key_pem = TEST_PUB_KEY.to_owned();
@@ -1312,7 +1318,11 @@ pub mod test {
             .with(eq(bill_name), eq(file_name))
             .times(1)
             .returning(move |_, _| Ok(expected_encrypted.clone()));
-        let service = get_service_with_file_upload_store(storage, file_upload_storage);
+        let service = get_service_with_file_upload_store(
+            storage,
+            file_upload_storage,
+            MockNotificationServiceApi::new(),
+        );
 
         let bill_file = service
             .encrypt_and_save_uploaded_file(file_name, &file_bytes, bill_name, TEST_PUB_KEY)
@@ -1343,7 +1353,11 @@ pub mod test {
                     "test error",
                 )))
             });
-        let service = get_service_with_file_upload_store(storage, file_upload_storage);
+        let service = get_service_with_file_upload_store(
+            storage,
+            file_upload_storage,
+            MockNotificationServiceApi::new(),
+        );
 
         assert!(service
             .encrypt_and_save_uploaded_file("file_name", &[], "test", TEST_PUB_KEY)
@@ -1363,7 +1377,11 @@ pub mod test {
                     "test error",
                 )))
             });
-        let service = get_service_with_file_upload_store(storage, file_upload_storage);
+        let service = get_service_with_file_upload_store(
+            storage,
+            file_upload_storage,
+            MockNotificationServiceApi::new(),
+        );
 
         assert!(service
             .open_and_decrypt_attached_file("test", "test", TEST_PRIVATE_KEY)

@@ -8,6 +8,8 @@ services:
       - HTTP_PORT=8001
       - RUST_LOG=info
       - SURREAL_DB_CONNECTION=ws://surrealdb:8000
+      # needs to be replaced with our dev relay later
+      - NOSTR_RELAY=ws://relay:8080
     ports:
       - "8001:8001"
       - "1909:1909"
@@ -15,8 +17,12 @@ services:
       - surrealdb
   surrealdb:
     image: surrealdb/surrealdb:latest
+    volumes:
+      - ./data/surrealdb:/data
     command:
       - start
       - --unauthenticated
+      - rocksdb:/data/database.db
+    user: ${UID}:${GID}
     ports:
       - "8800:8000"

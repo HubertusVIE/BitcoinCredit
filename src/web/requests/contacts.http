@@ -1,0 +1,26 @@
+### Get contacts
+GET {{host}}/contacts/return
+
+### Create contact
+POST {{host}}/contacts/new
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "Docker1",
+  "node_id": "16Uiu2HAkwHkc3f4WQVaL89Cug8XvytNSsPfHe17wgThFRFbi7Zwq"
+}
+
+### Edit contact
+PUT {{host}}/contacts/edit
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "Jane Doe",
+  "old_name": "DockerName",
+}
+
+### Remove contact
+DELETE {{host}}/contacts/remove/DockerName
+

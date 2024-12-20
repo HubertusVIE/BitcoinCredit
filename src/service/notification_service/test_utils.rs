@@ -132,6 +132,7 @@ pub async fn get_mock_nostr_client() -> NostrClient {
         .expect("could not create mock nostr client")
 }
 
+#[allow(dead_code)]
 pub fn get_mock_db_context() -> DbContext {
     DbContext {
         contact_store: Arc::new(MockContactStoreApi::new()),

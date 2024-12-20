@@ -1,6 +1,5 @@
 use super::{EventEnvelope, EventType, Result};
 use async_trait::async_trait;
-use log::info;
 #[cfg(test)]
 use mockall::automock;
 
@@ -32,7 +31,8 @@ impl NotificationHandlerApi for LoggingEventHandler {
     }
 
     async fn handle_event(&self, event: EventEnvelope) -> Result<()> {
-        info!("Received event: {event:?}");
+        // we want to see these with all log levels
+        println!("Received event: {event:?}");
         Ok(())
     }
 }

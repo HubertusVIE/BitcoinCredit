@@ -1,0 +1,19 @@
+### Issue a new bill
+POST {{host}}/bill/issue
+Content-Type: application/json
+Accept: application/json
+
+{
+  "bill_jurisdiction": "UK",
+  "place_of_drawing": "London",
+  "currency_code": "USD",
+  "amount_numbers": 10000,
+  "language": "en",
+  "drawee_name": "Docker1",
+  "payee_name": "Docker2",
+  "place_of_payment": "London",
+  "maturity_date": "2030-01-01",
+  "drawer_is_payee": false,
+  "drawer_is_drawee": true
+}
+

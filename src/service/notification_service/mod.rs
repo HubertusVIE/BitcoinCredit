@@ -75,11 +75,7 @@ pub async fn create_nostr_client(
     identity_store: Arc<dyn IdentityStoreApi>,
 ) -> Result<NostrClient> {
     let keys = identity_store.get_or_create_key_pair().await?;
-    println!("Nostr npub: {:?}", keys.get_nostr_npub()?);
-    println!(
-        "Nostr hexpub: {:?}",
-        keys.get_nostr_keys().public_key().to_hex()
-    );
+
     let nostr_name = match identity_store.get().await {
         Ok(identity) => identity.get_nostr_name(),
         _ => "New user".to_owned(),
@@ -172,7 +168,7 @@ impl NotificationServiceApi for DefaultNotificationService {
 mod tests {
 
     use persistence::nostr::MockNostrEventOffsetStoreApi;
-    use test_utils::{get_mock_db_context, get_mock_nostr_client};
+    use test_utils::get_mock_nostr_client;
 
     use crate::service::contact_service::MockContactServiceApi;
 
