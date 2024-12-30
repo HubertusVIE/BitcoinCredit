@@ -109,13 +109,19 @@ impl NotificationJsonTransportApi for NostrClient {
             let public_key = PublicKey::from_str(npub)?;
             let message = serde_json::to_string(&event)?;
             if let Some(relay) = &recipient.nostr_relay {
-                self.client
+                if let Err(e) = self
+                    .client
                     .send_private_msg_to(vec![relay], public_key, message, None)
-                    .await?;
-            } else {
-                self.client
-                    .send_private_msg(public_key, message, None)
-                    .await?;
+                    .await
+                {
+                    error!("Error sending Nostr message: {e}")
+                };
+            } else if let Err(e) = self
+                .client
+                .send_private_msg(public_key, message, None)
+                .await
+            {
+                error!("Error sending Nostr message: {e}")
             }
         } else {
             error!(

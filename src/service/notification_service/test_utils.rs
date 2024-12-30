@@ -78,8 +78,8 @@ pub fn create_test_event_payload() -> TestEventPayload {
 
 pub fn create_test_event(event_type: &EventType) -> Event<TestEventPayload> {
     Event::new(
-        event_type,
-        "node_id".to_string(),
+        event_type.to_owned(),
+        "node_id",
         create_test_event_payload(),
     )
 }

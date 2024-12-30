@@ -45,6 +45,8 @@ impl EventType {
 pub enum ActionType {
     ApproveBill,
     CheckBill,
+    PayBill,
+    CheckQuote,
 }
 
 /// Can be used for all events that are just signalling an action
@@ -72,11 +74,11 @@ pub struct Event<T: Serialize> {
 
 impl<T: Serialize> Event<T> {
     #[allow(dead_code)]
-    pub fn new(event_type: &EventType, node_id: String, data: T) -> Self {
+    pub fn new(event_type: EventType, node_id: &str, data: T) -> Self {
         Self {
             event_type: event_type.to_owned(),
-            version: get_version(event_type),
-            node_id,
+            version: get_version(&event_type),
+            node_id: node_id.to_owned(),
             data,
         }
     }
@@ -164,11 +166,7 @@ mod tests {
         // give payload
         let payload = create_test_event_payload();
         // create event
-        let event = Event::new(
-            &EventType::BillSigned,
-            "node_id".to_string(),
-            payload.clone(),
-        );
+        let event = Event::new(EventType::BillSigned, "node_id", payload.clone());
         // create envelope
         let envelope: EventEnvelope = event.clone().try_into().unwrap();
 
