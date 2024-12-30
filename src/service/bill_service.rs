@@ -972,6 +972,11 @@ impl BillServiceApi for BillService {
             )
             .await?;
 
+            let new_bill = blockchain.get_last_version_bill(&bill_keys)?;
+            self.notification_service
+                .send_request_to_mint_event(&new_bill)
+                .await?;
+
             return Ok(blockchain);
         }
         Err(Error::CallerIsNotPayeeOrEndorsee)
@@ -2088,11 +2093,20 @@ pub mod test {
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
-        let service = get_service(
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        // Asset request to mint event is sent
+        notification_service
+            .expect_send_request_to_mint_event()
+            .returning(|_| Ok(()));
+
+        let service = get_service_base(
             storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
+            notification_service,
         );
 
         let res = service

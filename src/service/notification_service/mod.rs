@@ -315,8 +315,18 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
-    async fn send_request_to_mint_event(&self, _bill: &BitcreditBill) -> Result<()> {
-        // @TODO: How do we address a mint ???
+    async fn send_request_to_mint_event(&self, bill: &BitcreditBill) -> Result<()> {
+        let event = Event::new(
+            EventType::BillMintingRequested,
+            &bill.endorsee.node_id,
+            BillActionEventPayload {
+                bill_id: bill.name.clone(),
+                action_type: ActionType::CheckBill,
+            },
+        );
+        self.notification_transport
+            .send(&bill.endorsee, event.try_into()?)
+            .await?;
         Ok(())
     }
 
