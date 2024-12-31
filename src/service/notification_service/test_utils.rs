@@ -110,11 +110,19 @@ pub fn get_test_bitcredit_bill(
     name: &str,
     payer: &IdentityPublicData,
     payee: &IdentityPublicData,
+    drawer: Option<&IdentityPublicData>,
+    endorsee: Option<&IdentityPublicData>,
 ) -> BitcreditBill {
     let mut bill = BitcreditBill::new_empty();
     bill.name = name.to_owned();
     bill.payee = payee.clone();
     bill.drawee = payer.clone();
+    if let Some(drawer) = drawer {
+        bill.drawer = drawer.clone();
+    }
+    if let Some(endorsee) = endorsee {
+        bill.endorsee = endorsee.clone();
+    }
     bill
 }
 pub async fn get_mock_relay() -> MockRelay {

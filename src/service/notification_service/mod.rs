@@ -356,14 +356,14 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_signed_event() {
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data("payer", "payer@example.com", None, None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", None, None);
         let payee = get_identity_public_data("payee", "payee@example.com", None, None);
-        let bill = get_test_bitcredit_bill("bill", &payer, &payee);
+        let bill = get_test_bitcredit_bill("bill", &payer, &payee, None, None);
 
         let mut mock = MockNotificationJsonTransportApi::new();
         mock.expect_send()
             .withf(|r, e| {
-                let valid_node_id = r.node_id == "payer" && e.node_id == "payer";
+                let valid_node_id = r.node_id == "drawee" && e.node_id == "drawee";
                 let valid_event_type = e.event_type == EventType::BillSigned;
                 let event: Event<BillActionEventPayload> = e.clone().try_into().unwrap();
                 valid_node_id
@@ -389,6 +389,170 @@ mod tests {
             .send_bill_is_signed_event(&bill)
             .await
             .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_bill_is_accepted_event() {
+        let bill = get_test_bill();
+
+        // should send accepted to payee
+        let service =
+            setup_service_expectation("payee", EventType::BillAccepted, ActionType::CheckBill);
+
+        service
+            .send_bill_is_accepted_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_to_accept_event() {
+        let bill = get_test_bill();
+
+        // should send request to accept to drawee
+        let service = setup_service_expectation(
+            "drawee",
+            EventType::BillAcceptanceRequested,
+            ActionType::ApproveBill,
+        );
+
+        service
+            .send_request_to_accept_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_to_pay_event() {
+        let bill = get_test_bill();
+
+        // should send request to pay to drawee
+        let service = setup_service_expectation(
+            "drawee",
+            EventType::BillPaymentRequested,
+            ActionType::PayBill,
+        );
+
+        service
+            .send_request_to_pay_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_bill_is_paid_event() {
+        let bill = get_test_bill();
+
+        // should send paid to payee
+        let service =
+            setup_service_expectation("payee", EventType::BillPaid, ActionType::CheckBill);
+
+        service
+            .send_bill_is_paid_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_bill_is_endorsed_event() {
+        let bill = get_test_bill();
+
+        // should send endorsed to endorsee
+        let service =
+            setup_service_expectation("endorsee", EventType::BillEndorsed, ActionType::CheckBill);
+
+        service
+            .send_bill_is_endorsed_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_to_sell_event() {
+        let bill = get_test_bill();
+
+        // should send request to sell to endorsee
+        let service = setup_service_expectation(
+            "endorsee",
+            EventType::BillSellRequested,
+            ActionType::CheckBill,
+        );
+
+        service
+            .send_request_to_sell_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_bill_is_sold_event() {
+        let bill = get_test_bill();
+
+        // should send sold event to drawee
+        let service =
+            setup_service_expectation("drawee", EventType::BillSold, ActionType::CheckBill);
+
+        service
+            .send_bill_is_sold_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_to_mint_event() {
+        let bill = get_test_bill();
+
+        // should send minting requested to endorsee (mint)
+        let service = setup_service_expectation(
+            "endorsee",
+            EventType::BillMintingRequested,
+            ActionType::CheckBill,
+        );
+
+        service
+            .send_request_to_mint_event(&bill)
+            .await
+            .expect("failed to send event");
+    }
+
+    fn setup_service_expectation(
+        node_id: &str,
+        event_type: EventType,
+        action_type: ActionType,
+    ) -> DefaultNotificationService {
+        let node_id = node_id.to_owned();
+        let mut mock = MockNotificationJsonTransportApi::new();
+        mock.expect_send()
+            .withf(move |r, e| {
+                let valid_node_id = r.node_id == node_id && e.node_id == node_id;
+                let valid_event_type = e.event_type == event_type;
+                let event: Event<BillActionEventPayload> = e.clone().try_into().unwrap();
+                valid_node_id && valid_event_type && event.data.action_type == action_type
+            })
+            .returning(|_, _| Ok(()));
+        DefaultNotificationService {
+            notification_transport: Box::new(mock),
+        }
+    }
+
+    fn get_test_bill() -> BitcreditBill {
+        get_test_bitcredit_bill(
+            "bill",
+            &get_identity_public_data("drawee", "drawee@example.com", None, None),
+            &get_identity_public_data("payee", "payee@example.com", None, None),
+            Some(&get_identity_public_data(
+                "drawer",
+                "drawer@example.com",
+                None,
+                None,
+            )),
+            Some(&get_identity_public_data(
+                "endorsee",
+                "endorsee@example.com",
+                None,
+                None,
+            )),
+        )
     }
 
     #[tokio::test]
