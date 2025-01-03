@@ -32,8 +32,9 @@ impl NotificationHandlerApi for LoggingEventHandler {
     }
 
     async fn handle_event(&self, event: EventEnvelope) -> Result<()> {
-        // we want to see these with all log levels
+        info!("########### EVENT RECEIVED #############");
         info!("Received event: {event:?}");
+        info!("########################################");
         Ok(())
     }
 }
