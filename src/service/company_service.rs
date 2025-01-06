@@ -40,7 +40,7 @@ pub trait CompanyServiceApi: Send + Sync {
         registration_date: String,
         proof_of_registration_file_upload_id: Option<String>,
         logo_file_upload_id: Option<String>,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<CompanyToReturn>;
 
     /// Changes the given company fields for the given company, if they are set
@@ -58,7 +58,7 @@ pub trait CompanyServiceApi: Send + Sync {
         &self,
         id: &str,
         signatory_node_id: String,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()>;
 
     /// Removes a signatory from the given company
@@ -66,7 +66,7 @@ pub trait CompanyServiceApi: Send + Sync {
         &self,
         id: &str,
         signatory_node_id: String,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()>;
 
     /// Encrypts and saves the given uploaded file, returning the file name, as well as the hash of
@@ -175,7 +175,7 @@ impl CompanyServiceApi for CompanyService {
         registration_date: String,
         proof_of_registration_file_upload_id: Option<String>,
         logo_file_upload_id: Option<String>,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<CompanyToReturn> {
         let keys = BcrKeys::new();
         let private_key = keys.get_private_key_string();
@@ -326,7 +326,7 @@ impl CompanyServiceApi for CompanyService {
         &self,
         id: &str,
         signatory_node_id: String,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()> {
         if !self.store.exists(id).await {
             return Err(super::Error::Validation(format!(
@@ -376,7 +376,7 @@ impl CompanyServiceApi for CompanyService {
         &self,
         id: &str,
         signatory_node_id: String,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()> {
         if !self.store.exists(id).await {
             return Err(super::Error::Validation(format!(

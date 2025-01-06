@@ -125,7 +125,7 @@ pub trait BillServiceApi: Send + Sync {
     async fn get_full_bill(
         &self,
         bill_id: &str,
-        current_timestamp: i64,
+        current_timestamp: u64,
     ) -> Result<BitcreditBillToReturn>;
 
     /// Gets the bill for the given bill id
@@ -172,7 +172,7 @@ pub trait BillServiceApi: Send + Sync {
         public_data_drawee: IdentityPublicData,
         public_data_payee: IdentityPublicData,
         file_upload_id: Option<String>,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<BitcreditBill>;
 
     /// propagates the given bill to the DHT
@@ -191,20 +191,20 @@ pub trait BillServiceApi: Send + Sync {
     async fn propagate_bill_for_node(&self, bill_id: &str, node_id: &str) -> Result<()>;
 
     /// accepts the given bill
-    async fn accept_bill(&self, bill_id: &str, timestamp: i64) -> Result<BillBlockchain>;
+    async fn accept_bill(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain>;
 
     /// request pay for a bill
-    async fn request_pay(&self, bill_id: &str, timestamp: i64) -> Result<BillBlockchain>;
+    async fn request_pay(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain>;
 
     /// request acceptance for a bill
-    async fn request_acceptance(&self, bill_id: &str, timestamp: i64) -> Result<BillBlockchain>;
+    async fn request_acceptance(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain>;
 
     /// mint bitcredit bill
     async fn mint_bitcredit_bill(
         &self,
         bill_id: &str,
         mintnode: IdentityPublicData,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<BillBlockchain>;
 
     /// sell bitcredit bill
@@ -212,7 +212,7 @@ pub trait BillServiceApi: Send + Sync {
         &self,
         bill_id: &str,
         buyer: IdentityPublicData,
-        timestamp: i64,
+        timestamp: u64,
         amount_numbers: u64,
     ) -> Result<BillBlockchain>;
 
@@ -221,7 +221,7 @@ pub trait BillServiceApi: Send + Sync {
         &self,
         bill_id: &str,
         endorsee: IdentityPublicData,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<BillBlockchain>;
 }
 
@@ -290,7 +290,7 @@ impl BillService {
         &self,
         bill_id: &str,
         blockchain: &mut BillBlockchain,
-        timestamp: i64,
+        timestamp: u64,
         operation_code: BillOpCode,
         identity: IdentityWithAll,
         data_for_new_block: String,
@@ -332,7 +332,7 @@ impl BillService {
         block: &BillBlock,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()> {
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_sign_person_bill(
@@ -433,7 +433,7 @@ impl BillServiceApi for BillService {
     async fn get_full_bill(
         &self,
         bill_id: &str,
-        current_timestamp: i64,
+        current_timestamp: u64,
     ) -> Result<BitcreditBillToReturn> {
         let identity = self.identity_store.get_full().await?;
         let chain = self.store.read_bill_chain_from_file(bill_id).await?;
@@ -647,7 +647,7 @@ impl BillServiceApi for BillService {
         public_data_drawee: IdentityPublicData,
         public_data_payee: IdentityPublicData,
         file_upload_id: Option<String>,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<BitcreditBill> {
         let (private_key, public_key) = util::create_bitcoin_keypair(CONFIG.bitcoin_network());
 
@@ -802,7 +802,7 @@ impl BillServiceApi for BillService {
         Ok(())
     }
 
-    async fn accept_bill(&self, bill_id: &str, timestamp: i64) -> Result<BillBlockchain> {
+    async fn accept_bill(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
         let my_node_id = self.identity_store.get_node_id().await?.to_string();
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
 
@@ -848,7 +848,7 @@ impl BillServiceApi for BillService {
         Ok(blockchain)
     }
 
-    async fn request_pay(&self, bill_id: &str, timestamp: i64) -> Result<BillBlockchain> {
+    async fn request_pay(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
         let my_node_id = self.identity_store.get_node_id().await?.to_string();
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
@@ -889,7 +889,7 @@ impl BillServiceApi for BillService {
         Err(Error::CallerIsNotPayeeOrEndorsee)
     }
 
-    async fn request_acceptance(&self, bill_id: &str, timestamp: i64) -> Result<BillBlockchain> {
+    async fn request_acceptance(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
         let my_node_id = self.identity_store.get_node_id().await?.to_string();
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
@@ -934,7 +934,7 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &str,
         mintnode: IdentityPublicData,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<BillBlockchain> {
         let my_node_id = self.identity_store.get_node_id().await?.to_string();
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
@@ -985,7 +985,7 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &str,
         buyer: IdentityPublicData,
-        timestamp: i64,
+        timestamp: u64,
         amount_numbers: u64,
     ) -> Result<BillBlockchain> {
         let my_node_id = self.identity_store.get_node_id().await?.to_string();
@@ -1036,7 +1036,7 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &str,
         endorsee: IdentityPublicData,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<BillBlockchain> {
         let my_node_id = self.identity_store.get_node_id().await?.to_string();
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
@@ -1089,7 +1089,7 @@ pub struct BitcreditBillToReturn {
     pub name: String,
     pub to_payee: bool,
     pub bill_jurisdiction: String,
-    pub timestamp_at_drawing: i64,
+    pub timestamp_at_drawing: u64,
     pub drawee: IdentityPublicData,
     pub drawer: IdentityPublicData,
     pub payee: IdentityPublicData,
@@ -1157,7 +1157,7 @@ pub struct BitcreditBill {
     pub name: String,
     pub to_payee: bool,
     pub bill_jurisdiction: String,
-    pub timestamp_at_drawing: i64,
+    pub timestamp_at_drawing: u64,
     // The party obliged to pay a Bill
     pub drawee: IdentityPublicData,
     // The party issuing a Bill

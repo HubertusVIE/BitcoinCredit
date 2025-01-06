@@ -4,7 +4,7 @@ use serde::Deserialize;
 /// Documented at https://timezonedb.com/references/get-time-zone
 #[derive(Deserialize, Debug)]
 pub struct TimeApi {
-    pub timestamp: i64,
+    pub timestamp: u64,
 }
 
 #[cfg(not(test))]

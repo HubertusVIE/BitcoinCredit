@@ -64,7 +64,7 @@ pub trait Block {
     type OpCode: PartialEq + Clone + BorshSerialize;
 
     fn id(&self) -> u64;
-    fn timestamp(&self) -> i64;
+    fn timestamp(&self) -> u64;
     fn op_code(&self) -> &Self::OpCode;
     fn hash(&self) -> &str;
     fn previous_hash(&self) -> &str;
@@ -244,7 +244,7 @@ struct BlockDataToHash<'a, T: BorshSerialize> {
     id: &'a u64,
     previous_hash: &'a str,
     data: &'a str,
-    timestamp: &'a i64,
+    timestamp: &'a u64,
     public_key: &'a str,
     operation_code: &'a T,
 }
@@ -255,7 +255,7 @@ fn calculate_hash<T: BorshSerialize>(
     id: &u64,
     previous_hash: &str,
     data: &str,
-    timestamp: &i64,
+    timestamp: &u64,
     public_key: &str,
     operation_code: &T,
 ) -> Result<String> {

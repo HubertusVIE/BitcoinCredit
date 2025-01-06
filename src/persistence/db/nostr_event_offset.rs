@@ -78,7 +78,7 @@ impl From<NostrEventOffset> for NostrEventOffsetDb {
     fn from(offset: NostrEventOffset) -> Self {
         Self {
             event_id: offset.event_id,
-            time: date::seconds_unsigned(offset.time),
+            time: date::seconds(offset.time),
             success: offset.success,
         }
     }

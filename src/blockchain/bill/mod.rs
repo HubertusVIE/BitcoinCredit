@@ -64,7 +64,7 @@ impl BillBlockchainToReturn {
 pub struct BillBlockToReturn {
     pub id: u64,
     pub hash: String,
-    pub timestamp: i64,
+    pub timestamp: u64,
     pub data: String,
     pub previous_hash: String,
     pub signature: String,

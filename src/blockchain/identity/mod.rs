@@ -21,7 +21,7 @@ pub enum IdentityOpCode {
 pub struct IdentityBlock {
     pub id: u64,
     pub hash: String,
-    pub timestamp: i64,
+    pub timestamp: u64,
     pub data: String,
     pub public_key: String,
     pub previous_hash: String,
@@ -101,7 +101,7 @@ impl Block for IdentityBlock {
         self.id
     }
 
-    fn timestamp(&self) -> i64 {
+    fn timestamp(&self) -> u64 {
         self.timestamp
     }
 
@@ -137,7 +137,7 @@ impl IdentityBlock {
         data: String,
         op_code: IdentityOpCode,
         keys: &BcrKeys,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let hash = calculate_hash(
             &id,
@@ -167,7 +167,7 @@ impl IdentityBlock {
         identity: &IdentityCreateBlockData,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let identity_bytes = to_vec(identity)?;
 
@@ -191,7 +191,7 @@ impl IdentityBlock {
         data: &IdentityUpdateBlockData,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -209,7 +209,7 @@ impl IdentityBlock {
         data: &IdentitySignPersonBillBlockData,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -227,7 +227,7 @@ impl IdentityBlock {
         data: &IdentityCreateCompanyBlockData,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -245,7 +245,7 @@ impl IdentityBlock {
         data: &IdentityAddSignatoryBlockData,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -263,7 +263,7 @@ impl IdentityBlock {
         data: &IdentityRemoveSignatoryBlockData,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             previous_block,
@@ -281,7 +281,7 @@ impl IdentityBlock {
         data: &T,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
         op_code: IdentityOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
@@ -331,7 +331,7 @@ impl IdentityBlockchain {
         node_id: &str,
         keys: &BcrKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let genesis_hash = util::base58_encode(node_id.as_bytes());
 

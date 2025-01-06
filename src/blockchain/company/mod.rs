@@ -33,7 +33,7 @@ pub struct CompanyBlock {
     pub company_id: String,
     pub id: u64,
     pub hash: String,
-    pub timestamp: i64,
+    pub timestamp: u64,
     pub data: String,
     pub public_key: String,
     pub previous_hash: String,
@@ -111,7 +111,7 @@ impl Block for CompanyBlock {
         self.id
     }
 
-    fn timestamp(&self) -> i64 {
+    fn timestamp(&self) -> u64 {
         self.timestamp
     }
 
@@ -149,7 +149,7 @@ impl CompanyBlock {
         op_code: CompanyOpCode,
         _identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         // TODO: calculate aggregated public key from identity and company key
         let hash = calculate_hash(
@@ -184,7 +184,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let company_bytes = to_vec(company)?;
         // encrypt data using company rsa key
@@ -226,7 +226,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -249,7 +249,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -272,7 +272,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         rsa_public_key_pem: &str, // the signatory's public rsa key
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -295,7 +295,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
             company_id,
@@ -318,7 +318,7 @@ impl CompanyBlock {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
         op_code: CompanyOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
@@ -390,7 +390,7 @@ impl CompanyBlockchain {
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         rsa_public_key_pem: &str,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let genesis_hash = util::base58_encode(node_id.as_bytes());
 

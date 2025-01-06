@@ -24,7 +24,7 @@ pub trait IdentityServiceApi: Send + Sync {
         company: Option<String>,
         email: Option<String>,
         postal_address: Option<String>,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()>;
     /// Gets the full local identity, including the key pair and node id
     async fn get_full_identity(&self) -> Result<IdentityWithAll>;
@@ -44,7 +44,7 @@ pub trait IdentityServiceApi: Send + Sync {
         country_of_birth: String,
         email: String,
         postal_address: String,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()>;
 }
 
@@ -84,7 +84,7 @@ impl IdentityServiceApi for IdentityService {
         company: Option<String>,
         email: Option<String>,
         postal_address: Option<String>,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()> {
         let mut identity = self.store.get().await?;
         let mut changed = false;
@@ -169,7 +169,7 @@ impl IdentityServiceApi for IdentityService {
         country_of_birth: String,
         email: String,
         postal_address: String,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<()> {
         let keys = self.store.get_or_create_key_pair().await?;
         let (private_key_pem, public_key_pem) = util::rsa::create_rsa_key_pair()?;

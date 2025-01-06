@@ -26,7 +26,7 @@ use std::collections::HashSet;
 pub struct BillBlock {
     pub id: u64,
     pub hash: String,
-    pub timestamp: i64,
+    pub timestamp: u64,
     pub data: String,
     pub public_key: String,
     pub previous_hash: String,
@@ -41,7 +41,7 @@ impl Block for BillBlock {
         self.id
     }
 
-    fn timestamp(&self) -> i64 {
+    fn timestamp(&self) -> u64 {
         self.timestamp
     }
 
@@ -82,7 +82,7 @@ impl BillBlock {
     /// - `public_key`: A `String` containing the public RSA key in PEM format.
     /// - `operation_code`: An `BillOpCode` indicating the operation type associated with the block.
     /// - `private_key`: A `String` containing the private RSA key in PEM format, used to sign the block.
-    /// - `timestamp`: An `i64` timestamp representing the time the block was created.
+    /// - `timestamp`: An `u64` timestamp representing the time the block was created.
     ///
     /// # Returns
     ///
@@ -95,7 +95,7 @@ impl BillBlock {
         data: String,
         operation_code: BillOpCode,
         keys: BcrKeys,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let hash = calculate_hash(
             &id,

@@ -141,7 +141,7 @@ pub struct CompanyBlockDb {
     pub hash: String,
     pub previous_hash: String,
     pub signature: String,
-    pub timestamp: i64,
+    pub timestamp: u64,
     pub public_key: String,
     pub data: String,
     pub op_code: CompanyOpCode,

@@ -42,7 +42,7 @@ impl BillBlockchain {
         drawer: IdentityPublicData,
         drawer_key_pair: BcrKeys,
         bill_public_key_pem: String,
-        timestamp: i64,
+        timestamp: u64,
     ) -> Result<Self> {
         let drawer_bytes = serde_json::to_vec(&drawer)?;
         let data_for_new_block = format!("{}{}", SIGNED_BY, util::base58_encode(&drawer_bytes));
@@ -203,7 +203,7 @@ impl BillBlockchain {
     pub fn is_last_sell_block_waiting_for_payment(
         &self,
         bill_keys: &BillKeys,
-        current_timestamp: i64,
+        current_timestamp: u64,
     ) -> Result<WaitingForPayment> {
         let last_block = self.get_latest_block();
         let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
@@ -256,12 +256,12 @@ impl BillBlockchain {
     /// - `true` if the payment deadline for the last sell block has passed.
     /// - `false` if no sell block exists or the deadline has not passed.
     ///
-    fn check_if_payment_deadline_has_passed(&self, current_timestamp: i64) -> bool {
+    fn check_if_payment_deadline_has_passed(&self, current_timestamp: u64) -> bool {
         if self.block_with_operation_code_exists(Sell) {
             let last_version_block_sell = self.get_last_version_block_with_op_code(Sell);
             let timestamp = last_version_block_sell.timestamp;
 
-            let period: i64 = (86400 * 2) as i64; // 2 days deadline
+            let period: u64 = (86400 * 2) as u64; // 2 days deadline
             let difference = current_timestamp - timestamp;
             difference > period
         } else {
