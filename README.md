@@ -21,7 +21,7 @@ Start the backend server in development mode:
 
 ```bash
 # Run with defaults
-# RUST_LOG=info cargo run
+RUST_LOG=info cargo run
 
 # configure listening ports and addresses
 RUST_LOG=info cargo run -- --http-port 8001 --http-address 0.0.0.0
