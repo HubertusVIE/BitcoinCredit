@@ -9,9 +9,10 @@ pub mod nostr;
 use crate::util;
 use bill::FileBasedBillStore;
 use db::{
-    company::SurrealCompanyStore, contact::SurrealContactStore, get_surreal_db,
-    identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
-    nostr_event_offset::SurrealNostrEventOffsetStore, SurrealDbConfig,
+    company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
+    contact::SurrealContactStore, get_surreal_db, identity::SurrealIdentityStore,
+    identity_chain::SurrealIdentityChainStore, nostr_event_offset::SurrealNostrEventOffsetStore,
+    SurrealDbConfig,
 };
 use log::error;
 use std::{path::Path, sync::Arc};

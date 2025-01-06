@@ -1,8 +1,12 @@
 use crate::{
     persistence::{
-        bill::MockBillStoreApi, company::MockCompanyStoreApi, contact::MockContactStoreApi,
-        file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
-        identity_chain::MockIdentityChainStoreApi, nostr::MockNostrEventOffsetStoreApi, DbContext,
+        bill::MockBillStoreApi,
+        company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
+        contact::MockContactStoreApi,
+        file_upload::MockFileUploadStoreApi,
+        identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
+        nostr::MockNostrEventOffsetStoreApi,
+        DbContext,
     },
     service::{bill_service::BitcreditBill, contact_service::IdentityPublicData},
     util::BcrKeys,
@@ -148,6 +152,7 @@ pub fn get_mock_db_context() -> DbContext {
         identity_store: Arc::new(MockIdentityStoreApi::new()),
         identity_chain_store: Arc::new(MockIdentityChainStoreApi::new()),
         company_store: Arc::new(MockCompanyStoreApi::new()),
+        company_chain_store: Arc::new(MockCompanyChainStoreApi::new()),
         file_upload_store: Arc::new(MockFileUploadStoreApi::new()),
         nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApi::new()),
     }
