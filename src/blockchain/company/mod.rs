@@ -17,6 +17,11 @@ pub enum CompanyOpCode {
     SignCompanyBill,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum SignatoryType {
+    Solo,
+}
+
 /// Structure for the block data of a company block
 ///
 /// - `data` contains the actual data of the block, encrypted using the company's RSA pub key
@@ -97,6 +102,7 @@ pub struct CompanySignCompanyBillBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct CompanyAddSignatoryBlockData {
     pub signatory: String,
+    pub t: SignatoryType,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -183,7 +189,7 @@ impl CompanyBlock {
         company: &CompanyCreateBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str,
+        rsa_public_key_pem: &str, // creator's rsa key
         timestamp: u64,
     ) -> Result<Self> {
         let company_bytes = to_vec(company)?;
@@ -218,14 +224,12 @@ impl CompanyBlock {
         )
     }
 
-    #[allow(dead_code)]
     pub fn create_block_for_update(
         company_id: String,
         previous_block: &Self,
         data: &CompanyUpdateBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str,
         timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
@@ -234,7 +238,7 @@ impl CompanyBlock {
             data,
             identity_keys,
             company_keys,
-            rsa_public_key_pem,
+            None,
             timestamp,
             CompanyOpCode::Update,
         )?;
@@ -248,7 +252,6 @@ impl CompanyBlock {
         data: &CompanySignCompanyBillBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str,
         timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
@@ -257,14 +260,13 @@ impl CompanyBlock {
             data,
             identity_keys,
             company_keys,
-            rsa_public_key_pem,
+            None,
             timestamp,
             CompanyOpCode::SignCompanyBill,
         )?;
         Ok(block)
     }
 
-    #[allow(dead_code)]
     pub fn create_block_for_add_signatory(
         company_id: String,
         previous_block: &Self,
@@ -280,21 +282,19 @@ impl CompanyBlock {
             data,
             identity_keys,
             company_keys,
-            rsa_public_key_pem,
+            Some(rsa_public_key_pem),
             timestamp,
             CompanyOpCode::AddSignatory,
         )?;
         Ok(block)
     }
 
-    #[allow(dead_code)]
     pub fn create_block_for_remove_signatory(
         company_id: String,
         previous_block: &Self,
         data: &CompanyRemoveSignatoryBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str,
         timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
@@ -303,21 +303,20 @@ impl CompanyBlock {
             data,
             identity_keys,
             company_keys,
-            rsa_public_key_pem,
+            None,
             timestamp,
             CompanyOpCode::RemoveSignatory,
         )?;
         Ok(block)
     }
 
-    #[allow(dead_code)]
     fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(
         company_id: String,
         previous_block: &Self,
         data: &T,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str,
+        rsa_public_key_pem: Option<&str>,
         timestamp: u64,
         op_code: CompanyOpCode,
     ) -> Result<Self> {
@@ -333,12 +332,14 @@ impl CompanyBlock {
         // in case there are keys to encrypt, encrypt them using the receiver's identity rsa pub
         // key
         if op_code == CompanyOpCode::AddSignatory {
-            let keys_bytes = to_vec(&company_keys)?;
-            let encrypted_keys = util::base58_encode(&rsa::encrypt_bytes_with_public_key(
-                &keys_bytes,
-                rsa_public_key_pem,
-            )?);
-            keys = Some(encrypted_keys);
+            if let Some(signatory_rsa_public_key) = rsa_public_key_pem {
+                let keys_bytes = to_vec(&company_keys)?;
+                let encrypted_keys = util::base58_encode(&rsa::encrypt_bytes_with_public_key(
+                    &keys_bytes,
+                    signatory_rsa_public_key,
+                )?);
+                keys = Some(encrypted_keys);
+            }
         }
 
         let data = CompanyBlockData {

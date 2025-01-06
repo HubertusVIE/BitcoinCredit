@@ -251,7 +251,6 @@ mod tests {
             },
             &BcrKeys::new(),
             &get_company_keys(),
-            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap();

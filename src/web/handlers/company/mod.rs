@@ -136,6 +136,7 @@ pub async fn edit(
     edit_company_payload: Json<EditCompanyPayload>,
 ) -> Result<()> {
     let payload = edit_company_payload.0;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     state
         .company_service
         .edit_company(
@@ -144,6 +145,7 @@ pub async fn edit(
             payload.email,
             payload.postal_address,
             payload.logo_file_upload_id,
+            timestamp,
         )
         .await?;
 

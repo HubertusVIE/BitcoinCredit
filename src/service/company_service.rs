@@ -1,5 +1,8 @@
 use super::Result;
-use crate::blockchain::company::{CompanyBlockchain, CompanyCreateBlockData};
+use crate::blockchain::company::{
+    CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain, CompanyCreateBlockData,
+    CompanyRemoveSignatoryBlockData, CompanyUpdateBlockData, SignatoryType,
+};
 use crate::blockchain::identity::{
     IdentityAddSignatoryBlockData, IdentityBlock, IdentityCreateCompanyBlockData,
     IdentityRemoveSignatoryBlockData,
@@ -51,6 +54,7 @@ pub trait CompanyServiceApi: Send + Sync {
         email: Option<String>,
         postal_address: Option<String>,
         logo_file_upload_id: Option<String>,
+        timestamp: u64,
     ) -> Result<()>;
 
     /// Adds another signatory to the given company
@@ -236,9 +240,6 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )?;
         let create_company_block = company_chain.get_first_block();
-        self.company_blockchain_store
-            .add_block(&id, create_company_block)
-            .await?;
 
         let previous_block = self.identity_blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_create_company(
@@ -251,6 +252,10 @@ impl CompanyServiceApi for CompanyService {
             &full_identity.identity.public_key_pem,
             timestamp,
         )?;
+
+        self.company_blockchain_store
+            .add_block(&id, create_company_block)
+            .await?;
         self.identity_blockchain_store.add_block(&new_block).await?;
 
         // clean up temporary file uploads, if there are any, logging any errors
@@ -277,14 +282,17 @@ impl CompanyServiceApi for CompanyService {
         email: Option<String>,
         postal_address: Option<String>,
         logo_file_upload_id: Option<String>,
+        timestamp: u64,
     ) -> Result<()> {
         if !self.store.exists(id).await {
             return Err(super::Error::Validation(format!(
                 "No company with id: {id} found",
             )));
         }
-        let node_id = self.identity_store.get_node_id().await?;
+        let full_identity = self.identity_store.get_full().await?;
+        let node_id = full_identity.node_id;
         let mut company = self.store.get(id).await?;
+        let company_keys = self.store.get_key_pair(id).await?;
 
         if !company.signatories.contains(&node_id.to_string()) {
             return Err(super::Error::Validation(String::from(
@@ -292,22 +300,40 @@ impl CompanyServiceApi for CompanyService {
             )));
         }
 
-        if let Some(name_to_set) = name {
-            company.name = name_to_set;
+        if let Some(ref name_to_set) = name {
+            company.name = name_to_set.clone();
         }
-        if let Some(email_to_set) = email {
-            company.email = email_to_set;
+        if let Some(ref email_to_set) = email {
+            company.email = email_to_set.clone();
         }
-        if let Some(postal_address_to_set) = postal_address {
-            company.postal_address = postal_address_to_set;
+        if let Some(ref postal_address_to_set) = postal_address {
+            company.postal_address = postal_address_to_set.clone();
         }
-        let identity = self.identity_store.get().await?;
+        let identity = full_identity.identity;
         let logo_file = self
             .process_upload_file(&logo_file_upload_id, id, &identity.public_key_pem)
             .await?;
         company.logo_file = logo_file;
 
         self.store.update(id, &company).await?;
+
+        let previous_block = self.company_blockchain_store.get_latest_block(id).await?;
+        let new_block = CompanyBlock::create_block_for_update(
+            id.to_owned(),
+            &previous_block,
+            &CompanyUpdateBlockData {
+                name,
+                email,
+                postal_address,
+                logo_file_upload_id: logo_file_upload_id.clone(),
+            },
+            &full_identity.key_pair,
+            &company_keys,
+            timestamp,
+        )?;
+        self.company_blockchain_store
+            .add_block(id, &new_block)
+            .await?;
 
         if let Some(upload_id) = logo_file_upload_id {
             if let Err(e) = self
@@ -345,6 +371,7 @@ impl CompanyServiceApi for CompanyService {
         }
 
         let mut company = self.store.get(id).await?;
+        let company_keys = self.store.get_key_pair(id).await?;
         if company.signatories.contains(&signatory_node_id) {
             return Err(super::Error::Validation(format!(
                 "Node Id {signatory_node_id} is already a signatory.",
@@ -353,21 +380,39 @@ impl CompanyServiceApi for CompanyService {
         company.signatories.push(signatory_node_id.clone());
         self.store.update(id, &company).await?;
 
-        let previous_block = self.identity_blockchain_store.get_latest_block().await?;
-        // TODO: use actual hash once we have company chain
-        let new_block = IdentityBlock::create_block_for_add_signatory(
+        let previous_block = self.company_blockchain_store.get_latest_block(id).await?;
+        let new_block = CompanyBlock::create_block_for_add_signatory(
+            id.to_owned(),
             &previous_block,
+            &CompanyAddSignatoryBlockData {
+                signatory: signatory_node_id.clone(),
+                t: SignatoryType::Solo,
+            },
+            &full_identity.key_pair,
+            &company_keys,
+            &full_identity.identity.public_key_pem,
+            timestamp,
+        )?;
+
+        let previous_identity_block = self.identity_blockchain_store.get_latest_block().await?;
+        let new_identity_block = IdentityBlock::create_block_for_add_signatory(
+            &previous_identity_block,
             &IdentityAddSignatoryBlockData {
                 company_id: id.to_owned(),
-                block_hash: "TODO_COMPANY_BLOCK_HASH".to_string(),
-                block_id: 9999,
+                block_hash: new_block.hash.clone(),
+                block_id: new_block.id,
                 signatory: signatory_node_id,
             },
             &full_identity.key_pair,
             &full_identity.identity.public_key_pem,
             timestamp,
         )?;
-        self.identity_blockchain_store.add_block(&new_block).await?;
+        self.company_blockchain_store
+            .add_block(id, &new_block)
+            .await?;
+        self.identity_blockchain_store
+            .add_block(&new_identity_block)
+            .await?;
 
         Ok(())
     }
@@ -386,6 +431,7 @@ impl CompanyServiceApi for CompanyService {
 
         let full_identity = self.identity_store.get_full().await?;
         let mut company = self.store.get(id).await?;
+        let company_keys = self.store.get_key_pair(id).await?;
         if company.signatories.len() == 1 {
             return Err(super::Error::Validation(String::from(
                 "Can't remove last signatory.",
@@ -406,21 +452,38 @@ impl CompanyServiceApi for CompanyService {
             self.store.remove(id).await?;
         }
 
-        let previous_block = self.identity_blockchain_store.get_latest_block().await?;
-        // TODO: use actual hash once we have company chain
-        let new_block = IdentityBlock::create_block_for_remove_signatory(
+        let previous_block = self.company_blockchain_store.get_latest_block(id).await?;
+        let new_block = CompanyBlock::create_block_for_remove_signatory(
+            id.to_owned(),
             &previous_block,
+            &CompanyRemoveSignatoryBlockData {
+                signatory: signatory_node_id.clone(),
+            },
+            &full_identity.key_pair,
+            &company_keys,
+            timestamp,
+        )?;
+
+        let previous_identity_block = self.identity_blockchain_store.get_latest_block().await?;
+        let new_identity_block = IdentityBlock::create_block_for_remove_signatory(
+            &previous_identity_block,
             &IdentityRemoveSignatoryBlockData {
                 company_id: id.to_owned(),
-                block_hash: "TODO_COMPANY_BLOCK_HASH".to_string(),
-                block_id: 9999,
+                block_hash: new_block.hash.clone(),
+                block_id: new_block.id,
                 signatory: signatory_node_id,
             },
             &full_identity.key_pair,
             &full_identity.identity.public_key_pem,
             timestamp,
         )?;
-        self.identity_blockchain_store.add_block(&new_block).await?;
+
+        self.company_blockchain_store
+            .add_block(id, &new_block)
+            .await?;
+        self.identity_blockchain_store
+            .add_block(&new_identity_block)
+            .await?;
 
         Ok(())
     }
@@ -569,7 +632,7 @@ mod test {
             contact_service::IdentityPublicData,
             identity_service::{Identity, IdentityWithAll},
         },
-        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
+        tests::test::{TEST_PRIVATE_KEY, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY, TEST_PUB_KEY_SECP},
     };
     use libp2p::PeerId;
     use mockall::predicate::{always, eq};
@@ -629,13 +692,30 @@ mod test {
                     signatories: vec![],
                 },
                 CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                     rsa_private_key: TEST_PRIVATE_KEY.to_string(),
                     rsa_public_key: TEST_PUB_KEY.to_string(),
                 },
             ),
         )
+    }
+
+    fn get_valid_company_block() -> CompanyBlock {
+        let (id, (company, company_keys)) = get_baseline_company_data();
+        let to_return = CompanyToReturn::from(id, company, company_keys.clone());
+
+        CompanyBlockchain::new(
+            &CompanyCreateBlockData::from(to_return),
+            &PeerId::random().to_string(),
+            &BcrKeys::new(),
+            &company_keys,
+            TEST_PUB_KEY,
+            1731593928,
+        )
+        .unwrap()
+        .get_latest_block()
+        .to_owned()
     }
 
     #[tokio::test]
@@ -669,7 +749,7 @@ mod test {
         assert_eq!(res.as_ref().unwrap()[0].id, "some_id".to_string());
         assert_eq!(
             res.as_ref().unwrap()[0].public_key,
-            TEST_PUB_KEY.to_string()
+            TEST_PUB_KEY_SECP.to_string()
         );
     }
 
@@ -730,7 +810,10 @@ mod test {
         let res = service.get_company_by_id("some_id").await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().id, "some_id".to_string());
-        assert_eq!(res.as_ref().unwrap().public_key, TEST_PUB_KEY.to_string());
+        assert_eq!(
+            res.as_ref().unwrap().public_key,
+            TEST_PUB_KEY_SECP.to_string()
+        );
     }
 
     #[tokio::test]
@@ -945,25 +1028,35 @@ mod test {
             mut identity_store,
             contact_store,
             identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
         ) = get_storages();
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1 .0;
             data.signatories = vec![node_id.to_string()];
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| Ok(()));
         file_upload_store
             .expect_save_attached_file()
             .returning(|_, _, _| Ok(()));
-        identity_store
-            .expect_get_node_id()
-            .returning(move || Ok(node_id));
-        identity_store.expect_get().returning(|| {
+        identity_store.expect_get_full().returning(move || {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
-            Ok(identity)
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+                node_id,
+            })
         });
         file_upload_store
             .expect_read_temp_upload_files()
@@ -991,6 +1084,7 @@ mod test {
                 Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
                 Some("some_file_id".to_string()),
+                1731593928,
             )
             .await;
         assert!(res.is_ok());
@@ -1022,6 +1116,7 @@ mod test {
                 Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
                 None,
+                1731593928,
             )
             .await;
         assert!(res.is_err());
@@ -1029,7 +1124,6 @@ mod test {
 
     #[tokio::test]
     async fn edit_company_fails_if_caller_is_not_signatory() {
-        let node_id = PeerId::random();
         let (
             mut storage,
             file_upload_store,
@@ -1044,9 +1138,15 @@ mod test {
             data.signatories = vec!["some_other_dude".to_string()];
             Ok(data)
         });
-        identity_store
-            .expect_get_node_id()
-            .returning(move || Ok(node_id));
+        identity_store.expect_get_full().returning(|| {
+            let mut identity = Identity::new_empty();
+            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+                node_id: PeerId::random(),
+            })
+        });
         let service = get_service(
             storage,
             file_upload_store,
@@ -1062,6 +1162,7 @@ mod test {
                 Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
                 None,
+                1731593928,
             )
             .await;
         assert!(res.is_err());
@@ -1083,6 +1184,9 @@ mod test {
             data.signatories = vec![node_id.to_string()];
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| {
             Err(persistence::Error::Io(std::io::Error::new(
@@ -1090,14 +1194,15 @@ mod test {
                 "test error",
             )))
         });
-        identity_store.expect_get().returning(|| {
+        identity_store.expect_get_full().returning(|| {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
-            Ok(identity)
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+                node_id: PeerId::random(),
+            })
         });
-        identity_store
-            .expect_get_node_id()
-            .returning(move || Ok(node_id));
         let service = get_service(
             storage,
             file_upload_store,
@@ -1113,6 +1218,7 @@ mod test {
                 Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
                 None,
+                1731593928,
             )
             .await;
         assert!(res.is_err());
@@ -1126,10 +1232,19 @@ mod test {
             mut identity_store,
             mut contact_store,
             mut identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| Ok(()));
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
         contact_store.expect_get_map().returning(|| {
             let mut map = HashMap::new();
             let mut identity = IdentityPublicData::new_empty();
@@ -1285,6 +1400,9 @@ mod test {
             data.signatories.push("new_signatory_node_id".to_string());
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         let service = get_service(
             storage,
             file_upload_store,
@@ -1335,6 +1453,9 @@ mod test {
         storage
             .expect_get()
             .returning(|_| Ok(get_baseline_company_data().1 .0));
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         let service = get_service(
             storage,
             file_upload_store,
@@ -1357,8 +1478,14 @@ mod test {
             mut identity_store,
             contact_store,
             mut identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
         ) = get_storages();
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1 .0;
@@ -1367,6 +1494,9 @@ mod test {
                 .push("some_other_dude_or_dudette".to_string());
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
@@ -1453,8 +1583,14 @@ mod test {
             mut identity_store,
             contact_store,
             mut identity_chain_store,
-            company_chain_store,
+            mut company_chain_store,
         ) = get_storages();
+        company_chain_store
+            .expect_get_latest_block()
+            .returning(|_| Ok(get_valid_company_block()));
+        company_chain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
         file_upload_store
             .expect_delete_attached_files()
             .returning(|_| Ok(()));
@@ -1465,6 +1601,9 @@ mod test {
             data.signatories.push(node_id.to_string());
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(move || {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
@@ -1527,6 +1666,9 @@ mod test {
             data.signatories.push("the_founder".to_string());
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
@@ -1566,6 +1708,9 @@ mod test {
             data.signatories.push("the_founder".to_string());
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
@@ -1607,6 +1752,9 @@ mod test {
                 .push("some_other_dude_or_dudette".to_string());
             Ok(data)
         });
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
             let mut identity = Identity::new_empty();
             identity.public_key_pem = TEST_PUB_KEY.to_string();
