@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
         &conf,
         db.bill_store.clone(),
         db.company_store.clone(),
+        db.company_chain_store.clone(),
         db.identity_store.clone(),
         db.file_upload_store.clone(),
     )

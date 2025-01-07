@@ -24,7 +24,7 @@ mod client;
 mod event_loop;
 
 use crate::persistence::bill::BillStoreApi;
-use crate::persistence::company::CompanyStoreApi;
+use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::util::rsa;
@@ -138,6 +138,7 @@ pub async fn dht_main(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
+    company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
 ) -> Result<Dht> {
@@ -145,6 +146,7 @@ pub async fn dht_main(
         conf,
         bill_store,
         company_store,
+        company_blockchain_store,
         identity_store,
         file_upload_store,
     )
@@ -176,6 +178,7 @@ async fn new(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
+    company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
@@ -321,6 +324,7 @@ async fn new(
             command_sender,
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
         ),

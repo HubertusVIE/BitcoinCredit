@@ -1,6 +1,7 @@
 use crate::constants::{
-    BILL_ATTACHMENT_PREFIX, BILL_PREFIX, BOOTSTRAP_NODES_FILE_PATH, COMPANY_KEY_PREFIX,
-    COMPANY_LOGO_PREFIX, COMPANY_PREFIX, COMPANY_PROOF_PREFIX, KEY_PREFIX, MAX_FILE_SIZE_BYTES,
+    BILL_ATTACHMENT_PREFIX, BILL_PREFIX, BOOTSTRAP_NODES_FILE_PATH, COMPANY_CHAIN_PREFIX,
+    COMPANY_KEY_PREFIX, COMPANY_LOGO_PREFIX, COMPANY_PREFIX, COMPANY_PROOF_PREFIX, KEY_PREFIX,
+    MAX_FILE_SIZE_BYTES,
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -207,6 +208,7 @@ pub enum ParsedInboundFileRequest {
     BillAttachment(BillAttachmentFileRequest),
     CompanyData(CompanyDataRequest),
     CompanyKeys(CompanyKeysRequest),
+    CompanyChain(CompanyChainRequest),
     CompanyLogo(CompanyLogoRequest),
     CompanyProof(CompanyProofRequest),
 }
@@ -219,6 +221,12 @@ pub struct CompanyDataRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompanyKeysRequest {
+    pub node_id: String,
+    pub company_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanyChainRequest {
     pub node_id: String,
     pub company_id: String,
 }
@@ -275,6 +283,10 @@ pub fn file_request_for_company_keys(node_id: &str, company_id: &str) -> String 
     format!("{node_id}_{COMPANY_KEY_PREFIX}_{company_id}")
 }
 
+pub fn file_request_for_company_chain(node_id: &str, company_id: &str) -> String {
+    format!("{node_id}_{COMPANY_CHAIN_PREFIX}_{company_id}")
+}
+
 pub fn file_request_for_company_logo(node_id: &str, company_id: &str, file_name: &str) -> String {
     format!("{node_id}_{COMPANY_LOGO_PREFIX}_{company_id}_{file_name}")
 }
@@ -323,6 +335,12 @@ pub fn parse_inbound_file_request(request: &str) -> Result<ParsedInboundFileRequ
             company_id: parts[2].to_owned(),
             node_id,
         })),
+        COMPANY_CHAIN_PREFIX => Ok(ParsedInboundFileRequest::CompanyChain(
+            CompanyChainRequest {
+                company_id: parts[2].to_owned(),
+                node_id,
+            },
+        )),
         COMPANY_LOGO_PREFIX => {
             if parts.len() < 4 {
                 return Err(anyhow!(

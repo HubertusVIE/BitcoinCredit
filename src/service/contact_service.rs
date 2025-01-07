@@ -197,8 +197,11 @@ impl IdentityPublicData {
 pub mod test {
     use super::*;
     use crate::persistence::{
-        bill::MockBillStoreApi, company::MockCompanyStoreApi, contact::MockContactStoreApi,
-        file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
+        bill::MockBillStoreApi,
+        company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
+        contact::MockContactStoreApi,
+        file_upload::MockFileUploadStoreApi,
+        identity::MockIdentityStoreApi,
     };
     use futures::channel::mpsc;
 
@@ -209,6 +212,7 @@ pub mod test {
                 sender,
                 Arc::new(MockBillStoreApi::new()),
                 Arc::new(MockCompanyStoreApi::new()),
+                Arc::new(MockCompanyChainStoreApi::new()),
                 Arc::new(MockIdentityStoreApi::new()),
                 Arc::new(MockFileUploadStoreApi::new()),
             ),

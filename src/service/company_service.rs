@@ -471,7 +471,7 @@ impl CompanyServiceApi for CompanyService {
                 company_id: id.to_owned(),
                 block_hash: new_block.hash.clone(),
                 block_id: new_block.id,
-                signatory: signatory_node_id,
+                signatory: signatory_node_id.clone(),
             },
             &full_identity.key_pair,
             &full_identity.identity.public_key_pem,
@@ -484,6 +484,13 @@ impl CompanyServiceApi for CompanyService {
         self.identity_blockchain_store
             .add_block(&new_identity_block)
             .await?;
+
+        if full_identity.node_id.to_string() == signatory_node_id {
+            info!("Removed self from company {id} - deleting company chain");
+            if let Err(e) = self.company_blockchain_store.remove(id).await {
+                error!("Could not delete local company chain for {id}: {e}");
+            }
+        }
 
         Ok(())
     }
@@ -541,7 +548,7 @@ pub struct CompanyToReturn {
 }
 
 impl CompanyToReturn {
-    fn from(id: String, company: Company, company_keys: CompanyKeys) -> CompanyToReturn {
+    pub fn from(id: String, company: Company, company_keys: CompanyKeys) -> CompanyToReturn {
         CompanyToReturn {
             id,
             name: company.name,
@@ -617,7 +624,7 @@ pub struct CompanyKeys {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use crate::{
         blockchain::{identity::IdentityBlockchain, Blockchain},
@@ -1591,6 +1598,7 @@ mod test {
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
+        company_chain_store.expect_remove().returning(|_| Ok(()));
         file_upload_store
             .expect_delete_attached_files()
             .returning(|_| Ok(()));

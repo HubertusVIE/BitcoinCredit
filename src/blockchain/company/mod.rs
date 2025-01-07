@@ -410,4 +410,151 @@ impl CompanyBlockchain {
             blocks: vec![first_block],
         })
     }
+
+    /// Creates a company chain from a vec of blocks
+    pub fn new_from_blocks(blocks_to_add: Vec<CompanyBlock>) -> Result<Self> {
+        if blocks_to_add.is_empty() {
+            return Err(super::Error::BlockchainInvalid);
+        }
+
+        let first = blocks_to_add
+            .first()
+            .expect("checked above that there is one block");
+        if !first.verify() || !first.validate_hash() {
+            return Err(super::Error::BlockchainInvalid);
+        }
+
+        let chain = Self {
+            blocks: blocks_to_add,
+        };
+
+        if !chain.is_chain_valid() {
+            return Err(super::Error::BlockchainInvalid);
+        }
+
+        Ok(chain)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{
+        service::company_service::{test::get_baseline_company_data, CompanyToReturn},
+        tests::test::TEST_PUB_KEY,
+    };
+    use libp2p::PeerId;
+
+    #[test]
+    fn create_and_check_validity() {
+        let (id, (company, company_keys)) = get_baseline_company_data();
+        let to_return = CompanyToReturn::from(id, company, company_keys.clone());
+
+        let chain = CompanyBlockchain::new(
+            &CompanyCreateBlockData::from(to_return),
+            &PeerId::random().to_string(),
+            &BcrKeys::new(),
+            &company_keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(chain.is_ok());
+        assert!(chain.as_ref().unwrap().is_chain_valid());
+    }
+
+    #[test]
+    fn multi_block() {
+        let (id, (company, company_keys)) = get_baseline_company_data();
+        let to_return = CompanyToReturn::from(id.clone(), company, company_keys.clone());
+        let identity_keys = BcrKeys::new();
+
+        let chain = CompanyBlockchain::new(
+            &CompanyCreateBlockData::from(to_return),
+            &PeerId::random().to_string(),
+            &identity_keys,
+            &company_keys,
+            TEST_PUB_KEY,
+            1731593928,
+        );
+        assert!(chain.is_ok());
+        assert!(chain.as_ref().unwrap().is_chain_valid());
+
+        let mut chain = chain.unwrap();
+        let update_block = CompanyBlock::create_block_for_update(
+            id.to_owned(),
+            chain.get_latest_block(),
+            &CompanyUpdateBlockData {
+                name: Some("new_name".to_string()),
+                email: None,
+                postal_address: None,
+                logo_file_upload_id: None,
+            },
+            &identity_keys,
+            &company_keys,
+            1731593929,
+        );
+        assert!(update_block.is_ok());
+        chain.try_add_block(update_block.unwrap());
+
+        let bill_block = CompanyBlock::create_block_for_sign_company_bill(
+            id.to_owned(),
+            chain.get_latest_block(),
+            &CompanySignCompanyBillBlockData {
+                bill_id: "some_id".to_string(),
+                block_id: 1,
+                block_hash: "some hash".to_string(),
+                operation: BillOpCode::Issue,
+            },
+            &identity_keys,
+            &company_keys,
+            1731593930,
+        );
+        assert!(bill_block.is_ok());
+        chain.try_add_block(bill_block.unwrap());
+
+        let add_signatory_block = CompanyBlock::create_block_for_add_signatory(
+            id.to_owned(),
+            chain.get_latest_block(),
+            &CompanyAddSignatoryBlockData {
+                signatory: "some_signatory".to_string(),
+                t: SignatoryType::Solo,
+            },
+            &identity_keys,
+            &company_keys,
+            TEST_PUB_KEY,
+            1731593931,
+        );
+        assert!(add_signatory_block.is_ok());
+        chain.try_add_block(add_signatory_block.unwrap());
+
+        let remove_signatory_block = CompanyBlock::create_block_for_remove_signatory(
+            id.to_owned(),
+            chain.get_latest_block(),
+            &CompanyRemoveSignatoryBlockData {
+                signatory: "some_signatory".to_string(),
+            },
+            &identity_keys,
+            &company_keys,
+            1731593932,
+        );
+        assert!(remove_signatory_block.is_ok());
+        chain.try_add_block(remove_signatory_block.unwrap());
+
+        assert_eq!(chain.blocks().len(), 5);
+        assert!(chain.is_chain_valid());
+
+        let new_chain_from_empty_blocks = CompanyBlockchain::new_from_blocks(vec![]);
+        assert!(new_chain_from_empty_blocks.is_err());
+
+        let blocks = chain.blocks();
+        let new_chain_from_blocks = CompanyBlockchain::new_from_blocks(blocks.to_owned());
+        assert!(new_chain_from_blocks.is_ok());
+        assert!(new_chain_from_blocks.as_ref().unwrap().is_chain_valid());
+
+        let mut_blocks = chain.blocks_mut();
+        mut_blocks[2].hash = "invalidhash".to_string();
+        let new_chain_from_invalid_blocks =
+            CompanyBlockchain::new_from_blocks(mut_blocks.to_owned());
+        assert!(new_chain_from_invalid_blocks.is_err());
+    }
 }

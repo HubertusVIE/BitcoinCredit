@@ -1231,8 +1231,10 @@ pub mod test {
     use libp2p::PeerId;
     use mockall::predicate::{always, eq};
     use persistence::{
-        bill::MockBillStoreApi, company::MockCompanyStoreApi, file_upload::MockFileUploadStoreApi,
-        identity::MockIdentityChainStoreApi, identity::MockIdentityStoreApi,
+        bill::MockBillStoreApi,
+        company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
+        file_upload::MockFileUploadStoreApi,
+        identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
     };
     use std::sync::Arc;
     use util::crypto::BcrKeys;
@@ -1312,6 +1314,7 @@ pub mod test {
                 sender,
                 Arc::new(MockBillStoreApi::new()),
                 Arc::new(MockCompanyStoreApi::new()),
+                Arc::new(MockCompanyChainStoreApi::new()),
                 Arc::new(MockIdentityStoreApi::new()),
                 Arc::new(MockFileUploadStoreApi::new()),
             ),

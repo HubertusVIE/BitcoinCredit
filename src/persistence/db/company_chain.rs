@@ -1,7 +1,7 @@
 use super::super::{Error, Result};
 use crate::{
     blockchain::{
-        company::{CompanyBlock, CompanyOpCode},
+        company::{CompanyBlock, CompanyBlockchain, CompanyOpCode},
         Block,
     },
     constants::{
@@ -132,6 +132,30 @@ impl CompanyChainStoreApi for SurrealCompanyChainStore {
             Err(e) => Err(e),
         }
     }
+
+    async fn remove(&self, id: &str) -> Result<()> {
+        self.db
+            .query("DELETE FROM type::table($table) WHERE company_id = $company_id")
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_COMPANY_ID, id.to_owned()))
+            .await?;
+        Ok(())
+    }
+
+    async fn get_chain(&self, id: &str) -> Result<CompanyBlockchain> {
+        let result: Vec<CompanyBlockDb> = self
+            .db
+            .query("SELECT * FROM type::table($table) WHERE company_id = $company_id ORDER BY block_id ASC")
+            .bind((DB_TABLE, Self::TABLE))
+            .bind((DB_COMPANY_ID, id.to_owned()))
+            .await?
+            .take(0)?;
+
+        let blocks: Vec<CompanyBlock> = result.into_iter().map(|b| b.into()).collect();
+        let chain = CompanyBlockchain::new_from_blocks(blocks)?;
+
+        Ok(chain)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,5 +282,39 @@ mod tests {
         let last_block = store.get_latest_block("some_id").await;
         assert!(last_block.is_ok());
         assert_eq!(last_block.as_ref().unwrap().id, 2);
+    }
+
+    #[tokio::test]
+    async fn test_remove_blockchain() {
+        let store = get_store().await;
+        let block = CompanyBlock::create_block_for_create(
+            "some_id".to_string(),
+            1,
+            "genesis hash".to_string(),
+            &CompanyToReturn {
+                id: "some_id".to_string(),
+                name: "Hayek Ltd".to_string(),
+                country_of_registration: "AT".to_string(),
+                city_of_registration: "Vienna".to_string(),
+                postal_address: "some address 123".to_string(),
+                email: "hayekltd@example.com".to_string(),
+                registration_number: "123124123".to_string(),
+                registration_date: "2024-01-01".to_string(),
+                proof_of_registration_file: None,
+                logo_file: None,
+                signatories: vec!["self".to_string()],
+                public_key: TEST_PUB_KEY_SECP.to_string(),
+                rsa_public_key: TEST_PUB_KEY.to_string(),
+            }
+            .into(),
+            &BcrKeys::new(),
+            &get_company_keys(),
+            TEST_PUB_KEY,
+            1731593928,
+        )
+        .unwrap();
+        store.add_block("some_id", &block).await.unwrap();
+        let result = store.remove("some_id").await;
+        assert!(result.is_ok());
     }
 }

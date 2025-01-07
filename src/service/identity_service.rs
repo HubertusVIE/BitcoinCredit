@@ -273,9 +273,11 @@ mod test {
     use super::*;
     use crate::{
         persistence::{
-            self, bill::MockBillStoreApi, company::MockCompanyStoreApi,
-            file_upload::MockFileUploadStoreApi, identity::MockIdentityChainStoreApi,
-            identity::MockIdentityStoreApi,
+            self,
+            bill::MockBillStoreApi,
+            company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
+            file_upload::MockFileUploadStoreApi,
+            identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
         },
         tests::test::TEST_PUB_KEY,
     };
@@ -290,6 +292,7 @@ mod test {
                 sender,
                 Arc::new(MockBillStoreApi::new()),
                 Arc::new(MockCompanyStoreApi::new()),
+                Arc::new(MockCompanyChainStoreApi::new()),
                 Arc::new(client_storage),
                 Arc::new(MockFileUploadStoreApi::new()),
             ),
@@ -310,6 +313,7 @@ mod test {
                 sender,
                 Arc::new(MockBillStoreApi::new()),
                 Arc::new(MockCompanyStoreApi::new()),
+                Arc::new(MockCompanyChainStoreApi::new()),
                 Arc::new(client_storage),
                 Arc::new(MockFileUploadStoreApi::new()),
             ),

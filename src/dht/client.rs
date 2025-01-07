@@ -1,28 +1,30 @@
 use super::behaviour::{
     file_request_for_bill, file_request_for_bill_attachment, file_request_for_bill_keys,
-    file_request_for_company_data, file_request_for_company_keys, file_request_for_company_logo,
-    file_request_for_company_proof, parse_inbound_file_request, BillAttachmentFileRequest,
-    BillFileRequest, BillKeysFileRequest, Command, CompanyDataRequest, CompanyEvent,
-    CompanyKeysRequest, CompanyLogoRequest, CompanyProofRequest, Event, FileResponse,
-    ParsedInboundFileRequest,
+    file_request_for_company_chain, file_request_for_company_data, file_request_for_company_keys,
+    file_request_for_company_logo, file_request_for_company_proof, parse_inbound_file_request,
+    BillAttachmentFileRequest, BillFileRequest, BillKeysFileRequest, Command, CompanyChainRequest,
+    CompanyDataRequest, CompanyEvent, CompanyKeysRequest, CompanyLogoRequest, CompanyProofRequest,
+    Event, FileResponse, ParsedInboundFileRequest,
 };
 use super::{GossipsubEvent, GossipsubEventId, Result};
 use crate::blockchain::bill::BillBlockchain;
+use crate::blockchain::company::CompanyBlockchain;
+use crate::blockchain::Blockchain;
 use crate::constants::{
     BILLS_PREFIX, BILL_PREFIX, COMPANIES_PREFIX, COMPANY_PREFIX, IDENTITY_PREFIX,
 };
 use crate::persistence::bill::{bill_chain_from_bytes, bill_keys_from_bytes, BillStoreApi};
 use crate::persistence::company::{
-    company_from_bytes, company_keys_from_bytes, company_keys_to_bytes, company_to_bytes,
-    CompanyStoreApi,
+    company_chain_from_bytes, company_chain_to_bytes, company_from_bytes, company_keys_from_bytes,
+    company_keys_to_bytes, company_to_bytes, CompanyChainStoreApi, CompanyStoreApi,
 };
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::service::bill_service::BillKeys;
 use crate::service::company_service::{Company, CompanyKeys, CompanyPublicData};
 use crate::service::contact_service::IdentityPublicData;
-use crate::util;
 use crate::util::rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key};
+use crate::{blockchain, util};
 use borsh::{from_slice, to_vec};
 use future::{try_join_all, BoxFuture};
 use futures::channel::mpsc::Receiver;
@@ -43,6 +45,7 @@ pub struct Client {
     pub(super) sender: mpsc::Sender<Command>,
     bill_store: Arc<dyn BillStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
+    company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
 }
@@ -52,6 +55,7 @@ impl Client {
         sender: mpsc::Sender<Command>,
         bill_store: Arc<dyn BillStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
+        company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
     ) -> Self {
@@ -59,6 +63,7 @@ impl Client {
             sender,
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
         }
@@ -165,6 +170,10 @@ impl Client {
             .request_company_keys(company_id, local_node_id, &providers)
             .await?;
 
+        let company_chain = self
+            .request_company_chain(company_id, local_node_id, &providers)
+            .await?;
+
         // like with bills, we don't fail on not being able to fetch files
         let mut logo_file: Option<Vec<u8>> = None;
         if let Some(ref logo) = company.logo_file {
@@ -205,6 +214,18 @@ impl Client {
                     proof_file = Some(bytes);
                 }
             };
+        }
+
+        if !company_chain.is_chain_valid() {
+            error!("Fetched chain for {company_id} was invalid");
+            return Err(crate::dht::Error::Blockchain(
+                blockchain::Error::BlockchainInvalid,
+            ));
+        }
+        for block in company_chain.blocks() {
+            self.company_blockchain_store
+                .add_block(company_id, block)
+                .await?;
         }
 
         self.company_store.insert(company_id, &company).await?;
@@ -276,6 +297,32 @@ impl Client {
                     decrypt_bytes_with_private_key(&encrypted_bytes, &identity.private_key_pem)?;
                 let company_keys = company_keys_from_bytes(&decrypted_bytes)?;
                 Ok(company_keys)
+            }
+        }
+    }
+
+    async fn request_company_chain(
+        &mut self,
+        company_id: &str,
+        local_node_id: &PeerId,
+        providers: &HashSet<PeerId>,
+    ) -> Result<CompanyBlockchain> {
+        let identity = self.identity_store.get().await?;
+        let requests = self.create_file_requests_for_peers(
+            file_request_for_company_chain(&local_node_id.to_string(), company_id),
+            providers,
+        );
+
+        match futures::future::select_ok(requests).await {
+            Err(e) => Err(super::Error::NoProviders(format!(
+                "Get Company Chain: None of the providers returned the file for {company_id}: {e}",
+            ))),
+            Ok(file_content) => {
+                let encrypted_bytes = file_content.0;
+                let decrypted_bytes =
+                    decrypt_bytes_with_private_key(&encrypted_bytes, &identity.private_key_pem)?;
+                let company_chain = company_chain_from_bytes(&decrypted_bytes)?;
+                Ok(company_chain)
             }
         }
     }
@@ -1200,6 +1247,31 @@ impl Client {
         }
     }
 
+    // We check if the node id is part of the signatories, and if so, send the
+    // company chain encrypted with the node's public key
+    async fn handle_company_chain_file_request(
+        &mut self,
+        company_id: &str,
+        node_id: &str,
+    ) -> Result<Vec<u8>> {
+        let company = self.company_store.get(company_id).await?;
+        if company.signatories.iter().any(|v| v == node_id) {
+            let public_data = self
+                .get_identity_public_data_from_dht(node_id.to_owned())
+                .await?;
+            let public_key = public_data.rsa_public_key_pem;
+            let chain = self.company_blockchain_store.get_chain(company_id).await?;
+            let bytes = company_chain_to_bytes(&chain)?;
+            let file_encrypted = encrypt_bytes_with_public_key(&bytes, &public_key)?;
+            Ok(file_encrypted)
+        } else {
+            Err(super::Error::CallerNotSignatoryOfCompany(
+                node_id.to_owned(),
+                company_id.to_owned(),
+            ))
+        }
+    }
+
     // We check if the node id is part of the signatories, and if so,
     // open the logo file, if there is one, decrypt it and send the
     // given file, encrypted with the node's public key
@@ -1424,6 +1496,13 @@ impl Client {
                                 if let Err(e) = self.company_store.remove(&company_id).await {
                                     error!("Could not remove local company {company_id}: {e}");
                                 }
+                                if let Err(e) =
+                                    self.company_blockchain_store.remove(&company_id).await
+                                {
+                                    error!(
+                                        "Could not remove local company chain {company_id}: {e}"
+                                    );
+                                }
                                 if let Err(e) = self.stop_providing_company(&company_id).await {
                                     error!("Could not stop providing company {company_id}: {e}");
                                 }
@@ -1461,6 +1540,15 @@ impl Client {
                             }) => {
                                 let bytes = self
                                     .handle_company_keys_file_request(&company_id, &node_id)
+                                    .await?;
+                                self.respond_file(bytes, channel).await?;
+                            }
+                            ParsedInboundFileRequest::CompanyChain(CompanyChainRequest {
+                                node_id,
+                                company_id,
+                            }) => {
+                                let bytes = self
+                                    .handle_company_chain_file_request(&company_id, &node_id)
                                     .await?;
                                 self.respond_file(bytes, channel).await?;
                             }
@@ -1538,20 +1626,24 @@ mod test {
     use super::*;
     use crate::{
         constants::{
-            BILL_ATTACHMENT_PREFIX, COMPANY_KEY_PREFIX, COMPANY_LOGO_PREFIX, COMPANY_PROOF_PREFIX,
-            KEY_PREFIX,
+            BILL_ATTACHMENT_PREFIX, COMPANY_CHAIN_PREFIX, COMPANY_KEY_PREFIX, COMPANY_LOGO_PREFIX,
+            COMPANY_PROOF_PREFIX, KEY_PREFIX,
         },
         persistence::{
-            bill::MockBillStoreApi, company::MockCompanyStoreApi,
-            file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
+            bill::MockBillStoreApi,
+            company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
+            file_upload::MockFileUploadStoreApi,
+            identity::MockIdentityStoreApi,
         },
         service::{
             bill_service::test::{get_baseline_bill, get_genesis_chain},
+            company_service::CompanyToReturn,
             identity_service::{Identity, IdentityWithAll},
         },
-        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
+        tests::test::{TEST_PRIVATE_KEY, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY, TEST_PUB_KEY_SECP},
         web::data::File,
     };
+    use blockchain::company::CompanyCreateBlockData;
     use futures::channel::mpsc::{self, Sender};
     use libp2p::kad::record::{Key, Record};
     use std::collections::{HashMap, HashSet};
@@ -1574,8 +1666,8 @@ mod test {
                     signatories: vec![],
                 },
                 CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                     rsa_private_key: TEST_PRIVATE_KEY.to_string(),
                     rsa_public_key: TEST_PUB_KEY.to_string(),
                 },
@@ -1589,6 +1681,7 @@ mod test {
             sender,
             Arc::new(MockBillStoreApi::new()),
             Arc::new(MockCompanyStoreApi::new()),
+            Arc::new(MockCompanyChainStoreApi::new()),
             Arc::new(MockIdentityStoreApi::new()),
             Arc::new(MockFileUploadStoreApi::new()),
         )
@@ -1599,6 +1692,7 @@ mod test {
             sender,
             Arc::new(MockBillStoreApi::new()),
             Arc::new(MockCompanyStoreApi::new()),
+            Arc::new(MockCompanyChainStoreApi::new()),
             Arc::new(MockIdentityStoreApi::new()),
             Arc::new(MockFileUploadStoreApi::new()),
         )
@@ -1607,6 +1701,7 @@ mod test {
     fn get_client_chan_stores(
         mock_bill_storage: MockBillStoreApi,
         mock_company_storage: MockCompanyStoreApi,
+        mock_company_blockchain_storage: MockCompanyChainStoreApi,
         mock_identity_storage: MockIdentityStoreApi,
         mock_file_upload_storage: MockFileUploadStoreApi,
         sender: Sender<Command>,
@@ -1615,6 +1710,7 @@ mod test {
             sender,
             Arc::new(mock_bill_storage),
             Arc::new(mock_company_storage),
+            Arc::new(mock_company_blockchain_storage),
             Arc::new(mock_identity_storage),
             Arc::new(mock_file_upload_storage),
         )
@@ -1623,15 +1719,32 @@ mod test {
     fn get_storages() -> (
         MockBillStoreApi,
         MockCompanyStoreApi,
+        MockCompanyChainStoreApi,
         MockIdentityStoreApi,
         MockFileUploadStoreApi,
     ) {
         (
             MockBillStoreApi::new(),
             MockCompanyStoreApi::new(),
+            MockCompanyChainStoreApi::new(),
             MockIdentityStoreApi::new(),
             MockFileUploadStoreApi::new(),
         )
+    }
+
+    fn get_valid_company_chain(company_id: &str) -> CompanyBlockchain {
+        let (id, (company, company_keys)) = get_baseline_company_data(company_id);
+        let to_return = CompanyToReturn::from(id, company, company_keys.clone());
+
+        CompanyBlockchain::new(
+            &CompanyCreateBlockData::from(to_return),
+            &PeerId::random().to_string(),
+            &BcrKeys::new(),
+            &company_keys,
+            TEST_PUB_KEY,
+            1731593928,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1879,7 +1992,13 @@ mod test {
     #[tokio::test]
     async fn subscribe_to_all_companies_topics() {
         let (sender, receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         company_store.expect_get_all().returning(|| {
             let mut map = HashMap::new();
             let company_1 = get_baseline_company_data("company_1");
@@ -1891,6 +2010,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -1904,13 +2024,20 @@ mod test {
     #[tokio::test]
     async fn start_providing_companies_does_nothing_if_no_companies() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         company_store
             .expect_get_all()
             .returning(|| Ok(HashMap::new()));
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -1923,7 +2050,13 @@ mod test {
     #[tokio::test]
     async fn start_providing_companies_calls_start_provide_for_each_company() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         company_store.expect_get_all().returning(|| {
             let mut map = HashMap::new();
             let company_1 = get_baseline_company_data("company_1");
@@ -1945,6 +2078,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -1957,7 +2091,13 @@ mod test {
     #[tokio::test]
     async fn put_companies_for_signatories() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         company_store.expect_get_all().returning(|| {
             let mut map = HashMap::new();
             let mut company_1 = get_baseline_company_data("company_1");
@@ -1993,6 +2133,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2296,7 +2437,13 @@ mod test {
     #[tokio::test]
     async fn put_companies_public_data_in_dht() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         company_store.expect_get_all().returning(|| {
             let mut map = HashMap::new();
             let company_1 = get_baseline_company_data("company_1");
@@ -2330,6 +2477,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2342,7 +2490,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_data_file_request() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.signatories.push("some_node_id".to_string());
         let company_clone = company.clone();
@@ -2353,6 +2507,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2369,7 +2524,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_data_file_request_not_if_not_signatory() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.signatories.push("some_other_node_id".to_string());
         let company_clone = company.clone();
@@ -2380,6 +2541,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2392,7 +2554,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_keys_file_request() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.signatories.push("some_node_id".to_string());
         let company_clone = company.clone();
@@ -2401,8 +2569,8 @@ mod test {
             .returning(move |_| Ok(company_clone.clone()));
         company_store.expect_get_key_pair().returning(move |_| {
             Ok(CompanyKeys {
-                public_key: TEST_PUB_KEY.to_string(),
-                private_key: TEST_PRIVATE_KEY.to_string(),
+                public_key: TEST_PUB_KEY_SECP.to_string(),
+                private_key: TEST_PRIVATE_KEY_SECP.to_string(),
                 rsa_private_key: TEST_PRIVATE_KEY.to_string(),
                 rsa_public_key: TEST_PUB_KEY.to_string(),
             })
@@ -2431,6 +2599,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2443,21 +2612,19 @@ mod test {
     #[tokio::test]
     async fn handle_company_keys_file_request_not_if_not_signatory() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.signatories.push("some_other_node_id".to_string());
         let company_clone = company.clone();
         company_store
             .expect_get()
             .returning(move |_| Ok(company_clone.clone()));
-        company_store.expect_get_key_pair().returning(move |_| {
-            Ok(CompanyKeys {
-                public_key: TEST_PUB_KEY.to_string(),
-                private_key: TEST_PRIVATE_KEY.to_string(),
-                rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                rsa_public_key: TEST_PUB_KEY.to_string(),
-            })
-        });
 
         tokio::spawn(async move {
             while let Some(event) = receiver.next().await {
@@ -2481,6 +2648,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2491,10 +2659,117 @@ mod test {
     }
 
     #[tokio::test]
+    async fn handle_company_chain_file_request() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let (
+            bill_store,
+            mut company_store,
+            mut company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
+        let mut company = get_baseline_company_data("some_id").1 .0;
+        company.signatories.push("some_node_id".to_string());
+        let company_clone = company.clone();
+        company_store
+            .expect_get()
+            .returning(move |_| Ok(company_clone.clone()));
+        company_blockchain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain("some_id")));
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "IDENTITYsome_node_id".to_string());
+                        let mut identity = IdentityPublicData::new_empty();
+                        identity.node_id = "some_node_id".to_string();
+                        identity.rsa_public_key_pem = TEST_PUB_KEY.to_string();
+                        sender
+                            .send(Ok(Record::new(
+                                Key::new(&"IDENTITYsome_node_id".to_string()),
+                                serde_json::to_string(&identity).unwrap().into_bytes(),
+                            )))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan_stores(
+            bill_store,
+            company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+            sender,
+        )
+        .handle_company_chain_file_request("some_id", "some_node_id")
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn handle_company_chain_file_request_not_if_not_signatory() {
+        let (sender, mut receiver) = mpsc::channel(10);
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
+        let mut company = get_baseline_company_data("some_id").1 .0;
+        company.signatories.push("some_other_node_id".to_string());
+        let company_clone = company.clone();
+        company_store
+            .expect_get()
+            .returning(move |_| Ok(company_clone.clone()));
+
+        tokio::spawn(async move {
+            while let Some(event) = receiver.next().await {
+                match event {
+                    Command::GetRecord { key, sender } => {
+                        assert_eq!(key, "IDENTITYsome_other_node_id".to_string());
+                        let mut identity = IdentityPublicData::new_empty();
+                        identity.node_id = "some_node_id".to_string();
+                        sender
+                            .send(Ok(Record::new(
+                                Key::new(&"IDENTITYsome_other_node_id".to_string()),
+                                serde_json::to_string(&identity).unwrap().into_bytes(),
+                            )))
+                            .unwrap();
+                    }
+                    _ => panic!("wrong event"),
+                }
+            }
+        });
+
+        let result = get_client_chan_stores(
+            bill_store,
+            company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+            sender,
+        )
+        .handle_company_chain_file_request("some_id", "some_node_id")
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
     async fn handle_company_logo_file_request() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, mut identity_store, mut file_upload_store) =
-            get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            mut identity_store,
+            mut file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.logo_file = Some(File {
             name: "file.pdf".to_string(),
@@ -2537,6 +2812,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2549,7 +2825,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_logo_file_request_not_if_not_signatory() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.logo_file = Some(File {
             name: "file.pdf".to_string(),
@@ -2564,6 +2846,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2576,7 +2859,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_logo_file_request_not_if_no_file() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.logo_file = None;
         company.signatories.push("some_node_id".to_string());
@@ -2588,6 +2877,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2600,7 +2890,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_logo_file_request_not_if_wrong_file() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.logo_file = Some(File {
             name: "other_file.pdf".to_string(),
@@ -2615,6 +2911,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2627,8 +2924,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_proof_file_request() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, mut identity_store, mut file_upload_store) =
-            get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            mut identity_store,
+            mut file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.proof_of_registration_file = Some(File {
             name: "file.pdf".to_string(),
@@ -2671,6 +2973,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2683,7 +2986,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_proof_file_request_not_if_not_signatory() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.proof_of_registration_file = Some(File {
             name: "file.pdf".to_string(),
@@ -2698,6 +3007,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2710,7 +3020,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_proof_file_request_not_if_no_file() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.proof_of_registration_file = None;
         company.signatories.push("some_node_id".to_string());
@@ -2722,6 +3038,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2734,7 +3051,13 @@ mod test {
     #[tokio::test]
     async fn handle_company_proof_file_request_not_if_wrong_file() {
         let (sender, _receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            company_blockchain_store,
+            identity_store,
+            file_upload_store,
+        ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
         company.proof_of_registration_file = Some(File {
             name: "other_file.pdf".to_string(),
@@ -2749,6 +3072,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -2794,8 +3118,13 @@ mod test {
     #[tokio::test]
     async fn check_companies_baseline() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, mut company_store, mut identity_store, mut file_upload_store) =
-            get_storages();
+        let (
+            bill_store,
+            mut company_store,
+            mut company_blockchain_store,
+            mut identity_store,
+            mut file_upload_store,
+        ) = get_storages();
         let node_id = PeerId::random();
         let provider_node_id = PeerId::random();
         identity_store
@@ -2810,6 +3139,10 @@ mod test {
             map.insert(String::from("company_2"), (company_2.1 .0, company_2.1 .1));
             Ok(map)
         });
+
+        company_blockchain_store
+            .expect_add_block()
+            .returning(|_, _| Ok(()));
 
         identity_store.expect_get().returning(|| {
             let mut identity = Identity::new_empty();
@@ -2886,6 +3219,16 @@ mod test {
                                 .send(Ok(encrypt_bytes_with_public_key(&file_bytes, TEST_PUB_KEY)
                                     .unwrap()))
                                 .unwrap();
+                        } else if file_name.contains(COMPANY_CHAIN_PREFIX) {
+                            let chain = get_valid_company_chain("company_3");
+                            let chain_bytes = company_chain_to_bytes(&chain).unwrap();
+                            sender
+                                .send(Ok(encrypt_bytes_with_public_key(
+                                    &chain_bytes,
+                                    TEST_PUB_KEY,
+                                )
+                                .unwrap()))
+                                .unwrap();
                         } else if file_name.contains(COMPANY_PREFIX) {
                             sender
                                 .send(Ok(company_to_bytes(&company_data.1 .0).unwrap()))
@@ -2915,20 +3258,27 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
         )
         .check_companies()
         .await;
+        println!("{result:?}");
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn check_new_bills_baseline() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (mut bill_store, company_store, mut identity_store, mut file_upload_store) =
-            get_storages();
+        let (
+            mut bill_store,
+            company_store,
+            company_blockchain_store,
+            mut identity_store,
+            mut file_upload_store,
+        ) = get_storages();
         let node_id = PeerId::random();
         let provider_node_id = PeerId::random();
         identity_store
@@ -3036,6 +3386,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,
@@ -3082,7 +3433,13 @@ mod test {
     #[tokio::test]
     async fn put_identity_public_data_in_dht() {
         let (sender, mut receiver) = mpsc::channel(10);
-        let (bill_store, company_store, mut identity_store, file_upload_store) = get_storages();
+        let (
+            bill_store,
+            company_store,
+            company_blockchain_store,
+            mut identity_store,
+            file_upload_store,
+        ) = get_storages();
         let node_id = PeerId::random();
         identity_store.expect_exists().returning(|| true);
         identity_store.expect_get_full().returning(move || {
@@ -3121,6 +3478,7 @@ mod test {
         let result = get_client_chan_stores(
             bill_store,
             company_store,
+            company_blockchain_store,
             identity_store,
             file_upload_store,
             sender,

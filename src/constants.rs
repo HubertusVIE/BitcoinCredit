@@ -8,6 +8,7 @@ pub const KEY_PREFIX: &str = "KEY";
 pub const COMPANIES_PREFIX: &str = "COMPANIES";
 pub const COMPANY_PREFIX: &str = "COMPANY";
 pub const COMPANY_KEY_PREFIX: &str = "COMPANYKEY";
+pub const COMPANY_CHAIN_PREFIX: &str = "COMPANYCHAIN";
 pub const COMPANY_LOGO_PREFIX: &str = "COMPANYLOGO";
 pub const COMPANY_PROOF_PREFIX: &str = "COMPANYPROOF";
 pub const IDENTITY_PREFIX: &str = "IDENTITY";
