@@ -10,6 +10,7 @@ pub mod contact;
 pub mod identity;
 pub mod identity_chain;
 pub mod nostr_event_offset;
+pub mod notification;
 
 /// Configuration for the SurrealDB connection string, namespace and
 /// database name

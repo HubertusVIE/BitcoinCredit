@@ -6,6 +6,7 @@ pub mod file_upload;
 pub mod identity;
 pub mod identity_chain;
 pub mod nostr;
+pub mod notification;
 
 use crate::util;
 use bill::FileBasedBillStore;
