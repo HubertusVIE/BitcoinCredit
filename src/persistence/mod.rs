@@ -31,6 +31,9 @@ pub enum Error {
     #[error("SurrealDB connection error {0}")]
     SurrealConnection(#[from] surrealdb::Error),
 
+    #[error("Failed to insert into database: {0}")]
+    InsertFailed(String),
+
     #[error("unable to serialize/deserialize to/from JSON {0}")]
     Json(#[from] serde_json::Error),
 

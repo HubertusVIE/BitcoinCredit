@@ -10,8 +10,8 @@ use crate::{
 use nostr_relay_builder::prelude::*;
 
 use super::{
-    email::EmailMessage, handler::NotificationHandlerApi, nostr::NostrClient, Event, EventEnvelope,
-    EventType, NostrConfig, Result,
+    email::EmailMessage, event::Event, handler::NotificationHandlerApi, nostr::NostrClient,
+    EventEnvelope, EventType, NostrConfig, Result,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;

@@ -283,7 +283,7 @@ mod tests {
     use super::{NostrClient, NostrConfig, NostrConsumer};
     use crate::persistence::nostr::MockNostrEventOffsetStoreApi;
     use crate::persistence::NostrEventOffset;
-    use crate::service::notification_service::Event;
+    use crate::service::notification_service::event::Event;
     use crate::service::{
         contact_service::MockContactServiceApi,
         notification_service::{
