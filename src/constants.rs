@@ -54,6 +54,7 @@ pub const DB_PREVIOUS_HASH: &str = "previous_hash";
 pub const DB_SIGNATURE: &str = "signature";
 pub const DB_TIMESTAMP: &str = "timestamp";
 pub const DB_PUBLIC_KEY: &str = "public_key";
+pub const DB_SIGNATORY_NODE_ID: &str = "signatory_node_id";
 pub const DB_DATA: &str = "data";
 pub const DB_OP_CODE: &str = "op_code";
 

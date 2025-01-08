@@ -3,7 +3,6 @@ use thiserror::Error;
 use crate::util::{crypto, rsa};
 use crate::{external, util};
 use borsh::{to_vec, BorshSerialize};
-use borsh_derive::BorshSerialize;
 use log::{error, warn};
 use std::string::FromUtf8Error;
 
@@ -62,6 +61,7 @@ pub enum Error {
 /// Generic trait for a Block within a Blockchain
 pub trait Block {
     type OpCode: PartialEq + Clone + BorshSerialize;
+    type BlockDataToHash: BorshSerialize;
 
     fn id(&self) -> u64;
     fn timestamp(&self) -> u64;
@@ -71,17 +71,17 @@ pub trait Block {
     fn data(&self) -> &str;
     fn signature(&self) -> &str;
     fn public_key(&self) -> &str;
+    fn get_block_data_to_hash(&self) -> Self::BlockDataToHash;
+
+    /// Calculates the hash over the data to hash for this block
+    fn calculate_hash(block_data_to_hash: Self::BlockDataToHash) -> Result<String> {
+        let serialized = to_vec(&block_data_to_hash)?;
+        Ok(util::sha256_hash(&serialized))
+    }
 
     /// Validates that the block's hash is correct
     fn validate_hash(&self) -> bool {
-        match calculate_hash(
-            &self.id(),
-            self.previous_hash(),
-            self.data(),
-            &self.timestamp(),
-            self.public_key(),
-            self.op_code(),
-        ) {
+        match Self::calculate_hash(self.get_block_data_to_hash()) {
             Err(e) => {
                 error!("Error calculating hash: {e}");
                 false
@@ -237,37 +237,4 @@ pub trait Blockchain {
             .cloned()
             .unwrap_or_else(|| self.get_first_block().clone())
     }
-}
-
-#[derive(BorshSerialize)]
-struct BlockDataToHash<'a, T: BorshSerialize> {
-    id: &'a u64,
-    previous_hash: &'a str,
-    data: &'a str,
-    timestamp: &'a u64,
-    public_key: &'a str,
-    operation_code: &'a T,
-}
-
-/// Calculates the sha256 hash over the block data serialized to binary, returning the base58
-/// encoded hash
-fn calculate_hash<T: BorshSerialize>(
-    id: &u64,
-    previous_hash: &str,
-    data: &str,
-    timestamp: &u64,
-    public_key: &str,
-    operation_code: &T,
-) -> Result<String> {
-    let data = BlockDataToHash {
-        id,
-        previous_hash,
-        data,
-        timestamp,
-        public_key,
-        operation_code,
-    };
-
-    let serialized = to_vec(&data)?;
-    Ok(util::sha256_hash(&serialized))
 }

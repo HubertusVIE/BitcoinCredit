@@ -1,6 +1,6 @@
 use super::bill::BillOpCode;
 use super::Result;
-use super::{calculate_hash, Block, Blockchain};
+use super::{Block, Blockchain};
 use crate::service::identity_service::Identity;
 use crate::util::{self, crypto, rsa, BcrKeys};
 use borsh::to_vec;
@@ -15,6 +15,16 @@ pub enum IdentityOpCode {
     CreateCompany,
     AddSignatory,
     RemoveSignatory,
+}
+
+#[derive(BorshSerialize)]
+pub struct IdentityBlockDataToHash {
+    id: u64,
+    previous_hash: String,
+    data: String,
+    timestamp: u64,
+    public_key: String,
+    operation_code: IdentityOpCode,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -96,6 +106,7 @@ pub struct IdentityRemoveSignatoryBlockData {
 
 impl Block for IdentityBlock {
     type OpCode = IdentityOpCode;
+    type BlockDataToHash = IdentityBlockDataToHash;
 
     fn id(&self) -> u64 {
         self.id
@@ -128,6 +139,18 @@ impl Block for IdentityBlock {
     fn public_key(&self) -> &str {
         &self.public_key
     }
+
+    fn get_block_data_to_hash(&self) -> Self::BlockDataToHash {
+        let data = IdentityBlockDataToHash {
+            id: self.id(),
+            previous_hash: self.previous_hash().to_owned(),
+            data: self.data().to_owned(),
+            timestamp: self.timestamp(),
+            public_key: self.public_key().to_owned(),
+            operation_code: self.op_code().to_owned(),
+        };
+        data
+    }
 }
 
 impl IdentityBlock {
@@ -139,14 +162,14 @@ impl IdentityBlock {
         keys: &BcrKeys,
         timestamp: u64,
     ) -> Result<Self> {
-        let hash = calculate_hash(
-            &id,
-            &previous_hash,
-            &data,
-            &timestamp,
-            &keys.get_public_key(),
-            &op_code,
-        )?;
+        let hash = Self::calculate_hash(IdentityBlockDataToHash {
+            id,
+            previous_hash: previous_hash.clone(),
+            data: data.clone(),
+            timestamp,
+            public_key: keys.get_public_key(),
+            operation_code: op_code.clone(),
+        })?;
         let signature = crypto::signature(&hash, &keys.get_private_key_string())?;
 
         Ok(Self {

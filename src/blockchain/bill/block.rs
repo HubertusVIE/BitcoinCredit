@@ -1,4 +1,3 @@
-use super::super::calculate_hash;
 use super::super::{Error, Result};
 use super::extract_after_phrase;
 use super::BillOpCode;
@@ -19,6 +18,7 @@ use crate::util::{self, crypto};
 use crate::util::{rsa, BcrKeys};
 
 use borsh::from_slice;
+use borsh_derive::BorshSerialize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -34,8 +34,19 @@ pub struct BillBlock {
     pub operation_code: BillOpCode,
 }
 
+#[derive(BorshSerialize)]
+pub struct BillBlockDataToHash {
+    id: u64,
+    previous_hash: String,
+    data: String,
+    timestamp: u64,
+    public_key: String,
+    operation_code: BillOpCode,
+}
+
 impl Block for BillBlock {
     type OpCode = BillOpCode;
+    type BlockDataToHash = BillBlockDataToHash;
 
     fn id(&self) -> u64 {
         self.id
@@ -68,6 +79,18 @@ impl Block for BillBlock {
     fn public_key(&self) -> &str {
         &self.public_key
     }
+
+    fn get_block_data_to_hash(&self) -> Self::BlockDataToHash {
+        let data = BillBlockDataToHash {
+            id: self.id(),
+            previous_hash: self.previous_hash().to_owned(),
+            data: self.data().to_owned(),
+            timestamp: self.timestamp(),
+            public_key: self.public_key().to_owned(),
+            operation_code: self.op_code().to_owned(),
+        };
+        data
+    }
 }
 
 impl BillBlock {
@@ -97,14 +120,14 @@ impl BillBlock {
         keys: BcrKeys,
         timestamp: u64,
     ) -> Result<Self> {
-        let hash = calculate_hash(
-            &id,
-            &previous_hash,
-            &data,
-            &timestamp,
-            &keys.get_public_key(),
-            &operation_code,
-        )?;
+        let hash = Self::calculate_hash(BillBlockDataToHash {
+            id,
+            previous_hash: previous_hash.clone(),
+            data: data.clone(),
+            timestamp,
+            public_key: keys.get_public_key(),
+            operation_code: operation_code.clone(),
+        })?;
         let signature = crypto::signature(&hash, &keys.get_private_key_string())?;
 
         Ok(Self {

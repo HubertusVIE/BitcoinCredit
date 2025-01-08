@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use super::{base58_decode, base58_encode};
 use bitcoin::{
-    secp256k1::{self, schnorr::Signature, Keypair, SecretKey},
+    secp256k1::{self, schnorr::Signature, Keypair, Scalar, SecretKey},
     Network,
 };
 use nostr_sdk::ToBech32;
@@ -30,6 +30,9 @@ pub enum Error {
 
     #[error("Signature had invalid length")]
     InvalidSignatureLength,
+
+    #[error("Aggregated signature needs at least 2 keys")]
+    TooFewKeys,
 
     /// Errors stemming from decoding base58
     #[error("Decode base58 error: {0}")]
@@ -135,6 +138,55 @@ fn load_keypair(private_key: &str) -> Result<Keypair> {
     Ok(pair)
 }
 
+/// Returns the aggregated public key for the given private keys
+pub fn get_aggregated_public_key(private_keys: &[String]) -> Result<String> {
+    if private_keys.len() < 2 {
+        return Err(Error::TooFewKeys);
+    }
+
+    let key_pairs: Vec<Keypair> = private_keys
+        .iter()
+        .map(|pk| load_keypair(pk))
+        .collect::<Result<Vec<Keypair>>>()?;
+    let public_keys: Vec<PublicKey> = key_pairs.into_iter().map(|kp| kp.public_key()).collect();
+
+    let first_key = public_keys.first().ok_or(Error::TooFewKeys)?;
+    let mut aggregated_key: PublicKey = first_key.to_owned();
+    for key in public_keys.iter().skip(1) {
+        aggregated_key = aggregated_key.combine(key)?;
+    }
+    Ok(aggregated_key.to_string())
+}
+
+/// The keys need to be in the correct order (identity -> company -> bill) to get the same
+/// signature for the same keys
+/// Public keys can be aggregated regardless of order
+/// Returns the aggregated signature and the aggregated public key
+pub fn aggregated_signature(hash: &str, keys: &[String]) -> Result<String> {
+    if keys.len() < 2 {
+        return Err(Error::TooFewKeys);
+    }
+    let secp = Secp256k1::signing_only();
+    let key_pairs: Vec<Keypair> = keys
+        .iter()
+        .map(|pk| load_keypair(pk))
+        .collect::<Result<Vec<Keypair>>>()?;
+    let secret_keys: Vec<SecretKey> = key_pairs.into_iter().map(|kp| kp.secret_key()).collect();
+
+    let first_key = secret_keys.first().ok_or(Error::TooFewKeys)?;
+
+    let mut aggregated_key: SecretKey = first_key.to_owned();
+    for key in secret_keys.iter().skip(1) {
+        aggregated_key = aggregated_key.add_tweak(&Scalar::from(*key))?;
+    }
+
+    let aggregated_key_pair = Keypair::from_secret_key(&secp, &aggregated_key);
+    let msg = Message::from_digest_slice(&base58_decode(hash)?)?;
+    let signature = secp.sign_schnorr(&msg, &aggregated_key_pair);
+
+    Ok(base58_encode(&signature.serialize()))
+}
+
 pub fn signature(hash: &str, private_key: &str) -> Result<String> {
     // create a signing context
     let secp = Secp256k1::signing_only();
@@ -168,6 +220,7 @@ mod tests {
         let hash = util::sha256_hash("Hello, World".as_bytes());
         let signature = signature(&hash, &keypair.get_private_key_string()).unwrap();
         assert!(verify(&hash, &signature, &keypair.get_public_key()).is_ok());
+        assert!(verify(&hash, &signature, &keypair.get_public_key()).unwrap());
     }
 
     #[test]
@@ -183,6 +236,207 @@ mod tests {
         assert!(!verify(&hash2, &signature, &keypair.get_public_key())
             .as_ref()
             .unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated() {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+
+        assert!(verify(&hash, &signature, &public_key).is_ok());
+        assert!(verify(&hash, &signature, &public_key).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_order_dependence() {
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+        ];
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+
+        let keys2: Vec<String> = vec![
+            keypair2.get_private_key_string(),
+            keypair1.get_private_key_string(),
+        ];
+        let public_key2 = get_aggregated_public_key(&keys2).unwrap();
+        let signature2 = aggregated_signature(&hash, &keys2).unwrap();
+
+        assert_ne!(signature, signature2); // the signatures aren't the same
+        assert_eq!(public_key, public_key2); // but the public keys are
+
+        assert!(verify(&hash, &signature, &public_key).is_ok());
+        assert!(verify(&hash, &signature, &public_key).unwrap());
+
+        assert!(verify(&hash, &signature2, &public_key2).is_ok());
+        assert!(verify(&hash, &signature2, &public_key2).unwrap());
+
+        assert!(verify(&hash, &signature, &public_key2).is_ok());
+        assert!(verify(&hash, &signature, &public_key2).unwrap());
+
+        assert!(verify(&hash, &signature2, &public_key).is_ok());
+        assert!(verify(&hash, &signature2, &public_key).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_invalid() {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+
+        let changed_hash = util::sha256_hash("Hello Hello, World".as_bytes());
+        assert!(verify(&changed_hash, &signature, &public_key).is_ok());
+        assert!(!verify(&changed_hash, &signature, &public_key).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_invalid_only_one_pubkey() {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+        assert!(verify(&hash, &signature, &keypair2.get_public_key()).is_ok());
+        assert!(!verify(&hash, &signature, &keypair2.get_public_key()).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_multiple() {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keypair3 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+            keypair3.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+        assert!(verify(&hash, &signature, &public_key).is_ok());
+        assert!(verify(&hash, &signature, &public_key).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_multiple_manually_combined_pubkeys_for_verify() {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keypair3 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+            keypair3.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+
+        let combined_pub_key = keypair1
+            .inner
+            .public_key()
+            .combine(&keypair2.inner.public_key())
+            .unwrap()
+            .combine(&keypair3.inner.public_key())
+            .unwrap()
+            .to_string();
+        assert_eq!(public_key, combined_pub_key);
+        assert!(verify(&hash, &signature, &combined_pub_key).is_ok());
+        assert!(verify(&hash, &signature, &combined_pub_key).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_manually_combined_pubkeys_for_verify() {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+
+        let combined_pub_key = keypair1
+            .inner
+            .public_key()
+            .combine(&keypair2.inner.public_key())
+            .unwrap()
+            .to_string();
+        assert_eq!(public_key, combined_pub_key);
+        assert!(verify(&hash, &signature, &combined_pub_key).is_ok());
+        assert!(verify(&hash, &signature, &combined_pub_key).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_manually_combined_pubkeys_for_verify_different_order_also_works()
+    {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+
+        let combined_pub_key = keypair2
+            .inner
+            .public_key()
+            .combine(&keypair1.inner.public_key())
+            .unwrap()
+            .to_string();
+        assert_eq!(public_key, combined_pub_key);
+        assert!(verify(&hash, &signature, &combined_pub_key).is_ok());
+        assert!(verify(&hash, &signature, &combined_pub_key).unwrap());
+    }
+
+    #[test]
+    fn test_sign_verify_aggregated_manually_combined_pubkeys_for_verify_invalid_pubkey() {
+        let keypair1 = BcrKeys::new();
+        let keypair2 = BcrKeys::new();
+        let keypair3 = BcrKeys::new();
+        let keys: Vec<String> = vec![
+            keypair1.get_private_key_string(),
+            keypair2.get_private_key_string(),
+        ];
+        let hash = util::sha256_hash("Hello, World".as_bytes());
+        let public_key = get_aggregated_public_key(&keys).unwrap();
+        let signature = aggregated_signature(&hash, &keys).unwrap();
+
+        let combined_pub_key = keypair1
+            .inner
+            .public_key()
+            .combine(&keypair3.inner.public_key())
+            .unwrap()
+            .to_string();
+        assert_ne!(public_key, combined_pub_key);
+        assert!(verify(&hash, &signature, &combined_pub_key).is_ok());
+        assert!(!verify(&hash, &signature, &combined_pub_key).unwrap());
     }
 
     #[test]

@@ -3265,7 +3265,6 @@ mod test {
         )
         .check_companies()
         .await;
-        println!("{result:?}");
         assert!(result.is_ok());
     }
 

@@ -6,7 +6,7 @@ use crate::{
     },
     constants::{
         DB_BLOCK_ID, DB_COMPANY_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PREVIOUS_HASH, DB_PUBLIC_KEY,
-        DB_SIGNATURE, DB_TABLE, DB_TIMESTAMP,
+        DB_SIGNATORY_NODE_ID, DB_SIGNATURE, DB_TABLE, DB_TIMESTAMP,
     },
     persistence::company::CompanyChainStoreApi,
 };
@@ -22,6 +22,7 @@ const CREATE_BLOCK_QUERY: &str = r#"CREATE type::table($table) CONTENT {
                                     signature: $signature,
                                     timestamp: $timestamp,
                                     public_key: $public_key,
+                                    signatory_node_id: $signatory_node_id,
                                     data: $data,
                                     op_code: $op_code
                                 };"#;
@@ -50,6 +51,7 @@ impl SurrealCompanyChainStore {
             .bind((DB_SIGNATURE, entity.signature))
             .bind((DB_TIMESTAMP, entity.timestamp))
             .bind((DB_PUBLIC_KEY, entity.public_key))
+            .bind((DB_SIGNATORY_NODE_ID, entity.signatory_node_id))
             .bind((DB_DATA, entity.data))
             .bind((DB_OP_CODE, entity.op_code))
             .await?
@@ -167,6 +169,7 @@ pub struct CompanyBlockDb {
     pub signature: String,
     pub timestamp: u64,
     pub public_key: String,
+    pub signatory_node_id: String,
     pub data: String,
     pub op_code: CompanyOpCode,
 }
@@ -180,6 +183,7 @@ impl From<CompanyBlockDb> for CompanyBlock {
             timestamp: value.timestamp,
             data: value.data,
             public_key: value.public_key,
+            signatory_node_id: value.signatory_node_id,
             previous_hash: value.previous_hash,
             signature: value.signature,
             op_code: value.op_code,
@@ -197,6 +201,7 @@ impl From<&CompanyBlock> for CompanyBlockDb {
             signature: value.signature.clone(),
             timestamp: value.timestamp,
             public_key: value.public_key.clone(),
+            signatory_node_id: value.signatory_node_id.clone(),
             data: value.data.clone(),
             op_code: value.op_code.clone(),
         }

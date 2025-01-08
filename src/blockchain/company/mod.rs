@@ -1,6 +1,6 @@
 use super::bill::BillOpCode;
 use super::Result;
-use super::{calculate_hash, Block, Blockchain};
+use super::{Block, Blockchain};
 use crate::service::company_service::{CompanyKeys, CompanyToReturn};
 use crate::util::{self, crypto, rsa, BcrKeys};
 use crate::web::data::File;
@@ -15,6 +15,18 @@ pub enum CompanyOpCode {
     AddSignatory,
     RemoveSignatory,
     SignCompanyBill,
+}
+
+#[derive(BorshSerialize)]
+pub struct CompanyBlockDataToHash {
+    company_id: String,
+    id: u64,
+    previous_hash: String,
+    data: String,
+    timestamp: u64,
+    public_key: String,
+    signatory_node_id: String,
+    operation_code: CompanyOpCode,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -41,6 +53,7 @@ pub struct CompanyBlock {
     pub timestamp: u64,
     pub data: String,
     pub public_key: String,
+    pub signatory_node_id: String,
     pub previous_hash: String,
     pub signature: String,
     pub op_code: CompanyOpCode,
@@ -112,6 +125,7 @@ pub struct CompanyRemoveSignatoryBlockData {
 
 impl Block for CompanyBlock {
     type OpCode = CompanyOpCode;
+    type BlockDataToHash = CompanyBlockDataToHash;
 
     fn id(&self) -> u64 {
         self.id
@@ -144,30 +158,56 @@ impl Block for CompanyBlock {
     fn public_key(&self) -> &str {
         &self.public_key
     }
+
+    fn get_block_data_to_hash(&self) -> Self::BlockDataToHash {
+        let data = CompanyBlockDataToHash {
+            company_id: self.company_id.clone(),
+            id: self.id(),
+            previous_hash: self.previous_hash().to_owned(),
+            data: self.data().to_owned(),
+            timestamp: self.timestamp(),
+            public_key: self.public_key().to_owned(),
+            signatory_node_id: self.signatory_node_id.clone(),
+            operation_code: self.op_code().to_owned(),
+        };
+        data
+    }
 }
 
 impl CompanyBlock {
+    /// Create a new block and sign it with an aggregated key, combining the identity key of the
+    /// signer and the company key
     fn new(
         company_id: String,
         id: u64,
         previous_hash: String,
         data: String,
         op_code: CompanyOpCode,
-        _identity_keys: &BcrKeys,
+        identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
         timestamp: u64,
     ) -> Result<Self> {
-        // TODO: calculate aggregated public key from identity and company key
-        let hash = calculate_hash(
-            &id,
-            &previous_hash,
-            &data,
-            &timestamp,
-            &company_keys.public_key, // TODO: use aggregated key
-            &op_code,
-        )?;
-        // TODO: use aggregated signature from identity and company key
-        let signature = crypto::signature(&hash, &company_keys.private_key)?;
+        let keys: Vec<String> = vec![
+            identity_keys.get_private_key_string(),
+            company_keys.private_key.to_owned(),
+        ];
+        let signatory_node_id = identity_keys
+            .get_libp2p_keys()?
+            .public()
+            .to_peer_id()
+            .to_string();
+        let aggregated_public_key = crypto::get_aggregated_public_key(&keys)?;
+        let hash = Self::calculate_hash(CompanyBlockDataToHash {
+            company_id: company_id.clone(),
+            id,
+            previous_hash: previous_hash.clone(),
+            data: data.clone(),
+            timestamp,
+            public_key: aggregated_public_key.clone(),
+            signatory_node_id: signatory_node_id.clone(),
+            operation_code: op_code.clone(),
+        })?;
+        let signature = crypto::aggregated_signature(&hash, &keys)?;
 
         Ok(Self {
             company_id,
@@ -176,7 +216,8 @@ impl CompanyBlock {
             timestamp,
             previous_hash,
             signature,
-            public_key: company_keys.public_key.clone(), // TODO: use aggregated key
+            public_key: aggregated_public_key,
+            signatory_node_id,
             data,
             op_code,
         })
@@ -413,26 +454,24 @@ impl CompanyBlockchain {
 
     /// Creates a company chain from a vec of blocks
     pub fn new_from_blocks(blocks_to_add: Vec<CompanyBlock>) -> Result<Self> {
-        if blocks_to_add.is_empty() {
-            return Err(super::Error::BlockchainInvalid);
+        match blocks_to_add.first() {
+            None => Err(super::Error::BlockchainInvalid),
+            Some(first) => {
+                if !first.verify() || !first.validate_hash() {
+                    return Err(super::Error::BlockchainInvalid);
+                }
+
+                let chain = Self {
+                    blocks: blocks_to_add,
+                };
+
+                if !chain.is_chain_valid() {
+                    return Err(super::Error::BlockchainInvalid);
+                }
+
+                Ok(chain)
+            }
         }
-
-        let first = blocks_to_add
-            .first()
-            .expect("checked above that there is one block");
-        if !first.verify() || !first.validate_hash() {
-            return Err(super::Error::BlockchainInvalid);
-        }
-
-        let chain = Self {
-            blocks: blocks_to_add,
-        };
-
-        if !chain.is_chain_valid() {
-            return Err(super::Error::BlockchainInvalid);
-        }
-
-        Ok(chain)
     }
 }
 
