@@ -187,6 +187,7 @@ impl CompanyBlock {
         company_keys: &CompanyKeys,
         timestamp: u64,
     ) -> Result<Self> {
+        // The order here is important: identity -> company
         let keys: Vec<String> = vec![
             identity_keys.get_private_key_string(),
             company_keys.private_key.to_owned(),

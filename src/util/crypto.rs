@@ -161,7 +161,7 @@ pub fn get_aggregated_public_key(private_keys: &[String]) -> Result<String> {
 /// The keys need to be in the correct order (identity -> company -> bill) to get the same
 /// signature for the same keys
 /// Public keys can be aggregated regardless of order
-/// Returns the aggregated signature and the aggregated public key
+/// Returns the aggregated signature
 pub fn aggregated_signature(hash: &str, keys: &[String]) -> Result<String> {
     if keys.len() < 2 {
         return Err(Error::TooFewKeys);
@@ -174,7 +174,6 @@ pub fn aggregated_signature(hash: &str, keys: &[String]) -> Result<String> {
     let secret_keys: Vec<SecretKey> = key_pairs.into_iter().map(|kp| kp.secret_key()).collect();
 
     let first_key = secret_keys.first().ok_or(Error::TooFewKeys)?;
-
     let mut aggregated_key: SecretKey = first_key.to_owned();
     for key in secret_keys.iter().skip(1) {
         aggregated_key = aggregated_key.add_tweak(&Scalar::from(*key))?;
