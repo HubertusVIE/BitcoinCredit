@@ -2,7 +2,10 @@ use async_trait::async_trait;
 
 use super::Result;
 use crate::service::notification_service::{Notification, NotificationType};
+#[cfg(test)]
+use mockall::automock;
 
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait NotificationStoreApi: Send + Sync {
     /// Stores a new notification into the database

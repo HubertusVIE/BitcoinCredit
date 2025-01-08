@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use super::event::{ActionType, BillActionEventPayload, Event, EventType};
 use super::transport::NotificationJsonTransportApi;
-use super::{NotificationServiceApi, Result};
+use super::{Notification, NotificationServiceApi, Result};
+use crate::persistence::notification::NotificationStoreApi;
 use crate::service::bill_service::BitcreditBill;
 
 /// A default implementation of the NotificationServiceApi that can
@@ -10,12 +13,17 @@ use crate::service::bill_service::BitcreditBill;
 #[allow(dead_code)]
 pub struct DefaultNotificationService {
     notification_transport: Box<dyn NotificationJsonTransportApi>,
+    notification_store: Arc<dyn NotificationStoreApi>,
 }
 
 impl DefaultNotificationService {
-    pub fn new(notification_transport: Box<dyn NotificationJsonTransportApi>) -> Self {
+    pub fn new(
+        notification_transport: Box<dyn NotificationJsonTransportApi>,
+        notification_store: Arc<dyn NotificationStoreApi>,
+    ) -> Self {
         Self {
             notification_transport,
+            notification_store,
         }
     }
 }
@@ -185,6 +193,19 @@ impl NotificationServiceApi for DefaultNotificationService {
         // @TODO: How do we address a mint ???
         Ok(())
     }
+
+    async fn get_client_notifications(&self) -> Result<Vec<Notification>> {
+        let result = self.notification_store.list().await?;
+        Ok(result)
+    }
+
+    async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()> {
+        let _ = self
+            .notification_store
+            .mark_as_done(notification_id)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -192,7 +213,10 @@ mod tests {
 
     use std::sync::Arc;
 
+    use mockall::predicate::eq;
+
     use crate::persistence::nostr::MockNostrEventOffsetStoreApi;
+    use crate::persistence::notification::MockNotificationStoreApi;
     use crate::service::contact_service::MockContactServiceApi;
     use crate::service::notification_service::create_nostr_consumer;
     use crate::service::notification_service::transport::MockNotificationJsonTransportApi;
@@ -232,6 +256,7 @@ mod tests {
 
         let service = DefaultNotificationService {
             notification_transport: Box::new(mock),
+            notification_store: Arc::new(MockNotificationStoreApi::new()),
         };
 
         service
@@ -364,6 +389,47 @@ mod tests {
             .expect("failed to send event");
     }
 
+    #[tokio::test]
+    async fn get_client_notifications() {
+        let mut mock_store = MockNotificationStoreApi::new();
+        let result = Notification::new_bill_notification("bill_id", "desc", None);
+        let returning = result.clone();
+        mock_store
+            .expect_list()
+            .returning(move || Ok(vec![returning.clone()]));
+
+        let service = DefaultNotificationService::new(
+            Box::new(MockNotificationJsonTransportApi::new()),
+            Arc::new(mock_store),
+        );
+
+        let res = service
+            .get_client_notifications()
+            .await
+            .expect("could not get notifications");
+        assert!(!res.is_empty());
+        assert_eq!(res[0].id, result.id);
+    }
+
+    #[tokio::test]
+    async fn get_mark_notification_done() {
+        let mut mock_store = MockNotificationStoreApi::new();
+        mock_store
+            .expect_mark_as_done()
+            .with(eq("notification_id"))
+            .returning(|_| Ok(()));
+
+        let service = DefaultNotificationService::new(
+            Box::new(MockNotificationJsonTransportApi::new()),
+            Arc::new(mock_store),
+        );
+
+        service
+            .mark_notification_as_done("notification_id")
+            .await
+            .expect("could not mark notification as done");
+    }
+
     fn setup_service_expectation(
         node_id: &str,
         event_type: EventType,
@@ -381,6 +447,7 @@ mod tests {
             .returning(|_, _| Ok(()));
         DefaultNotificationService {
             notification_transport: Box::new(mock),
+            notification_store: Arc::new(MockNotificationStoreApi::new()),
         }
     }
 

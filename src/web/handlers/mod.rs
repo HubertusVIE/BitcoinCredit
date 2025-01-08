@@ -5,6 +5,7 @@ pub mod bill;
 pub mod company;
 pub mod contacts;
 pub mod identity;
+pub mod notifications;
 pub mod quotes;
 
 #[get("/")]

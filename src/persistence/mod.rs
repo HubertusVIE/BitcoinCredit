@@ -13,9 +13,11 @@ use bill::FileBasedBillStore;
 use db::{
     company::SurrealCompanyStore, contact::SurrealContactStore, get_surreal_db,
     identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
-    nostr_event_offset::SurrealNostrEventOffsetStore, SurrealDbConfig,
+    nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
+    SurrealDbConfig,
 };
 use log::error;
+use notification::NotificationStoreApi;
 use std::{path::Path, sync::Arc};
 use thiserror::Error;
 
@@ -104,6 +106,7 @@ pub struct DbContext {
     pub company_store: Arc<dyn company::CompanyStoreApi>,
     pub file_upload_store: Arc<dyn file_upload::FileUploadStoreApi>,
     pub nostr_event_offset_store: Arc<dyn nostr::NostrEventOffsetStoreApi>,
+    pub notification_store: Arc<dyn NotificationStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
@@ -128,6 +131,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
     let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(db.clone()));
 
     let nostr_event_offset_store = Arc::new(SurrealNostrEventOffsetStore::new(db.clone()));
+    let notification_store = Arc::new(SurrealNotificationStore::new(db.clone()));
 
     Ok(DbContext {
         contact_store,
@@ -137,5 +141,6 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         company_store,
         file_upload_store,
         nostr_event_offset_store,
+        notification_store,
     })
 }

@@ -115,6 +115,13 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::quotes::accept_quote
             ],
         )
+        .mount(
+            "/notifications",
+            routes![
+                handlers::notifications::list_notifications,
+                handlers::notifications::mark_notification_done,
+            ],
+        )
         .attach(Cors);
 
     info!("HTTP Server Listening on {}", conf.http_listen_url());

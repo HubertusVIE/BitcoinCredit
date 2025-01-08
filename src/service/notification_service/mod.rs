@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::persistence::notification::NotificationStoreApi;
 use crate::persistence::NostrEventOffsetStoreApi;
 use crate::persistence::{self, identity::IdentityStoreApi};
 use crate::util::date::{now, DateTimeUtc};
@@ -93,8 +94,12 @@ pub async fn create_nostr_client(
 /// Creates a new notification service that will send events via the given Nostr json transport.
 pub async fn create_notification_service(
     client: NostrClient,
+    notification_store: Arc<dyn NotificationStoreApi>,
 ) -> Result<Arc<dyn NotificationServiceApi>> {
-    Ok(Arc::new(DefaultNotificationService::new(Box::new(client))))
+    Ok(Arc::new(DefaultNotificationService::new(
+        Box::new(client),
+        notification_store,
+    )))
 }
 
 /// Creates a new nostr consumer that will listen for incoming events and handle them
@@ -163,6 +168,12 @@ pub trait NotificationServiceApi: Send + Sync {
     /// Sent when: A quote is approved by: Previous Holder
     /// Receiver: Mint (new holder), Action: CheckBill
     async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> Result<()>;
+
+    /// Returns active client notifications
+    async fn get_client_notifications(&self) -> Result<Vec<Notification>>;
+
+    /// Marks the notification with given id as done
+    async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
 }
 
 /// A notification as it will be delivered to the UI.
