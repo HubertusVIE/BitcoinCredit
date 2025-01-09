@@ -2,7 +2,7 @@ use super::behaviour::{Command, ComposedEvent, Event, MyBehaviour};
 use super::{GossipsubEvent, GossipsubEventId};
 use crate::blockchain::Blockchain;
 use crate::constants::{
-    BILL_PREFIX, COMPANY_PREFIX, RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_NODE_ID,
+    BILL_PREFIX, COMPANY_PREFIX, RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID,
     RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
 use crate::dht::behaviour::{CompanyEvent, FileRequest, FileResponse};
@@ -204,7 +204,7 @@ impl EventLoop {
             }
 
             SwarmEvent::Behaviour(ComposedEvent::RequestResponse(
-                request_response::Event::Message { message, .. },
+                request_response::Event::Message { message, peer },
             )) => match message {
                 request_response::Message::Request {
                     request, channel, ..
@@ -213,6 +213,7 @@ impl EventLoop {
                         .send(Event::InboundRequest {
                             request: request.0,
                             channel,
+                            peer,
                         })
                         .await
                         .map_err(|e| anyhow!("Error sending File request: {e:?}"))?;
@@ -474,11 +475,11 @@ impl EventLoop {
                     expires: None,
                 };
 
-                let relay_node_id: PeerId = RELAY_BOOTSTRAP_NODE_ONE_NODE_ID
+                let relay_peer_id: PeerId = RELAY_BOOTSTRAP_NODE_ONE_PEER_ID
                     .to_string()
                     .parse()
                     .map_err(|e| {
-                        anyhow!("Error parsing relay node id when putting record: {e:?}")
+                        anyhow!("Error parsing relay peer id when putting record: {e:?}")
                     })?;
 
                 let _query_id = self
@@ -486,7 +487,7 @@ impl EventLoop {
                     .behaviour_mut()
                     .kademlia
                     //TODO: what quorum use?
-                    .put_record_to(record, iter::once(relay_node_id), Quorum::All);
+                    .put_record_to(record, iter::once(relay_peer_id), Quorum::All);
             }
 
             Command::SendMessage { msg, topic } => {
@@ -544,7 +545,7 @@ impl EventLoop {
             } => {
                 info!("Request file {file_name:?}");
 
-                let relay_node_id: PeerId = RELAY_BOOTSTRAP_NODE_ONE_NODE_ID
+                let relay_peer_id: PeerId = RELAY_BOOTSTRAP_NODE_ONE_PEER_ID
                     .to_string()
                     .parse()
                     .map_err(|e| {
@@ -553,7 +554,7 @@ impl EventLoop {
                 let relay_address = Multiaddr::empty()
                     .with(Protocol::Ip4(RELAY_BOOTSTRAP_NODE_ONE_IP))
                     .with(Protocol::Tcp(RELAY_BOOTSTRAP_NODE_ONE_TCP))
-                    .with(Protocol::P2p(Multihash::from(relay_node_id)))
+                    .with(Protocol::P2p(Multihash::from(relay_peer_id)))
                     .with(Protocol::P2pCircuit)
                     .with(Protocol::P2p(Multihash::from(peer)));
 

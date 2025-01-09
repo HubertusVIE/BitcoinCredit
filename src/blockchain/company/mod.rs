@@ -2,7 +2,7 @@ use super::bill::BillOpCode;
 use super::Result;
 use super::{Block, Blockchain};
 use crate::service::company_service::{CompanyKeys, CompanyToReturn};
-use crate::util::{self, crypto, rsa, BcrKeys};
+use crate::util::{self, crypto, BcrKeys};
 use crate::web::data::File;
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -73,7 +73,6 @@ pub struct CompanyCreateBlockData {
     pub logo_file: Option<File>,
     pub signatories: Vec<String>,
     pub public_key: String,
-    pub rsa_public_key: String,
 }
 
 impl From<CompanyToReturn> for CompanyCreateBlockData {
@@ -91,7 +90,6 @@ impl From<CompanyToReturn> for CompanyCreateBlockData {
             logo_file: value.logo_file,
             signatories: value.signatories,
             public_key: value.public_key,
-            rsa_public_key: value.rsa_public_key,
         }
     }
 }
@@ -231,21 +229,20 @@ impl CompanyBlock {
         company: &CompanyCreateBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str, // creator's rsa key
         timestamp: u64,
     ) -> Result<Self> {
         let company_bytes = to_vec(company)?;
-        // encrypt data using company rsa key
-        let encrypted_data = util::base58_encode(&rsa::encrypt_bytes_with_public_key(
+        // encrypt data using company pub key
+        let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &company_bytes,
-            &company_keys.rsa_public_key,
+            &company_keys.public_key,
         )?);
 
         let keys_bytes = to_vec(&company_keys)?;
-        // encrypt company keys using creator's identity rsa key
-        let encrypted_keys = util::base58_encode(&rsa::encrypt_bytes_with_public_key(
+        // encrypt company keys using creator's identity pub key
+        let encrypted_keys = util::base58_encode(&util::crypto::encrypt_ecies(
             &keys_bytes,
-            rsa_public_key_pem,
+            &identity_keys.get_public_key(),
         )?);
 
         let data = CompanyBlockData {
@@ -315,7 +312,7 @@ impl CompanyBlock {
         data: &CompanyAddSignatoryBlockData,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str, // the signatory's public rsa key
+        signatory_public_key: &str, // the signatory's public key
         timestamp: u64,
     ) -> Result<Self> {
         let block = Self::encrypt_data_create_block_and_validate(
@@ -324,7 +321,7 @@ impl CompanyBlock {
             data,
             identity_keys,
             company_keys,
-            Some(rsa_public_key_pem),
+            Some(signatory_public_key),
             timestamp,
             CompanyOpCode::AddSignatory,
         )?;
@@ -358,27 +355,26 @@ impl CompanyBlock {
         data: &T,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: Option<&str>,
+        public_key_for_keys: Option<&str>,
         timestamp: u64,
         op_code: CompanyOpCode,
     ) -> Result<Self> {
         let bytes = to_vec(&data)?;
-        // encrypt data using the company rsa key
-        let encrypted_data = util::base58_encode(&rsa::encrypt_bytes_with_public_key(
+        // encrypt data using the company pub key
+        let encrypted_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &bytes,
-            &company_keys.rsa_public_key,
+            &company_keys.public_key,
         )?);
 
         let mut keys = None;
 
-        // in case there are keys to encrypt, encrypt them using the receiver's identity rsa pub
-        // key
+        // in case there are keys to encrypt, encrypt them using the receiver's identity pub key
         if op_code == CompanyOpCode::AddSignatory {
-            if let Some(signatory_rsa_public_key) = rsa_public_key_pem {
+            if let Some(signatory_public_key) = public_key_for_keys {
                 let keys_bytes = to_vec(&company_keys)?;
-                let encrypted_keys = util::base58_encode(&rsa::encrypt_bytes_with_public_key(
+                let encrypted_keys = util::base58_encode(&util::crypto::encrypt_ecies(
                     &keys_bytes,
-                    signatory_rsa_public_key,
+                    signatory_public_key,
                 )?);
                 keys = Some(encrypted_keys);
             }
@@ -429,13 +425,11 @@ impl CompanyBlockchain {
     /// Creates a new company chain
     pub fn new(
         company: &CompanyCreateBlockData,
-        node_id: &str,
         identity_keys: &BcrKeys,
         company_keys: &CompanyKeys,
-        rsa_public_key_pem: &str,
         timestamp: u64,
     ) -> Result<Self> {
-        let genesis_hash = util::base58_encode(node_id.as_bytes());
+        let genesis_hash = util::base58_encode(company.id.as_bytes());
 
         let first_block = CompanyBlock::create_block_for_create(
             company.id.clone(),
@@ -444,7 +438,6 @@ impl CompanyBlockchain {
             company,
             identity_keys,
             company_keys,
-            rsa_public_key_pem,
             timestamp,
         )?;
 
@@ -481,9 +474,8 @@ mod test {
     use super::*;
     use crate::{
         service::company_service::{test::get_baseline_company_data, CompanyToReturn},
-        tests::test::TEST_PUB_KEY,
+        tests::test::TEST_PUB_KEY_SECP,
     };
-    use libp2p::PeerId;
 
     #[test]
     fn create_and_check_validity() {
@@ -492,10 +484,8 @@ mod test {
 
         let chain = CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),
-            &PeerId::random().to_string(),
             &BcrKeys::new(),
             &company_keys,
-            TEST_PUB_KEY,
             1731593928,
         );
         assert!(chain.is_ok());
@@ -510,10 +500,8 @@ mod test {
 
         let chain = CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),
-            &PeerId::random().to_string(),
             &identity_keys,
             &company_keys,
-            TEST_PUB_KEY,
             1731593928,
         );
         assert!(chain.is_ok());
@@ -561,7 +549,7 @@ mod test {
             },
             &identity_keys,
             &company_keys,
-            TEST_PUB_KEY,
+            TEST_PUB_KEY_SECP,
             1731593931,
         );
         assert!(add_signatory_block.is_ok());

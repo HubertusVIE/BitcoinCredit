@@ -23,7 +23,6 @@ use crate::persistence::identity::IdentityStoreApi;
 use crate::service::bill_service::BillKeys;
 use crate::service::company_service::{Company, CompanyKeys, CompanyPublicData};
 use crate::service::contact_service::IdentityPublicData;
-use crate::util::rsa::{decrypt_bytes_with_private_key, encrypt_bytes_with_public_key};
 use crate::{blockchain, util};
 use borsh::{from_slice, to_vec};
 use future::{try_join_all, BoxFuture};
@@ -108,8 +107,8 @@ impl Client {
     /// aren't locally available from the network and starts providing them and subscribing to them
     pub async fn check_companies(&mut self) -> Result<()> {
         log::info!("Checking for new companies...");
-        let local_node_id = self.identity_store.get_node_id().await?;
-        let node_request = self.node_request_for_companies(&local_node_id.to_string());
+        let local_node_id = self.identity_store.get().await?.node_id;
+        let node_request = self.node_request_for_companies(&local_node_id);
         let companies_for_node = self.get_record(node_request.clone()).await?.value;
         if companies_for_node.is_empty() {
             return Ok(());
@@ -133,6 +132,7 @@ impl Client {
         for company in local_but_not_remote {
             let _ = self.file_upload_store.delete_attached_files(&company).await;
             self.company_store.remove(&company).await?;
+            self.company_blockchain_store.remove(&company).await?;
             self.stop_providing_company(&company).await?;
             self.unsubscribe_from_company_topic(&company).await?;
         }
@@ -154,10 +154,16 @@ impl Client {
     async fn get_company_data_from_the_network(
         &mut self,
         company_id: &str,
-        local_node_id: &PeerId,
+        local_node_id: &str,
     ) -> Result<()> {
         let mut providers = self.get_company_providers(company_id).await?;
-        providers.remove(local_node_id);
+        if let Some(local_peer_id) = providers
+            .iter()
+            .find(|p| util::crypto::is_peer_id_from_this_node_id(local_node_id, p))
+            .cloned()
+        {
+            providers.remove(&local_peer_id);
+        }
         if providers.is_empty() {
             error!("Get Company Files: No providers found for {company_id}");
             return Ok(());
@@ -177,8 +183,7 @@ impl Client {
         // like with bills, we don't fail on not being able to fetch files
         let mut logo_file: Option<Vec<u8>> = None;
         if let Some(ref logo) = company.logo_file {
-            let file_request =
-                file_request_for_company_logo(&local_node_id.to_string(), company_id, &logo.name);
+            let file_request = file_request_for_company_logo(local_node_id, company_id, &logo.name);
             match self
                 .request_company_file(company_id, file_request, &providers, &logo.hash, &logo.name)
                 .await
@@ -195,7 +200,7 @@ impl Client {
         let mut proof_file: Option<Vec<u8>> = None;
         if let Some(ref proof) = company.proof_of_registration_file {
             let file_request =
-                file_request_for_company_proof(&local_node_id.to_string(), company_id, &proof.name);
+                file_request_for_company_proof(local_node_id, company_id, &proof.name);
             match self
                 .request_company_file(
                     company_id,
@@ -256,11 +261,11 @@ impl Client {
     async fn request_company_data(
         &mut self,
         company_id: &str,
-        local_node_id: &PeerId,
+        local_node_id: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<Company> {
         let requests = self.create_file_requests_for_peers(
-            file_request_for_company_data(&local_node_id.to_string(), company_id),
+            file_request_for_company_data(local_node_id, company_id),
             providers,
         );
 
@@ -278,12 +283,12 @@ impl Client {
     async fn request_company_keys(
         &mut self,
         company_id: &str,
-        local_node_id: &PeerId,
+        local_node_id: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<CompanyKeys> {
-        let identity = self.identity_store.get().await?;
+        let identity_keys = self.identity_store.get_key_pair().await?;
         let requests = self.create_file_requests_for_peers(
-            file_request_for_company_keys(&local_node_id.to_string(), company_id),
+            file_request_for_company_keys(local_node_id, company_id),
             providers,
         );
 
@@ -293,8 +298,10 @@ impl Client {
             ))),
             Ok(file_content) => {
                 let encrypted_bytes = file_content.0;
-                let decrypted_bytes =
-                    decrypt_bytes_with_private_key(&encrypted_bytes, &identity.private_key_pem)?;
+                let decrypted_bytes = util::crypto::decrypt_ecies(
+                    &encrypted_bytes,
+                    &identity_keys.get_private_key_string(),
+                )?;
                 let company_keys = company_keys_from_bytes(&decrypted_bytes)?;
                 Ok(company_keys)
             }
@@ -304,12 +311,12 @@ impl Client {
     async fn request_company_chain(
         &mut self,
         company_id: &str,
-        local_node_id: &PeerId,
+        local_node_id: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<CompanyBlockchain> {
-        let identity = self.identity_store.get().await?;
+        let identity_keys = self.identity_store.get_key_pair().await?;
         let requests = self.create_file_requests_for_peers(
-            file_request_for_company_chain(&local_node_id.to_string(), company_id),
+            file_request_for_company_chain(local_node_id, company_id),
             providers,
         );
 
@@ -319,8 +326,10 @@ impl Client {
             ))),
             Ok(file_content) => {
                 let encrypted_bytes = file_content.0;
-                let decrypted_bytes =
-                    decrypt_bytes_with_private_key(&encrypted_bytes, &identity.private_key_pem)?;
+                let decrypted_bytes = util::crypto::decrypt_ecies(
+                    &encrypted_bytes,
+                    &identity_keys.get_private_key_string(),
+                )?;
                 let company_chain = company_chain_from_bytes(&decrypted_bytes)?;
                 Ok(company_chain)
             }
@@ -335,7 +344,7 @@ impl Client {
         hash: &str,
         file_name: &str,
     ) -> Result<Vec<u8>> {
-        let identity = self.identity_store.get().await?;
+        let identity_keys = self.identity_store.get_key_pair().await?;
         let requests = self.create_file_requests_for_peers(file_request, providers);
 
         match futures::future::select_ok(requests).await {
@@ -344,14 +353,16 @@ impl Client {
             ))),
             Ok(file_content) => {
                 let encrypted_bytes = file_content.0;
-                let decrypted_bytes =
-                    decrypt_bytes_with_private_key(&encrypted_bytes, &identity.private_key_pem)?;
+                let decrypted_bytes = util::crypto::decrypt_ecies(
+                    &encrypted_bytes,
+                    &identity_keys.get_private_key_string(),
+                )?;
                 let remote_hash = util::sha256_hash(&decrypted_bytes);
                 if hash != remote_hash.as_str() {
                     return Err(super::Error::FileHashesDidNotMatch(format!("Get Company File: Hashes didn't match for company {company_id} and file name {file_name}, remote: {remote_hash}, local: {hash}")));
                 }
                 let encrypted_bytes =
-                    encrypt_bytes_with_public_key(&decrypted_bytes, &identity.public_key_pem)?;
+                    util::crypto::encrypt_ecies(&decrypted_bytes, &identity_keys.get_public_key())?;
                 Ok(encrypted_bytes)
             }
         }
@@ -650,10 +661,7 @@ impl Client {
     pub async fn put_identity_public_data_in_dht(&mut self) -> Result<()> {
         if self.identity_store.exists().await {
             let identity = self.identity_store.get_full().await?;
-            let identity_data = IdentityPublicData::new(
-                identity.identity.clone(),
-                identity.node_id.to_string().clone(),
-            );
+            let identity_data = IdentityPublicData::new(identity.identity.clone());
 
             let key = self.identity_key(&identity_data.node_id);
             match self.get_record(key.clone()).await {
@@ -806,8 +814,8 @@ impl Client {
 
     /// Checks the DHT for new bills, fetching the bill data, keys and files for them
     pub async fn check_new_bills(&mut self) -> Result<()> {
-        let local_node_id = self.identity_store.get_node_id().await?;
-        let node_request = self.node_request_for_bills(&local_node_id.to_string());
+        let local_node_id = self.identity_store.get().await?.node_id;
+        let node_request = self.node_request_for_bills(&local_node_id);
         if let Ok(list_bills_for_node) = self.get_record(node_request.clone()).await {
             let bills_for_node = list_bills_for_node.value;
 
@@ -833,10 +841,16 @@ impl Client {
     pub async fn get_bill_data_from_the_network(
         &mut self,
         bill_id: &str,
-        local_node_id: &PeerId,
+        local_node_id: &str,
     ) -> Result<()> {
         let mut providers = self.get_bill_providers(bill_id).await?;
-        providers.remove(local_node_id);
+        if let Some(local_peer_id) = providers
+            .iter()
+            .find(|p| util::crypto::is_peer_id_from_this_node_id(local_node_id, p))
+            .cloned()
+        {
+            providers.remove(&local_peer_id);
+        }
         if providers.is_empty() {
             error!("Get Bill Files: No providers found for {bill_id}");
             return Ok(());
@@ -872,8 +886,8 @@ impl Client {
         self.bill_store
             .write_bill_keys_to_file(
                 bill_id.to_string(),
-                bill_keys.private_key_pem,
-                bill_keys.public_key_pem,
+                bill_keys.private_key,
+                bill_keys.public_key,
             )
             .await?;
 
@@ -890,13 +904,11 @@ impl Client {
     async fn request_bill_data(
         &mut self,
         name: &str,
-        local_node_id: &PeerId,
+        local_node_id: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<BillBlockchain> {
-        let requests = self.create_file_requests_for_peers(
-            file_request_for_bill(&local_node_id.to_string(), name),
-            providers,
-        );
+        let requests = self
+            .create_file_requests_for_peers(file_request_for_bill(local_node_id, name), providers);
 
         match futures::future::select_ok(requests).await {
             Err(e) => Err(super::Error::NoProviders(format!(
@@ -917,12 +929,16 @@ impl Client {
         file_name: &str,
         hash: &str,
         bill_keys: &BillKeys,
-        local_node_id: &PeerId,
+        local_node_id: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<(String, Vec<u8>)> {
-        let pr_key = self.identity_store.get().await?.private_key_pem;
+        let pr_key = self
+            .identity_store
+            .get_key_pair()
+            .await?
+            .get_private_key_string();
         let requests = self.create_file_requests_for_peers(
-            file_request_for_bill_attachment(&local_node_id.to_string(), bill_id, file_name),
+            file_request_for_bill_attachment(local_node_id, bill_id, file_name),
             providers,
         );
         match futures::future::select_ok(requests).await {
@@ -932,21 +948,18 @@ impl Client {
             Ok(file_content) => {
                 let bytes = file_content.0;
                 // decrypt file using identity private key and check hash
-                let decrypted_with_identity_key =
-                    util::rsa::decrypt_bytes_with_private_key(&bytes, &pr_key)?;
-                let decrypted_with_bill_key = util::rsa::decrypt_bytes_with_private_key(
+                let decrypted_with_identity_key = util::crypto::decrypt_ecies(&bytes, &pr_key)?;
+                let decrypted_with_bill_key = util::crypto::decrypt_ecies(
                     &decrypted_with_identity_key,
-                    &bill_keys.private_key_pem,
+                    &bill_keys.private_key,
                 )?;
                 let remote_hash = util::sha256_hash(&decrypted_with_bill_key);
                 if hash != remote_hash.as_str() {
                     return Err(super::Error::FileHashesDidNotMatch(format!("Get Bill Attachment: Hashes didn't match for bill {bill_id} and file name {file_name}, remote: {remote_hash}, local: {hash}")));
                 }
                 // encrypt with bill public key
-                let encrypted = util::rsa::encrypt_bytes_with_public_key(
-                    &decrypted_with_bill_key,
-                    &bill_keys.public_key_pem,
-                )?;
+                let encrypted =
+                    util::crypto::encrypt_ecies(&decrypted_with_bill_key, &bill_keys.public_key)?;
                 Ok((file_name.to_string(), encrypted))
             }
         }
@@ -956,12 +969,16 @@ impl Client {
     async fn request_key_data(
         &mut self,
         name: &str,
-        local_node_id: &PeerId,
+        local_node_id: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<BillKeys> {
-        let pr_key = self.identity_store.get().await?.private_key_pem;
+        let pr_key = self
+            .identity_store
+            .get_key_pair()
+            .await?
+            .get_private_key_string();
         let requests = self.create_file_requests_for_peers(
-            file_request_for_bill_keys(&local_node_id.to_string(), name),
+            file_request_for_bill_keys(local_node_id, name),
             providers,
         );
 
@@ -971,7 +988,7 @@ impl Client {
             ))),
             Ok(file_content) => {
                 let bytes = file_content.0;
-                let key_bytes_decrypted = decrypt_bytes_with_private_key(&bytes, &pr_key)?;
+                let key_bytes_decrypted = util::crypto::decrypt_ecies(&bytes, &pr_key)?;
 
                 let bill_keys = bill_keys_from_bytes(&key_bytes_decrypted)?;
                 Ok(bill_keys)
@@ -1231,13 +1248,9 @@ impl Client {
     ) -> Result<Vec<u8>> {
         let company = self.company_store.get(company_id).await?;
         if company.signatories.iter().any(|v| v == node_id) {
-            let public_data = self
-                .get_identity_public_data_from_dht(node_id.to_owned())
-                .await?;
-            let public_key = public_data.rsa_public_key_pem;
             let keys = self.company_store.get_key_pair(company_id).await?;
             let bytes = company_keys_to_bytes(&keys)?;
-            let file_encrypted = encrypt_bytes_with_public_key(&bytes, &public_key)?;
+            let file_encrypted = util::crypto::encrypt_ecies(&bytes, node_id)?;
             Ok(file_encrypted)
         } else {
             Err(super::Error::CallerNotSignatoryOfCompany(
@@ -1256,13 +1269,9 @@ impl Client {
     ) -> Result<Vec<u8>> {
         let company = self.company_store.get(company_id).await?;
         if company.signatories.iter().any(|v| v == node_id) {
-            let public_data = self
-                .get_identity_public_data_from_dht(node_id.to_owned())
-                .await?;
-            let public_key = public_data.rsa_public_key_pem;
             let chain = self.company_blockchain_store.get_chain(company_id).await?;
             let bytes = company_chain_to_bytes(&chain)?;
-            let file_encrypted = encrypt_bytes_with_public_key(&bytes, &public_key)?;
+            let file_encrypted = util::crypto::encrypt_ecies(&bytes, node_id)?;
             Ok(file_encrypted)
         } else {
             Err(super::Error::CallerNotSignatoryOfCompany(
@@ -1352,17 +1361,17 @@ impl Client {
         node_id: &str,
         file_name: &str,
     ) -> Result<Vec<u8>> {
-        let public_data = self
-            .get_identity_public_data_from_dht(node_id.to_owned())
-            .await?;
-        let public_key = public_data.rsa_public_key_pem;
         let bytes = self
             .file_upload_store
             .open_attached_file(company_id, file_name)
             .await?;
-        let identity_private_key = self.identity_store.get().await?.private_key_pem;
-        let decrypted_bytes = decrypt_bytes_with_private_key(&bytes, &identity_private_key)?;
-        let file_encrypted = encrypt_bytes_with_public_key(&decrypted_bytes, &public_key)?;
+        let identity_private_key = self
+            .identity_store
+            .get_key_pair()
+            .await?
+            .get_private_key_string();
+        let decrypted_bytes = util::crypto::decrypt_ecies(&bytes, &identity_private_key)?;
+        let file_encrypted = util::crypto::encrypt_ecies(&decrypted_bytes, node_id)?;
         Ok(file_encrypted)
     }
 
@@ -1383,12 +1392,8 @@ impl Client {
             .iter()
             .any(|n| n == node_id)
         {
-            let data = self
-                .get_identity_public_data_from_dht(node_id.to_owned())
-                .await?;
-            let public_key = data.rsa_public_key_pem;
             let file = self.bill_store.get_bill_keys_as_bytes(key_name).await?;
-            let file_encrypted = encrypt_bytes_with_public_key(&file, &public_key)?;
+            let file_encrypted = util::crypto::encrypt_ecies(&file, node_id)?;
             Ok(file_encrypted)
         } else {
             Err(super::Error::CallerNotPartOfBill(
@@ -1411,15 +1416,11 @@ impl Client {
             .iter()
             .any(|n| n == node_id)
         {
-            let data = self
-                .get_identity_public_data_from_dht(node_id.to_owned())
-                .await?;
-            let public_key = data.rsa_public_key_pem;
             let file = self
                 .file_upload_store
                 .open_attached_file(bill_id, file_name)
                 .await?;
-            let file_encrypted = encrypt_bytes_with_public_key(&file, &public_key)?;
+            let file_encrypted = util::crypto::encrypt_ecies(&file, node_id)?;
             Ok(file_encrypted)
         } else {
             Err(super::Error::CallerNotPartOfBill(
@@ -1452,12 +1453,15 @@ impl Client {
                                 );
                             }
                         }
-                        if let Ok(local_node_id) = self.identity_store.get_node_id().await {
+                        if let Ok(identity) = self.identity_store.get().await {
                             // If we are added, start providing and subscribe
-                            if signatory == local_node_id.to_string() {
+                            if signatory == identity.node_id {
                                 info!("Got from DHT, that we were added to company {company_id} - refreshing data from the network");
                                 if let Err(e) = self
-                                    .get_company_data_from_the_network(&company_id, &local_node_id)
+                                    .get_company_data_from_the_network(
+                                        &company_id,
+                                        &identity.node_id,
+                                    )
                                     .await
                                 {
                                     error!("Could not remove local company {company_id}: {e}");
@@ -1484,9 +1488,9 @@ impl Client {
                                 );
                             }
                         }
-                        if let Ok(local_node_id) = self.identity_store.get_node_id().await {
+                        if let Ok(identity) = self.identity_store.get().await {
                             // If we are removed, remove the local company
-                            if signatory == local_node_id.to_string() {
+                            if signatory == identity.node_id {
                                 info!("Got from DHT, that we were removed from company {company_id} - deleting company locally");
 
                                 let _ = self
@@ -1518,8 +1522,12 @@ impl Client {
                     }
                 }
             }
-            Event::InboundRequest { request, channel } => {
-                match parse_inbound_file_request(&request) {
+            Event::InboundRequest {
+                request,
+                channel,
+                peer,
+            } => {
+                match parse_inbound_file_request(&request, &peer) {
                     Err(e) => {
                         error!("Could not handle inbound request {request}: {e}")
                     }
@@ -1640,7 +1648,7 @@ mod test {
             company_service::CompanyToReturn,
             identity_service::{Identity, IdentityWithAll},
         },
-        tests::test::{TEST_PRIVATE_KEY, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY, TEST_PUB_KEY_SECP},
+        tests::test::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         web::data::File,
     };
     use blockchain::company::CompanyCreateBlockData;
@@ -1668,8 +1676,6 @@ mod test {
                 CompanyKeys {
                     private_key: TEST_PRIVATE_KEY_SECP.to_string(),
                     public_key: TEST_PUB_KEY_SECP.to_string(),
-                    rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                    rsa_public_key: TEST_PUB_KEY.to_string(),
                 },
             ),
         )
@@ -1738,10 +1744,8 @@ mod test {
 
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),
-            &PeerId::random().to_string(),
             &BcrKeys::new(),
             &company_keys,
-            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap()
@@ -2562,7 +2566,7 @@ mod test {
             file_upload_store,
         ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
-        company.signatories.push("some_node_id".to_string());
+        company.signatories.push(TEST_NODE_ID_SECP.to_string());
         let company_clone = company.clone();
         company_store
             .expect_get()
@@ -2571,8 +2575,6 @@ mod test {
             Ok(CompanyKeys {
                 public_key: TEST_PUB_KEY_SECP.to_string(),
                 private_key: TEST_PRIVATE_KEY_SECP.to_string(),
-                rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                rsa_public_key: TEST_PUB_KEY.to_string(),
             })
         });
 
@@ -2580,13 +2582,12 @@ mod test {
             while let Some(event) = receiver.next().await {
                 match event {
                     Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "IDENTITYsome_node_id".to_string());
+                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
                         let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = "some_node_id".to_string();
-                        identity.rsa_public_key_pem = TEST_PUB_KEY.to_string();
+                        identity.node_id = TEST_NODE_ID_SECP.to_string();
                         sender
                             .send(Ok(Record::new(
-                                Key::new(&"IDENTITYsome_node_id".to_string()),
+                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
                                 serde_json::to_string(&identity).unwrap().into_bytes(),
                             )))
                             .unwrap();
@@ -2604,7 +2605,7 @@ mod test {
             file_upload_store,
             sender,
         )
-        .handle_company_keys_file_request("some_id", "some_node_id")
+        .handle_company_keys_file_request("some_id", TEST_NODE_ID_SECP)
         .await;
         assert!(result.is_ok());
     }
@@ -2669,7 +2670,7 @@ mod test {
             file_upload_store,
         ) = get_storages();
         let mut company = get_baseline_company_data("some_id").1 .0;
-        company.signatories.push("some_node_id".to_string());
+        company.signatories.push(TEST_NODE_ID_SECP.to_string());
         let company_clone = company.clone();
         company_store
             .expect_get()
@@ -2682,13 +2683,12 @@ mod test {
             while let Some(event) = receiver.next().await {
                 match event {
                     Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "IDENTITYsome_node_id".to_string());
+                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
                         let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = "some_node_id".to_string();
-                        identity.rsa_public_key_pem = TEST_PUB_KEY.to_string();
+                        identity.node_id = TEST_NODE_ID_SECP.to_string();
                         sender
                             .send(Ok(Record::new(
-                                Key::new(&"IDENTITYsome_node_id".to_string()),
+                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
                                 serde_json::to_string(&identity).unwrap().into_bytes(),
                             )))
                             .unwrap();
@@ -2706,7 +2706,7 @@ mod test {
             file_upload_store,
             sender,
         )
-        .handle_company_chain_file_request("some_id", "some_node_id")
+        .handle_company_chain_file_request("some_id", TEST_NODE_ID_SECP)
         .await;
         assert!(result.is_ok());
     }
@@ -2775,31 +2775,30 @@ mod test {
             name: "file.pdf".to_string(),
             hash: "some_hash".to_string(),
         });
-        company.signatories.push("some_node_id".to_string());
+        company.signatories.push(TEST_NODE_ID_SECP.to_owned());
         let company_clone = company.clone();
         company_store
             .expect_get()
             .returning(move |_| Ok(company_clone.clone()));
         file_upload_store
             .expect_open_attached_file()
-            .returning(|_, _| Ok(vec![]));
-        identity_store.expect_get().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.private_key_pem = TEST_PRIVATE_KEY.to_string();
-            Ok(identity)
-        });
+            .returning(|_, _| {
+                Ok(util::crypto::encrypt_ecies("Hello".as_bytes(), TEST_PUB_KEY_SECP).unwrap())
+            });
+        identity_store
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()));
 
         tokio::spawn(async move {
             while let Some(event) = receiver.next().await {
                 match event {
                     Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "IDENTITYsome_node_id".to_string());
+                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
                         let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = "some_node_id".to_string();
-                        identity.rsa_public_key_pem = TEST_PUB_KEY.to_string();
+                        identity.node_id = TEST_NODE_ID_SECP.to_string();
                         sender
                             .send(Ok(Record::new(
-                                Key::new(&"IDENTITYsome_node_id".to_string()),
+                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
                                 serde_json::to_string(&identity).unwrap().into_bytes(),
                             )))
                             .unwrap();
@@ -2817,7 +2816,7 @@ mod test {
             file_upload_store,
             sender,
         )
-        .handle_company_logo_file_request("some_id", "some_node_id", "file.pdf")
+        .handle_company_logo_file_request("some_id", TEST_NODE_ID_SECP, "file.pdf")
         .await;
         assert!(result.is_ok());
     }
@@ -2936,31 +2935,30 @@ mod test {
             name: "file.pdf".to_string(),
             hash: "some_hash".to_string(),
         });
-        company.signatories.push("some_node_id".to_string());
+        company.signatories.push(TEST_NODE_ID_SECP.to_owned());
         let company_clone = company.clone();
         company_store
             .expect_get()
             .returning(move |_| Ok(company_clone.clone()));
         file_upload_store
             .expect_open_attached_file()
-            .returning(|_, _| Ok(vec![]));
-        identity_store.expect_get().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.private_key_pem = TEST_PRIVATE_KEY.to_string();
-            Ok(identity)
-        });
+            .returning(|_, _| {
+                Ok(util::crypto::encrypt_ecies("Hello".as_bytes(), TEST_PUB_KEY_SECP).unwrap())
+            });
+        identity_store
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()));
 
         tokio::spawn(async move {
             while let Some(event) = receiver.next().await {
                 match event {
                     Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "IDENTITYsome_node_id".to_string());
+                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
                         let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = "some_node_id".to_string();
-                        identity.rsa_public_key_pem = TEST_PUB_KEY.to_string();
+                        identity.node_id = TEST_NODE_ID_SECP.to_string();
                         sender
                             .send(Ok(Record::new(
-                                Key::new(&"IDENTITYsome_node_id".to_string()),
+                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
                                 serde_json::to_string(&identity).unwrap().into_bytes(),
                             )))
                             .unwrap();
@@ -2978,7 +2976,7 @@ mod test {
             file_upload_store,
             sender,
         )
-        .handle_company_proof_file_request("some_id", "some_node_id", "file.pdf")
+        .handle_company_proof_file_request("some_id", TEST_NODE_ID_SECP, "file.pdf")
         .await;
         assert!(result.is_ok());
     }
@@ -3093,7 +3091,6 @@ mod test {
                         assert_eq!(key, "IDENTITYsome_node_id".to_string());
                         let mut identity = IdentityPublicData::new_empty();
                         identity.node_id = "some_node_id".to_string();
-                        identity.rsa_public_key_pem = TEST_PUB_KEY.to_string();
                         identity.name = "Minka".to_string();
                         sender
                             .send(Ok(Record::new(
@@ -3125,11 +3122,9 @@ mod test {
             mut identity_store,
             mut file_upload_store,
         ) = get_storages();
-        let node_id = PeerId::random();
-        let provider_node_id = PeerId::random();
-        identity_store
-            .expect_get_node_id()
-            .returning(move || Ok(node_id));
+        let keys = BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap();
+        let node_id = keys.get_public_key();
+        let provider_peer = PeerId::random();
 
         company_store.expect_get_all().returning(|| {
             let mut map = HashMap::new();
@@ -3144,12 +3139,16 @@ mod test {
             .expect_add_block()
             .returning(|_, _| Ok(()));
 
-        identity_store.expect_get().returning(|| {
+        let node_id_clone = node_id.clone();
+        identity_store.expect_get().returning(move || {
             let mut identity = Identity::new_empty();
-            identity.private_key_pem = TEST_PRIVATE_KEY.to_string();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            identity.node_id = node_id_clone.clone();
             Ok(identity)
         });
+
+        identity_store
+            .expect_get_key_pair()
+            .returning(move || Ok(keys.clone()));
 
         company_store.expect_remove().returning(|_| Ok(()));
         company_store
@@ -3171,12 +3170,12 @@ mod test {
             while let Some(event) = receiver.next().await {
                 match event {
                     Command::GetRecord { key, sender } => {
-                        assert_eq!(key, format!("COMPANIES{}", node_id));
+                        assert_eq!(key, format!("COMPANIES{}", &node_id));
                         let result: Vec<String> =
                             vec!["company_1".to_string(), "company_3".to_string()];
                         sender
                             .send(Ok(Record::new(
-                                Key::new(&format!("COMPANIES{}", node_id)),
+                                Key::new(&format!("COMPANIES{}", &node_id)),
                                 to_vec(&result).unwrap(),
                             )))
                             .unwrap();
@@ -3185,7 +3184,7 @@ mod test {
                         assert_eq!(entry, "COMPANYcompany_3".to_string());
 
                         let mut res = HashSet::new();
-                        res.insert(provider_node_id);
+                        res.insert(provider_peer);
                         sender.send(res).unwrap();
                     }
                     Command::RequestFile {
@@ -3193,7 +3192,7 @@ mod test {
                         file_name,
                         peer,
                     } => {
-                        assert_eq!(peer, provider_node_id);
+                        assert_eq!(peer, provider_peer);
                         let mut company_data = get_baseline_company_data("company_3");
                         let file_bytes = "helloworld".to_string().into_bytes();
                         company_data.1 .0.logo_file = Some(File {
@@ -3206,9 +3205,9 @@ mod test {
                         });
                         if file_name.contains(COMPANY_KEY_PREFIX) {
                             sender
-                                .send(Ok(encrypt_bytes_with_public_key(
+                                .send(Ok(util::crypto::encrypt_ecies(
                                     &company_keys_to_bytes(&company_data.1 .1).unwrap(),
-                                    TEST_PUB_KEY,
+                                    TEST_PUB_KEY_SECP,
                                 )
                                 .unwrap()))
                                 .unwrap();
@@ -3216,16 +3215,19 @@ mod test {
                             || file_name.contains(COMPANY_PROOF_PREFIX)
                         {
                             sender
-                                .send(Ok(encrypt_bytes_with_public_key(&file_bytes, TEST_PUB_KEY)
-                                    .unwrap()))
+                                .send(Ok(util::crypto::encrypt_ecies(
+                                    &file_bytes,
+                                    TEST_PUB_KEY_SECP,
+                                )
+                                .unwrap()))
                                 .unwrap();
                         } else if file_name.contains(COMPANY_CHAIN_PREFIX) {
                             let chain = get_valid_company_chain("company_3");
                             let chain_bytes = company_chain_to_bytes(&chain).unwrap();
                             sender
-                                .send(Ok(encrypt_bytes_with_public_key(
+                                .send(Ok(util::crypto::encrypt_ecies(
                                     &chain_bytes,
-                                    TEST_PUB_KEY,
+                                    TEST_PUB_KEY_SECP,
                                 )
                                 .unwrap()))
                                 .unwrap();
@@ -3278,18 +3280,20 @@ mod test {
             mut identity_store,
             mut file_upload_store,
         ) = get_storages();
-        let node_id = PeerId::random();
-        let provider_node_id = PeerId::random();
-        identity_store
-            .expect_get_node_id()
-            .returning(move || Ok(node_id));
+        let keys = BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap();
+        let node_id = keys.get_public_key();
+        let provider_peer = PeerId::random();
 
-        identity_store.expect_get().returning(|| {
+        let node_id_clone = node_id.clone();
+        identity_store.expect_get().returning(move || {
             let mut identity = Identity::new_empty();
-            identity.private_key_pem = TEST_PRIVATE_KEY.to_string();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            identity.node_id = node_id_clone.clone();
             Ok(identity)
         });
+
+        identity_store
+            .expect_get_key_pair()
+            .returning(move || Ok(keys.clone()));
 
         bill_store
             .expect_bill_exists()
@@ -3322,7 +3326,7 @@ mod test {
                         assert_eq!(entry, "BILLbill_2".to_string());
 
                         let mut res = HashSet::new();
-                        res.insert(provider_node_id);
+                        res.insert(provider_peer);
                         sender.send(res).unwrap();
                     }
                     Command::RequestFile {
@@ -3330,18 +3334,18 @@ mod test {
                         file_name,
                         peer,
                     } => {
-                        assert_eq!(peer, provider_node_id);
+                        assert_eq!(peer, provider_peer);
                         let file_bytes = "helloworld".to_string().into_bytes();
 
                         if file_name.contains(KEY_PREFIX) {
                             let keys = BillKeys {
-                                private_key_pem: TEST_PRIVATE_KEY.to_string(),
-                                public_key_pem: TEST_PUB_KEY.to_string(),
+                                private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                                public_key: TEST_PUB_KEY_SECP.to_string(),
                             };
                             sender
-                                .send(Ok(encrypt_bytes_with_public_key(
+                                .send(Ok(util::crypto::encrypt_ecies(
                                     &serde_json::to_vec(&keys).unwrap(),
-                                    TEST_PUB_KEY,
+                                    TEST_PUB_KEY_SECP,
                                 )
                                 .unwrap()))
                                 .unwrap();
@@ -3349,10 +3353,10 @@ mod test {
                             // file is doubly encrypted - once with bill key, once with pub key of
                             // receiver
                             sender
-                                .send(Ok(encrypt_bytes_with_public_key(
-                                    &encrypt_bytes_with_public_key(&file_bytes, TEST_PUB_KEY)
+                                .send(Ok(util::crypto::encrypt_ecies(
+                                    &util::crypto::encrypt_ecies(&file_bytes, TEST_PUB_KEY_SECP)
                                         .unwrap(),
-                                    TEST_PUB_KEY,
+                                    TEST_PUB_KEY_SECP,
                                 )
                                 .unwrap()))
                                 .unwrap();
@@ -3439,15 +3443,17 @@ mod test {
             mut identity_store,
             file_upload_store,
         ) = get_storages();
-        let node_id = PeerId::random();
+        let keys = BcrKeys::new();
+        let node_id = keys.get_public_key();
         identity_store.expect_exists().returning(|| true);
+        let node_id_clone = node_id.clone();
         identity_store.expect_get_full().returning(move || {
             let mut identity = Identity::new_empty();
             identity.name = "myself".to_owned();
+            identity.node_id = node_id_clone.clone();
             Ok(IdentityWithAll {
                 identity,
-                node_id,
-                key_pair: BcrKeys::new(),
+                key_pair: keys.clone(),
             })
         });
 

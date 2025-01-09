@@ -1,6 +1,5 @@
 use super::Result;
 use async_trait::async_trait;
-use libp2p::PeerId;
 
 use crate::{
     blockchain::identity::IdentityBlock,
@@ -24,10 +23,6 @@ pub trait IdentityStoreApi: Send + Sync {
     async fn get(&self) -> Result<Identity>;
     /// Gets the local identity with it's node id and key pair
     async fn get_full(&self) -> Result<IdentityWithAll>;
-    /// Saves the node id
-    async fn save_node_id(&self, node_id: &PeerId) -> Result<()>;
-    /// Gets the local node id
-    async fn get_node_id(&self) -> Result<PeerId>;
     /// Saves the given key pair
     async fn save_key_pair(&self, key_pair: &BcrKeys) -> Result<()>;
     /// Gets the local key pair

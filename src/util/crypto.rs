@@ -5,6 +5,7 @@ use bitcoin::{
     secp256k1::{self, schnorr::Signature, Keypair, Scalar, SecretKey},
     Network,
 };
+use libp2p::PeerId;
 use nostr_sdk::ToBech32;
 use secp256k1::{rand, Message, PublicKey, Secp256k1};
 use thiserror::Error;
@@ -28,6 +29,9 @@ pub enum Error {
     #[error("Libp2p key error: {0}")]
     LibP2p(#[from] libp2p::identity::OtherVariantError),
 
+    #[error("Ecies encryption error: {0}")]
+    Ecies(#[from] ecies::SecpError),
+
     #[error("Signature had invalid length")]
     InvalidSignatureLength,
 
@@ -42,6 +46,8 @@ pub enum Error {
     #[error("Parse recovery id error: {0}")]
     ParseRecoveryId(#[from] std::num::ParseIntError),
 }
+
+// -------------------- Keypair --------------------------
 
 /// A wrapper around the secp256k1 keypair that can be used for
 /// Bitcoin and Nostr keys.
@@ -109,6 +115,34 @@ impl BcrKeys {
     pub fn get_libp2p_keys(&self) -> Result<libp2p::identity::Keypair> {
         as_libp2p_keypair(&self.inner)
     }
+
+    /// Checks if the given libp2p PeerId was created from this key
+    pub fn is_peer_id_from_this_key(&self, peer_id: &PeerId) -> bool {
+        let libp2p_keypair = match self.get_libp2p_keys() {
+            Err(_) => return false,
+            Ok(keypair) => keypair,
+        };
+        peer_id
+            .is_public_key(&libp2p_keypair.public())
+            .unwrap_or(false)
+    }
+}
+
+pub fn is_peer_id_from_this_node_id(node_id: &str, peer_id: &PeerId) -> bool {
+    let public_key = match PublicKey::from_str(node_id) {
+        Err(_) => return false,
+
+        Ok(pub_key) => pub_key,
+    };
+    let libp2p_secp_pub_key = match libp2p::identity::secp256k1::PublicKey::try_from_bytes(
+        public_key.serialize().as_slice(),
+    ) {
+        Err(_) => return false,
+
+        Ok(pub_key) => pub_key,
+    };
+    let libp2p_pub_key = libp2p::identity::PublicKey::from(libp2p_secp_pub_key);
+    peer_id.is_public_key(&libp2p_pub_key).unwrap_or(false)
 }
 
 /// libp2p uses a different secp256k1 library than bitcoin and nostr. This
@@ -137,6 +171,8 @@ fn load_keypair(private_key: &str) -> Result<Keypair> {
     let pair = Keypair::from_secret_key(&secp, &SecretKey::from_str(private_key)?);
     Ok(pair)
 }
+
+// -------------------- Aggregated Signatures --------------------------
 
 /// Returns the aggregated public key for the given private keys
 pub fn get_aggregated_public_key(private_keys: &[String]) -> Result<String> {
@@ -186,6 +222,8 @@ pub fn aggregated_signature(hash: &str, keys: &[String]) -> Result<String> {
     Ok(base58_encode(&signature.serialize()))
 }
 
+// -------------------- Signatures --------------------------
+
 pub fn signature(hash: &str, private_key: &str) -> Result<String> {
     // create a signing context
     let secp = Secp256k1::signing_only();
@@ -206,10 +244,28 @@ pub fn verify(hash: &str, signature: &str, public_key: &str) -> Result<bool> {
         .is_ok())
 }
 
+// -------------------- Encryption --------------------------
+
+/// Encrypt the given bytes with the given Secp256k1 key via ECIES
+pub fn encrypt_ecies(bytes: &[u8], public_key: &str) -> Result<Vec<u8>> {
+    let pub_key_parsed = PublicKey::from_str(public_key)?;
+    let pub_key_bytes = pub_key_parsed.serialize();
+    let encrypted = ecies::encrypt(pub_key_bytes.as_slice(), bytes)?;
+    Ok(encrypted)
+}
+
+/// Decrypt the given bytes with the given Secp256k1 key via ECIES
+pub fn decrypt_ecies(bytes: &[u8], private_key: &str) -> Result<Vec<u8>> {
+    let keypair = BcrKeys::from_private_key(private_key)?;
+    let decrypted = ecies::decrypt(keypair.inner.secret_bytes().as_slice(), bytes)?;
+    Ok(decrypted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util;
+    use crate::{service::company_service::test::get_baseline_company_data, util};
+    use borsh::to_vec;
 
     const PKEY: &str = "926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3";
 
@@ -487,6 +543,141 @@ mod tests {
             keypair.get_private_key_string(),
             secp256k1_keypair.display_secret().to_string()
         );
+    }
+
+    #[test]
+    fn test_check_libp2p_peer_id_against_keypair() {
+        let keypair = BcrKeys::new();
+        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
+
+        assert!(keypair.is_peer_id_from_this_key(&peer_id));
+    }
+
+    #[test]
+    fn test_check_libp2p_peer_id_against_keypair_invalid() {
+        let keypair = BcrKeys::new();
+        let keypair_other = BcrKeys::new();
+        let another_key_pair = BcrKeys::from_private_key(
+            "8863c82829480536893fc49c4b30e244f97261e989433373d73c648c1a656a79",
+        )
+        .unwrap();
+        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
+        let other_peer_id =
+            PeerId::from_str("16Uiu2HAkxDBLq6DXuKA9vacbxQ9TgsP2Th9GmzkY44cA2vDyn7Eo").unwrap();
+        let another_peer_id =
+            PeerId::from_str("16Uiu2HAmEqJNJbkTVX9TLtcya4p5mhUL3E8rZq2VjitE7HZtuWCE").unwrap();
+
+        assert!(!keypair_other.is_peer_id_from_this_key(&peer_id));
+        assert!(!keypair.is_peer_id_from_this_key(&other_peer_id));
+        assert!(keypair.is_peer_id_from_this_key(&peer_id));
+        assert!(another_key_pair.is_peer_id_from_this_key(&another_peer_id));
+        assert!(!another_key_pair.is_peer_id_from_this_key(&peer_id));
+        assert!(!another_key_pair.is_peer_id_from_this_key(&other_peer_id));
+    }
+
+    #[test]
+    fn test_check_libp2p_peer_id_against_node_id() {
+        let keypair = BcrKeys::new();
+        let node_id = keypair.get_public_key();
+        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
+
+        assert!(is_peer_id_from_this_node_id(&node_id, &peer_id));
+    }
+
+    #[test]
+    fn test_check_libp2p_peer_id_against_node_id_hardcoded_values() {
+        assert!(is_peer_id_from_this_node_id(
+            "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef",
+            &PeerId::from_str("16Uiu2HAmEqJNJbkTVX9TLtcya4p5mhUL3E8rZq2VjitE7HZtuWCE").unwrap()
+        ));
+        assert!(!is_peer_id_from_this_node_id(
+            "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef",
+            &PeerId::from_str("16Uiu2HAkxDBLq6DXuKA9vacbxQ9TgsP2Th9GmzkY44cA2vDyn7Eo").unwrap()
+        ));
+    }
+
+    #[test]
+    fn test_check_libp2p_peer_id_against_node_id_invalid() {
+        let keypair = BcrKeys::new();
+        let keypair_other = BcrKeys::new();
+        let node_id = keypair.get_public_key();
+        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
+        let keypair_other_peer_id = keypair_other
+            .get_libp2p_keys()
+            .unwrap()
+            .public()
+            .to_peer_id();
+
+        let other_peer_id =
+            PeerId::from_str("16Uiu2HAkxDBLq6DXuKA9vacbxQ9TgsP2Th9GmzkY44cA2vDyn7Eo").unwrap();
+        let another_peer_id =
+            PeerId::from_str("16Uiu2HAmEqJNJbkTVX9TLtcya4p5mhUL3E8rZq2VjitE7HZtuWCE").unwrap();
+
+        assert!(is_peer_id_from_this_node_id(&node_id, &peer_id));
+        assert!(!is_peer_id_from_this_node_id(&node_id, &other_peer_id));
+        assert!(!is_peer_id_from_this_node_id(&node_id, &another_peer_id));
+        assert!(!is_peer_id_from_this_node_id(
+            &node_id,
+            &keypair_other_peer_id
+        ));
+        assert!(!is_peer_id_from_this_node_id("nonsense", &other_peer_id));
+    }
+
+    #[test]
+    fn encrypt_decrypt_ecies_basic() {
+        let msg = "Hello, this is a very important message!"
+            .to_string()
+            .into_bytes();
+        let keypair = BcrKeys::new();
+
+        let encrypted = encrypt_ecies(&msg, &keypair.get_public_key());
+        assert!(encrypted.is_ok());
+        let decrypted = decrypt_ecies(
+            encrypted.as_ref().unwrap(),
+            &keypair.get_private_key_string(),
+        );
+        assert!(decrypted.is_ok());
+
+        assert_eq!(&msg, decrypted.as_ref().unwrap());
+    }
+
+    #[test]
+    fn encrypt_decrypt_ecies_hardcoded_creds() {
+        let msg = "Important!".to_string().into_bytes();
+
+        let encrypted = encrypt_ecies(
+            &msg,
+            "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef",
+        );
+        assert!(encrypted.is_ok());
+        let decrypted = decrypt_ecies(
+            encrypted.as_ref().unwrap(),
+            "8863c82829480536893fc49c4b30e244f97261e989433373d73c648c1a656a79",
+        );
+        assert!(decrypted.is_ok());
+
+        assert_eq!(&msg, decrypted.as_ref().unwrap());
+    }
+
+    #[test]
+    fn encrypt_decrypt_ecies_big_data() {
+        let company_data = get_baseline_company_data();
+        let mut companies = vec![];
+        for _ in 0..100 {
+            companies.push(company_data.clone());
+        }
+        let companies_bytes = to_vec(&companies).unwrap();
+        let keypair = BcrKeys::new();
+
+        let encrypted = encrypt_ecies(&companies_bytes, &keypair.get_public_key());
+        assert!(encrypted.is_ok());
+        let decrypted = decrypt_ecies(
+            encrypted.as_ref().unwrap(),
+            &keypair.get_private_key_string(),
+        );
+        assert!(decrypted.is_ok());
+
+        assert_eq!(&companies_bytes, decrypted.as_ref().unwrap());
     }
 
     /// reverses the conversion of a libp2p keypair to a secp256k1 keypair for testing

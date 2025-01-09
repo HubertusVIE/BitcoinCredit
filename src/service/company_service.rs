@@ -187,31 +187,19 @@ impl CompanyServiceApi for CompanyService {
 
         let id = util::sha256_hash(public_key.as_bytes());
 
-        let (rsa_private_key, rsa_public_key) = util::rsa::create_rsa_key_pair()?;
-
         let company_keys = CompanyKeys {
             private_key: private_key.to_string(),
             public_key: public_key.clone(),
-            rsa_private_key,
-            rsa_public_key,
         };
 
         let full_identity = self.identity_store.get_full().await?;
 
         let proof_of_registration_file = self
-            .process_upload_file(
-                &proof_of_registration_file_upload_id,
-                &id,
-                &full_identity.identity.public_key_pem,
-            )
+            .process_upload_file(&proof_of_registration_file_upload_id, &id, &public_key)
             .await?;
 
         let logo_file = self
-            .process_upload_file(
-                &logo_file_upload_id,
-                &id,
-                &full_identity.identity.public_key_pem,
-            )
+            .process_upload_file(&logo_file_upload_id, &id, &public_key)
             .await?;
 
         self.store.save_key_pair(&id, &company_keys).await?;
@@ -225,7 +213,7 @@ impl CompanyServiceApi for CompanyService {
             registration_date,
             proof_of_registration_file,
             logo_file,
-            signatories: vec![full_identity.node_id.to_string()], // add caller as signatory
+            signatories: vec![full_identity.identity.node_id.clone()], // add caller as signatory
         };
         self.store.insert(&id, &company).await?;
 
@@ -233,10 +221,8 @@ impl CompanyServiceApi for CompanyService {
             CompanyToReturn::from(id.clone(), company.clone(), company_keys.clone());
         let company_chain = CompanyBlockchain::new(
             &CompanyCreateBlockData::from(company_to_return),
-            &full_identity.node_id.to_string(),
             &full_identity.key_pair,
             &company_keys,
-            &full_identity.identity.public_key_pem,
             timestamp,
         )?;
         let create_company_block = company_chain.get_first_block();
@@ -249,7 +235,6 @@ impl CompanyServiceApi for CompanyService {
                 block_hash: create_company_block.hash.clone(),
             },
             &full_identity.key_pair,
-            &full_identity.identity.public_key_pem,
             timestamp,
         )?;
 
@@ -290,7 +275,7 @@ impl CompanyServiceApi for CompanyService {
             )));
         }
         let full_identity = self.identity_store.get_full().await?;
-        let node_id = full_identity.node_id;
+        let node_id = full_identity.identity.node_id;
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
 
@@ -309,9 +294,12 @@ impl CompanyServiceApi for CompanyService {
         if let Some(ref postal_address_to_set) = postal_address {
             company.postal_address = postal_address_to_set.clone();
         }
-        let identity = full_identity.identity;
         let logo_file = self
-            .process_upload_file(&logo_file_upload_id, id, &identity.public_key_pem)
+            .process_upload_file(
+                &logo_file_upload_id,
+                id,
+                &full_identity.key_pair.get_public_key(),
+            )
             .await?;
         company.logo_file = logo_file;
 
@@ -390,7 +378,7 @@ impl CompanyServiceApi for CompanyService {
             },
             &full_identity.key_pair,
             &company_keys,
-            &full_identity.identity.public_key_pem,
+            &full_identity.key_pair.get_public_key(),
             timestamp,
         )?;
 
@@ -404,7 +392,6 @@ impl CompanyServiceApi for CompanyService {
                 signatory: signatory_node_id,
             },
             &full_identity.key_pair,
-            &full_identity.identity.public_key_pem,
             timestamp,
         )?;
         self.company_blockchain_store
@@ -446,7 +433,7 @@ impl CompanyServiceApi for CompanyService {
         company.signatories.retain(|i| i != &signatory_node_id);
         self.store.update(id, &company).await?;
 
-        if full_identity.node_id.to_string() == signatory_node_id {
+        if full_identity.identity.node_id == signatory_node_id {
             info!("Removing self from company {id}");
             let _ = self.file_upload_store.delete_attached_files(id).await;
             self.store.remove(id).await?;
@@ -474,7 +461,6 @@ impl CompanyServiceApi for CompanyService {
                 signatory: signatory_node_id.clone(),
             },
             &full_identity.key_pair,
-            &full_identity.identity.public_key_pem,
             timestamp,
         )?;
 
@@ -485,7 +471,7 @@ impl CompanyServiceApi for CompanyService {
             .add_block(&new_identity_block)
             .await?;
 
-        if full_identity.node_id.to_string() == signatory_node_id {
+        if full_identity.identity.node_id == signatory_node_id {
             info!("Removed self from company {id} - deleting company chain");
             if let Err(e) = self.company_blockchain_store.remove(id).await {
                 error!("Could not delete local company chain for {id}: {e}");
@@ -503,7 +489,7 @@ impl CompanyServiceApi for CompanyService {
         public_key: &str,
     ) -> Result<File> {
         let file_hash = util::sha256_hash(file_bytes);
-        let encrypted = util::rsa::encrypt_bytes_with_public_key(file_bytes, public_key)?;
+        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
         self.file_upload_store
             .save_attached_file(&encrypted, id, file_name)
             .await?;
@@ -524,13 +510,12 @@ impl CompanyServiceApi for CompanyService {
             .file_upload_store
             .open_attached_file(id, file_name)
             .await?;
-        let decrypted = util::rsa::decrypt_bytes_with_private_key(&read_file, private_key)?;
+        let decrypted = util::crypto::decrypt_ecies(&read_file, private_key)?;
         Ok(decrypted)
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
 pub struct CompanyToReturn {
     pub id: String,
     pub name: String,
@@ -544,7 +529,6 @@ pub struct CompanyToReturn {
     pub logo_file: Option<File>,
     pub signatories: Vec<String>,
     pub public_key: String,
-    pub rsa_public_key: String,
 }
 
 impl CompanyToReturn {
@@ -562,13 +546,11 @@ impl CompanyToReturn {
             logo_file: company.logo_file,
             signatories: company.signatories,
             public_key: company_keys.public_key,
-            rsa_public_key: company_keys.rsa_public_key,
         }
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
 pub struct Company {
     pub name: String,
     pub country_of_registration: String,
@@ -619,8 +601,6 @@ impl From<CompanyToReturn> for CompanyPublicData {
 pub struct CompanyKeys {
     pub private_key: String,
     pub public_key: String,
-    pub rsa_private_key: String,
-    pub rsa_public_key: String,
 }
 
 #[cfg(test)]
@@ -639,9 +619,8 @@ pub mod test {
             contact_service::IdentityPublicData,
             identity_service::{Identity, IdentityWithAll},
         },
-        tests::test::{TEST_PRIVATE_KEY, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY, TEST_PUB_KEY_SECP},
+        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
     };
-    use libp2p::PeerId;
     use mockall::predicate::{always, eq};
     use std::collections::HashMap;
     use util::BcrKeys;
@@ -701,8 +680,6 @@ pub mod test {
                 CompanyKeys {
                     private_key: TEST_PRIVATE_KEY_SECP.to_string(),
                     public_key: TEST_PUB_KEY_SECP.to_string(),
-                    rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                    rsa_public_key: TEST_PUB_KEY.to_string(),
                 },
             ),
         )
@@ -714,10 +691,8 @@ pub mod test {
 
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),
-            &PeerId::random().to_string(),
             &BcrKeys::new(),
             &company_keys,
-            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap()
@@ -894,12 +869,10 @@ pub mod test {
         storage.expect_save_key_pair().returning(|_, _| Ok(()));
         storage.expect_insert().returning(|_, _| Ok(()));
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         file_upload_store
@@ -916,18 +889,13 @@ pub mod test {
         identity_chain_store
             .expect_get_latest_block()
             .returning(|| {
-                let mut identity = Identity::new_empty();
-                identity.public_key_pem = TEST_PUB_KEY.to_string();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &PeerId::random().to_string(),
-                    &BcrKeys::new(),
-                    TEST_PUB_KEY,
-                    1731593928,
+                let identity = Identity::new_empty();
+                Ok(
+                    IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
+                        .unwrap()
+                        .get_latest_block()
+                        .clone(),
                 )
-                .unwrap()
-                .get_latest_block()
-                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -993,12 +961,10 @@ pub mod test {
             )))
         });
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         let service = get_service(
@@ -1028,7 +994,8 @@ pub mod test {
 
     #[tokio::test]
     async fn edit_company_baseline() {
-        let node_id = PeerId::random();
+        let keys = BcrKeys::new();
+        let node_id = keys.get_public_key();
         let (
             mut storage,
             mut file_upload_store,
@@ -1043,9 +1010,10 @@ pub mod test {
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
+        let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1 .0;
-            data.signatories = vec![node_id.to_string()];
+            data.signatories = vec![node_id_clone.clone()];
             Ok(data)
         });
         storage
@@ -1058,11 +1026,10 @@ pub mod test {
             .returning(|_, _, _| Ok(()));
         identity_store.expect_get_full().returning(move || {
             let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            identity.node_id = node_id.clone();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: BcrKeys::new(),
-                node_id,
+                key_pair: keys.clone(),
             })
         });
         file_upload_store
@@ -1146,12 +1113,10 @@ pub mod test {
             Ok(data)
         });
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         let service = get_service(
@@ -1185,10 +1150,12 @@ pub mod test {
             identity_chain_store,
             company_chain_store,
         ) = get_storages();
-        let node_id = PeerId::random();
+        let keys = BcrKeys::new();
+        let node_id = keys.get_public_key();
+        let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1 .0;
-            data.signatories = vec![node_id.to_string()];
+            data.signatories = vec![node_id_clone.clone()];
             Ok(data)
         });
         storage
@@ -1201,13 +1168,12 @@ pub mod test {
                 "test error",
             )))
         });
-        identity_store.expect_get_full().returning(|| {
+        identity_store.expect_get_full().returning(move || {
             let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            identity.node_id = node_id.clone();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
+                key_pair: keys.clone(),
             })
         });
         let service = get_service(
@@ -1263,29 +1229,24 @@ pub mod test {
             .expect_get()
             .returning(|_| Ok(get_baseline_company_data().1 .0));
         identity_store.expect_get_full().returning(|| {
+            let keys = BcrKeys::new();
             let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            identity.node_id = keys.get_public_key();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
+                key_pair: keys,
             })
         });
         identity_chain_store
             .expect_get_latest_block()
             .returning(|| {
-                let mut identity = Identity::new_empty();
-                identity.public_key_pem = TEST_PUB_KEY.to_string();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &PeerId::random().to_string(),
-                    &BcrKeys::new(),
-                    TEST_PUB_KEY,
-                    1731593928,
+                let identity = Identity::new_empty();
+                Ok(
+                    IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
+                        .unwrap()
+                        .get_latest_block()
+                        .clone(),
                 )
-                .unwrap()
-                .get_latest_block()
-                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -1319,12 +1280,10 @@ pub mod test {
             .expect_get_map()
             .returning(|| Ok(HashMap::new()));
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         let service = get_service(
@@ -1353,12 +1312,10 @@ pub mod test {
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         let service = get_service(
@@ -1387,12 +1344,10 @@ pub mod test {
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         contact_store.expect_get_map().returning(|| {
@@ -1436,12 +1391,10 @@ pub mod test {
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         contact_store.expect_get_map().returning(|| {
@@ -1505,30 +1458,23 @@ pub mod test {
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         storage.expect_update().returning(|_, _| Ok(()));
         identity_chain_store
             .expect_get_latest_block()
             .returning(|| {
-                let mut identity = Identity::new_empty();
-                identity.public_key_pem = TEST_PUB_KEY.to_string();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &PeerId::random().to_string(),
-                    &BcrKeys::new(),
-                    TEST_PUB_KEY,
-                    1731593928,
+                let identity = Identity::new_empty();
+                Ok(
+                    IdentityBlockchain::new(&identity.into(), &BcrKeys::new(), 1731593928)
+                        .unwrap()
+                        .get_latest_block()
+                        .clone(),
                 )
-                .unwrap()
-                .get_latest_block()
-                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -1559,12 +1505,10 @@ pub mod test {
         ) = get_storages();
         storage.expect_exists().returning(|_| false);
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         let service = get_service(
@@ -1583,7 +1527,7 @@ pub mod test {
 
     #[tokio::test]
     async fn remove_signatory_removing_self_removes_company() {
-        let node_id = PeerId::random();
+        let keys = BcrKeys::new();
         let (
             mut storage,
             mut file_upload_store,
@@ -1603,41 +1547,38 @@ pub mod test {
             .expect_delete_attached_files()
             .returning(|_| Ok(()));
         storage.expect_exists().returning(|_| true);
+        let keys_clone = keys.clone();
         storage.expect_get().returning(move |_| {
             let mut data = get_baseline_company_data().1 .0;
             data.signatories.push("the founder".to_string());
-            data.signatories.push(node_id.to_string());
+            data.signatories.push(keys_clone.clone().get_public_key());
             Ok(data)
         });
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1 .1));
+        let keys_clone_clone = keys.clone();
         identity_store.expect_get_full().returning(move || {
             let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            identity.node_id = keys_clone_clone.clone().get_public_key();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: BcrKeys::new(),
-                node_id,
+                key_pair: keys_clone_clone.clone(),
             })
         });
         storage.expect_update().returning(|_, _| Ok(()));
         storage.expect_remove().returning(|_| Ok(()));
+        let keys_clone2 = keys.clone();
         identity_chain_store
             .expect_get_latest_block()
-            .returning(|| {
-                let mut identity = Identity::new_empty();
-                identity.public_key_pem = TEST_PUB_KEY.to_string();
-                Ok(IdentityBlockchain::new(
-                    &identity.into(),
-                    &PeerId::random().to_string(),
-                    &BcrKeys::new(),
-                    TEST_PUB_KEY,
-                    1731593928,
+            .returning(move || {
+                let identity = Identity::new_empty();
+                Ok(
+                    IdentityBlockchain::new(&identity.into(), &keys_clone2, 1731593928)
+                        .unwrap()
+                        .get_latest_block()
+                        .clone(),
                 )
-                .unwrap()
-                .get_latest_block()
-                .clone())
             });
         identity_chain_store
             .expect_add_block()
@@ -1651,7 +1592,7 @@ pub mod test {
             company_chain_store,
         );
         let res = service
-            .remove_signatory("some_id", node_id.to_string(), 1731593928)
+            .remove_signatory("some_id", keys.get_public_key(), 1731593928)
             .await;
         assert!(res.is_ok());
     }
@@ -1678,12 +1619,10 @@ pub mod test {
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         let service = get_service(
@@ -1720,12 +1659,10 @@ pub mod test {
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         let service = get_service(
@@ -1764,12 +1701,10 @@ pub mod test {
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1 .1));
         identity_store.expect_get_full().returning(|| {
-            let mut identity = Identity::new_empty();
-            identity.public_key_pem = TEST_PUB_KEY.to_string();
+            let identity = Identity::new_empty();
             Ok(IdentityWithAll {
                 identity,
                 key_pair: BcrKeys::new(),
-                node_id: PeerId::random(),
             })
         });
         storage.expect_update().returning(|_, _| {
@@ -1798,7 +1733,7 @@ pub mod test {
         let file_name = "file_00000000-0000-0000-0000-000000000000.pdf";
         let file_bytes = String::from("hello world").as_bytes().to_vec();
         let expected_encrypted =
-            util::rsa::encrypt_bytes_with_public_key(&file_bytes, TEST_PUB_KEY).unwrap();
+            util::crypto::encrypt_ecies(&file_bytes, TEST_PUB_KEY_SECP).unwrap();
 
         let (
             storage,
@@ -1829,7 +1764,7 @@ pub mod test {
         );
 
         let file = service
-            .encrypt_and_save_uploaded_file(file_name, &file_bytes, company_id, TEST_PUB_KEY)
+            .encrypt_and_save_uploaded_file(file_name, &file_bytes, company_id, TEST_PUB_KEY_SECP)
             .await
             .unwrap();
         assert_eq!(
@@ -1839,7 +1774,7 @@ pub mod test {
         assert_eq!(file.name, String::from(file_name));
 
         let decrypted = service
-            .open_and_decrypt_file(company_id, file_name, TEST_PRIVATE_KEY)
+            .open_and_decrypt_file(company_id, file_name, TEST_PRIVATE_KEY_SECP)
             .await
             .unwrap();
         assert_eq!(std::str::from_utf8(&decrypted).unwrap(), "hello world");
@@ -1873,7 +1808,7 @@ pub mod test {
         );
 
         assert!(service
-            .encrypt_and_save_uploaded_file("file_name", &[], "test", TEST_PUB_KEY)
+            .encrypt_and_save_uploaded_file("file_name", &[], "test", TEST_PUB_KEY_SECP)
             .await
             .is_err());
     }
@@ -1906,7 +1841,7 @@ pub mod test {
         );
 
         assert!(service
-            .open_and_decrypt_file("test", "test", TEST_PRIVATE_KEY)
+            .open_and_decrypt_file("test", "test", TEST_PRIVATE_KEY_SECP)
             .await
             .is_err());
     }

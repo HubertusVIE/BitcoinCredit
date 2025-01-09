@@ -24,7 +24,7 @@ use std::thread;
 pub async fn holder(state: &State<ServiceContext>, id: String) -> Result<Json<bool>> {
     let identity = state.identity_service.get_full_identity().await?;
     let bill = state.bill_service.get_bill(&id).await?;
-    let am_i_holder = identity.node_id.to_string().eq(&bill.payee.node_id);
+    let am_i_holder = identity.identity.node_id.eq(&bill.payee.node_id);
     Ok(Json(am_i_holder))
 }
 
@@ -37,7 +37,7 @@ pub async fn attachment(
     let keys = state.bill_service.get_bill_keys(bill_id).await?;
     let file_bytes = state
         .bill_service
-        .open_and_decrypt_attached_file(bill_id, file_name, &keys.private_key_pem)
+        .open_and_decrypt_attached_file(bill_id, file_name, &keys.private_key)
         .await?;
 
     let content_type = match detect_content_type_for_bytes(&file_bytes) {
@@ -171,15 +171,13 @@ pub async fn issue_bill(
                         service::Error::Validation(String::from("Can not get drawee identity."))
                     })?;
 
-                let public_data_payee =
-                    IdentityPublicData::new(drawer.identity.clone(), drawer.node_id.to_string());
+                let public_data_payee = IdentityPublicData::new(drawer.identity.clone());
 
                 (public_data_drawee, public_data_payee)
             }
             // Drawer is drawee
             (false, true) => {
-                let public_data_drawee =
-                    IdentityPublicData::new(drawer.identity.clone(), drawer.node_id.to_string());
+                let public_data_drawee = IdentityPublicData::new(drawer.identity.clone());
 
                 let public_data_payee = state
                     .contact_service

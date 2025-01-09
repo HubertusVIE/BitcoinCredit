@@ -118,7 +118,6 @@ impl ContactServiceApi for ContactService {
 }
 
 #[derive(Serialize)]
-#[serde(crate = "rocket::serde")]
 pub struct Contact {
     pub name: String,
     pub node_id: String,
@@ -136,29 +135,26 @@ fn as_contacts(identities: HashMap<String, IdentityPublicData>) -> Vec<Contact> 
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
-#[serde(crate = "rocket::serde")]
 pub struct IdentityPublicData {
     pub node_id: String,
+    pub bitcoin_public_key: String,
     pub name: String,
     pub company: String,
-    pub bitcoin_public_key: String,
     pub postal_address: String,
     pub email: String,
-    pub rsa_public_key_pem: String,
     pub nostr_npub: Option<String>,
     pub nostr_relay: Option<String>,
 }
 
 impl IdentityPublicData {
-    pub fn new(identity: Identity, node_id: String) -> Self {
+    pub fn new(identity: Identity) -> Self {
         Self {
-            node_id,
+            node_id: identity.node_id,
+            bitcoin_public_key: identity.bitcoin_public_key,
             name: identity.name,
             company: identity.company,
-            bitcoin_public_key: identity.bitcoin_public_key,
             postal_address: identity.postal_address,
             email: identity.email,
-            rsa_public_key_pem: identity.public_key_pem,
             nostr_npub: identity.nostr_npub,
             nostr_relay: identity.nostr_relay,
         }
@@ -167,12 +163,11 @@ impl IdentityPublicData {
     pub fn new_empty() -> Self {
         Self {
             node_id: "".to_string(),
+            bitcoin_public_key: "".to_string(),
             name: "".to_string(),
             company: "".to_string(),
-            bitcoin_public_key: "".to_string(),
             postal_address: "".to_string(),
             email: "".to_string(),
-            rsa_public_key_pem: "".to_string(),
             nostr_npub: None,
             nostr_relay: None,
         }
@@ -181,12 +176,11 @@ impl IdentityPublicData {
     pub fn new_only_node_id(node_id: String) -> Self {
         Self {
             node_id,
+            bitcoin_public_key: "".to_string(),
             name: "".to_string(),
             company: "".to_string(),
-            bitcoin_public_key: "".to_string(),
             postal_address: "".to_string(),
             email: "".to_string(),
-            rsa_public_key_pem: "".to_string(),
             nostr_npub: None,
             nostr_relay: None,
         }

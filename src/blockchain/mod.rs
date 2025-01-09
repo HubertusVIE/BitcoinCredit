@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::util::{crypto, rsa};
+use crate::util::crypto;
 use crate::{external, util};
 use borsh::{to_vec, BorshSerialize};
 use log::{error, warn};
@@ -31,10 +31,6 @@ pub enum Error {
     /// Errors stemming from json deserialization. Most of the time this is a
     #[error("unable to serialize/deserialize to/from JSON {0}")]
     Json(#[from] serde_json::Error),
-
-    /// Errors stemming from cryptography, such as converting keys, encryption and decryption
-    #[error("Cryptography error: {0}")]
-    Cryptography(#[from] rsa::Error),
 
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Secp256k1Cryptography error: {0}")]

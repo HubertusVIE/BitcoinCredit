@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::constants::{
-    RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_NODE_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
+    RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID, RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
 use behaviour::{ComposedEvent, Event, MyBehaviour};
 use borsh::{to_vec, BorshDeserialize};
@@ -27,7 +27,6 @@ use crate::persistence::bill::BillStoreApi;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
-use crate::util::rsa;
 use crate::{blockchain, persistence, util};
 pub use client::Client;
 use log::{error, info};
@@ -63,6 +62,10 @@ pub enum Error {
     /// all errors originating from serializing, or deserializing json
     #[error("unable to serialize/deserialize to/from JSON {0}")]
     Json(#[from] serde_json::Error),
+
+    /// all errors originating invalid file requests
+    #[error("Invalid File Request: {0}")]
+    InvalidFileRequest(String),
 
     /// all errors originating from the persistence layer
     #[error("Persistence error: {0}")]
@@ -123,10 +126,6 @@ pub enum Error {
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] blockchain::Error),
-
-    /// Errors stemming from cryptography, such as converting keys, encryption and decryption
-    #[error("Cryptography error: {0}")]
-    Cryptography(#[from] rsa::Error),
 }
 
 pub struct Dht {
@@ -184,10 +183,12 @@ async fn new(
 ) -> Result<(Client, Receiver<Event>, EventLoop)> {
     let keys = identity_store.get_or_create_key_pair().await?;
     let local_public_key = keys.get_libp2p_keys()?;
-    let local_node_id = identity_store.get_node_id().await?;
+    let local_node_id = keys.get_public_key();
+    let local_peer_id = local_public_key.public().to_peer_id();
+    info!("Local peer id: {local_peer_id:?}");
     info!("Local node id: {local_node_id:?}");
 
-    let (relay_transport, client) = relay::client::new(local_node_id);
+    let (relay_transport, client) = relay::client::new(local_peer_id);
 
     let dns_cfg = DnsConfig::system(tcp::tokio::Transport::new(
         tcp::Config::default().port_reuse(true),
@@ -200,9 +201,9 @@ async fn new(
         .timeout(std::time::Duration::from_secs(20))
         .boxed();
 
-    let behaviour = MyBehaviour::new(local_node_id, local_public_key.clone(), client);
+    let behaviour = MyBehaviour::new(local_peer_id, local_public_key.clone(), client);
 
-    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_node_id).build();
+    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
 
     swarm.listen_on(
         conf.p2p_listen_url()
@@ -234,11 +235,11 @@ async fn new(
         }
     }
 
-    let relay_node_id: PeerId = RELAY_BOOTSTRAP_NODE_ONE_NODE_ID.to_string().parse()?;
+    let relay_peer_id: PeerId = RELAY_BOOTSTRAP_NODE_ONE_PEER_ID.to_string().parse()?;
     let relay_address = Multiaddr::empty()
         .with(Protocol::Ip4(RELAY_BOOTSTRAP_NODE_ONE_IP))
         .with(Protocol::Tcp(RELAY_BOOTSTRAP_NODE_ONE_TCP))
-        .with(Protocol::P2p(Multihash::from(relay_node_id)));
+        .with(Protocol::P2p(Multihash::from(relay_peer_id)));
     info!("Relay address: {:?}", relay_address);
 
     swarm.dial(relay_address.clone())?;

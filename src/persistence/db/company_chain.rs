@@ -215,7 +215,7 @@ mod tests {
         blockchain::company::CompanyUpdateBlockData,
         persistence::db::get_memory_db,
         service::company_service::{CompanyKeys, CompanyToReturn},
-        tests::test::{TEST_PRIVATE_KEY, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY, TEST_PUB_KEY_SECP},
+        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         util::BcrKeys,
     };
 
@@ -230,8 +230,6 @@ mod tests {
         CompanyKeys {
             private_key: TEST_PRIVATE_KEY_SECP.to_string(),
             public_key: TEST_PUB_KEY_SECP.to_string(),
-            rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-            rsa_public_key: TEST_PUB_KEY.to_string(),
         }
     }
 
@@ -255,12 +253,10 @@ mod tests {
                 logo_file: None,
                 signatories: vec!["self".to_string()],
                 public_key: TEST_PUB_KEY_SECP.to_string(),
-                rsa_public_key: TEST_PUB_KEY.to_string(),
             }
             .into(),
             &BcrKeys::new(),
             &get_company_keys(),
-            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap();
@@ -309,12 +305,10 @@ mod tests {
                 logo_file: None,
                 signatories: vec!["self".to_string()],
                 public_key: TEST_PUB_KEY_SECP.to_string(),
-                rsa_public_key: TEST_PUB_KEY.to_string(),
             }
             .into(),
             &BcrKeys::new(),
             &get_company_keys(),
-            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap();

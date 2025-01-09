@@ -150,8 +150,8 @@ pub async fn request_to_mint_bitcredit(
         .expect("Could not create wallet");
 
     let keys: BillKeys = BillKeys {
-        private_key_pem: bill_keys.private_key_pem,
-        public_key_pem: bill_keys.public_key_pem,
+        private_key_pem: bill_keys.private_key,
+        public_key_pem: bill_keys.public_key,
     };
 
     let req = wallet.send_request_to_mint_bitcredit(&mint_url, payload.bill_id.clone(), keys);

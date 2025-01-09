@@ -133,8 +133,6 @@ pub struct CompanyKeysDb {
     pub id: Option<Thing>,
     pub public_key: String,
     pub private_key: String,
-    pub rsa_public_key: String,
-    pub rsa_private_key: String,
 }
 
 impl From<CompanyDb> for Company {
@@ -180,8 +178,6 @@ impl From<CompanyKeysDb> for CompanyKeys {
         Self {
             public_key: value.public_key,
             private_key: value.private_key,
-            rsa_public_key: value.rsa_public_key,
-            rsa_private_key: value.rsa_private_key,
         }
     }
 }
@@ -192,8 +188,6 @@ impl From<&CompanyKeys> for CompanyKeysDb {
             id: None,
             public_key: value.public_key.clone(),
             private_key: value.private_key.clone(),
-            rsa_public_key: value.rsa_public_key.clone(),
-            rsa_private_key: value.rsa_private_key.clone(),
         }
     }
 }
@@ -221,7 +215,7 @@ mod tests {
     use super::*;
     use crate::{
         persistence::db::get_memory_db,
-        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
+        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
     };
 
     async fn get_store() -> SurrealCompanyStore {
@@ -259,10 +253,8 @@ mod tests {
             .save_key_pair(
                 "some_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
-                    rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                    rsa_public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
@@ -292,10 +284,8 @@ mod tests {
             .save_key_pair(
                 "some_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
-                    rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                    rsa_public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
@@ -312,16 +302,14 @@ mod tests {
             .save_key_pair(
                 "some_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
-                    rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                    rsa_public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
             .unwrap();
         let company_keys = store.get_key_pair("some_id").await.unwrap();
-        assert_eq!(company_keys.public_key, TEST_PUB_KEY.to_string());
+        assert_eq!(company_keys.public_key, TEST_PUB_KEY_SECP.to_string());
     }
 
     #[tokio::test]
@@ -350,8 +338,6 @@ mod tests {
                 &CompanyKeys {
                     private_key: "privkey".to_string(),
                     public_key: "pubkey".to_string(),
-                    rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                    rsa_public_key: TEST_PUB_KEY.to_string(),
                 },
             )
             .await
@@ -364,10 +350,8 @@ mod tests {
             .save_key_pair(
                 "some_other_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
-                    rsa_private_key: TEST_PRIVATE_KEY.to_string(),
-                    rsa_public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
@@ -393,7 +377,7 @@ mod tests {
                 .unwrap()
                 .1
                 .public_key,
-            TEST_PUB_KEY.to_owned()
+            TEST_PUB_KEY_SECP.to_owned()
         );
     }
 }

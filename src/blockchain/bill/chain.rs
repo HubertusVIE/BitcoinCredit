@@ -13,7 +13,7 @@ use crate::constants::{AMOUNT, SIGNED_BY};
 use crate::service::bill_service::BillKeys;
 use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
-use crate::util::{self, rsa, BcrKeys};
+use crate::util::{self, BcrKeys};
 use borsh::{from_slice, to_vec};
 use serde::{Deserialize, Serialize};
 
@@ -41,7 +41,7 @@ impl BillBlockchain {
         bill: &BitcreditBill,
         drawer: IdentityPublicData,
         drawer_key_pair: BcrKeys,
-        bill_public_key_pem: String,
+        bill_public_key: String,
         timestamp: u64,
     ) -> Result<Self> {
         let drawer_bytes = serde_json::to_vec(&drawer)?;
@@ -49,9 +49,10 @@ impl BillBlockchain {
 
         let genesis_hash: String = util::base58_encode(data_for_new_block.as_bytes());
 
-        let encrypted_and_hashed_bill_data = util::base58_encode(
-            &rsa::encrypt_bytes_with_public_key(&to_vec(bill)?, &bill_public_key_pem)?,
-        );
+        let encrypted_and_hashed_bill_data = util::base58_encode(&util::crypto::encrypt_ecies(
+            &to_vec(bill)?,
+            &bill_public_key,
+        )?);
 
         let first_block = BillBlock::new(
             1,
@@ -112,7 +113,6 @@ impl BillBlockchain {
             bitcoin_public_key: "".to_string(),
             postal_address: "".to_string(),
             email: "".to_string(),
-            rsa_public_key_pem: "".to_string(),
             nostr_npub: None,
             nostr_relay: None,
         };
@@ -337,16 +337,14 @@ mod test {
     use super::*;
     use crate::{
         blockchain::bill::test::get_baseline_identity,
-        tests::test::{get_bill_keys, TEST_PUB_KEY},
-        util::rsa,
+        tests::test::{get_bill_keys, TEST_PUB_KEY_SECP},
     };
-    use libp2p::PeerId;
 
     fn get_sell_block(node_id: String, prevhash: String) -> BillBlock {
         let mut buyer = IdentityPublicData::new_empty();
         buyer.node_id = node_id.clone();
         let mut seller = IdentityPublicData::new_empty();
-        let endorser_node_id = PeerId::random().to_string();
+        let endorser_node_id = BcrKeys::new().get_public_key();
         seller.node_id = endorser_node_id.clone();
         let hashed_buyer = util::base58_encode(&serde_json::to_vec(&buyer).unwrap());
         let hashed_seller = util::base58_encode(&serde_json::to_vec(&seller).unwrap());
@@ -360,7 +358,7 @@ mod test {
             2,
             prevhash,
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Sell,
             BcrKeys::new(),
@@ -376,9 +374,9 @@ mod test {
 
         let chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
@@ -393,14 +391,14 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
         assert!(chain.try_add_block(get_sell_block(
-            PeerId::random().to_string(),
+            BcrKeys::new().get_public_key(),
             chain.get_first_block().hash.clone()
         ),));
         assert!(chain.is_chain_valid());
@@ -413,13 +411,13 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = BcrKeys::new().get_public_key();
         assert!(chain.try_add_block(get_sell_block(
             node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
@@ -441,13 +439,13 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = BcrKeys::new().get_public_key();
         assert!(chain.try_add_block(get_sell_block(
             node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
@@ -467,13 +465,13 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = BcrKeys::new().get_public_key();
         assert!(chain.try_add_block(get_sell_block(
             node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
@@ -495,18 +493,17 @@ mod test {
     fn get_all_nodes_from_bill_baseline() {
         let mut bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
-        bill.drawer =
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string());
+        bill.drawer = IdentityPublicData::new(identity.identity.clone());
 
         let mut chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
-        let node_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = BcrKeys::new().get_public_key();
         assert!(chain.try_add_block(get_sell_block(
             node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
@@ -526,14 +523,14 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
         let chain2 = chain.clone();
-        let node_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = BcrKeys::new().get_public_key();
         assert!(chain.try_add_block(get_sell_block(
             node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()
@@ -551,14 +548,14 @@ mod test {
 
         let mut chain = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         )
         .unwrap();
         let mut chain2 = chain.clone();
-        let node_id_last_endorsee = PeerId::random().to_string();
+        let node_id_last_endorsee = BcrKeys::new().get_public_key();
         assert!(chain.try_add_block(get_sell_block(
             node_id_last_endorsee.clone(),
             chain.get_first_block().hash.clone()

@@ -14,8 +14,8 @@ use crate::constants::SOLD_TO;
 use crate::service::bill_service::BillKeys;
 use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::IdentityPublicData;
+use crate::util::BcrKeys;
 use crate::util::{self, crypto};
-use crate::util::{rsa, BcrKeys};
 
 use borsh::from_slice;
 use borsh_derive::BorshSerialize;
@@ -102,9 +102,8 @@ impl BillBlock {
     /// - `id`: The unique identifier of the block (`u64`).
     /// - `previous_hash`: A `String` representing the hash of the previous block in the chain.
     /// - `data`: A `String` containing the data to be stored in the block.
-    /// - `public_key`: A `String` containing the public RSA key in PEM format.
     /// - `operation_code`: An `BillOpCode` indicating the operation type associated with the block.
-    /// - `private_key`: A `String` containing the private RSA key in PEM format, used to sign the block.
+    /// - `keys`: The identity keys
     /// - `timestamp`: An `u64` timestamp representing the time the block was created.
     ///
     /// # Returns
@@ -152,8 +151,7 @@ impl BillBlock {
     /// Decrypts the block data using the bill's private key, returning the raw bytes
     pub fn get_decrypted_block_bytes(&self, bill_keys: &BillKeys) -> Result<Vec<u8>> {
         let bytes = util::base58_decode(&self.data)?;
-        let decrypted_bytes =
-            rsa::decrypt_bytes_with_private_key(&bytes, &bill_keys.private_key_pem)?;
+        let decrypted_bytes = util::crypto::decrypt_ecies(&bytes, &bill_keys.private_key)?;
         Ok(decrypted_bytes)
     }
 
@@ -417,9 +415,8 @@ impl BillBlock {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::tests::test::{get_bill_keys, TEST_PUB_KEY};
+    use crate::tests::test::{get_bill_keys, TEST_PUB_KEY_SECP};
     use borsh::to_vec;
-    use libp2p::PeerId;
 
     #[test]
     fn signature_can_be_verified() {
@@ -439,9 +436,9 @@ mod test {
     fn get_nodes_from_block_issue() {
         let mut bill = BitcreditBill::new_empty();
         let mut drawer = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         let mut payer = IdentityPublicData::new_empty();
-        let payer_node_id = PeerId::random().to_string();
+        let payer_node_id = BcrKeys::new().get_public_key();
         payer.node_id = payer_node_id.clone();
         drawer.node_id = node_id.clone();
         bill.drawer = drawer.clone();
@@ -449,7 +446,7 @@ mod test {
         bill.drawee = payer;
 
         let hashed_bill = util::base58_encode(
-            &rsa::encrypt_bytes_with_public_key(&to_vec(&bill).unwrap(), TEST_PUB_KEY).unwrap(),
+            &util::crypto::encrypt_ecies(&to_vec(&bill).unwrap(), TEST_PUB_KEY_SECP).unwrap(),
         );
 
         let block = BillBlock::new(
@@ -477,7 +474,7 @@ mod test {
         bill.drawer = drawer.clone();
 
         let hashed_bill = util::base58_encode(
-            &rsa::encrypt_bytes_with_public_key(&to_vec(&bill).unwrap(), TEST_PUB_KEY).unwrap(),
+            &util::crypto::encrypt_ecies(&to_vec(&bill).unwrap(), TEST_PUB_KEY_SECP).unwrap(),
         );
 
         let block = BillBlock::new(
@@ -500,10 +497,10 @@ mod test {
     #[test]
     fn get_nodes_from_block_endorse() {
         let mut endorsee = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         endorsee.node_id = node_id.clone();
         let mut endorser = IdentityPublicData::new_empty();
-        let endorser_node_id = PeerId::random().to_string();
+        let endorser_node_id = BcrKeys::new().get_public_key();
         endorser.node_id = endorser_node_id.clone();
         let hashed_endorsee = util::base58_encode(&serde_json::to_vec(&endorsee).unwrap());
         let hashed_endorser = util::base58_encode(&serde_json::to_vec(&endorser).unwrap());
@@ -517,7 +514,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Endorse,
             BcrKeys::new(),
@@ -549,7 +546,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Endorse,
             BcrKeys::new(),
@@ -564,10 +561,10 @@ mod test {
     #[test]
     fn get_nodes_from_block_mint() {
         let mut mint = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         mint.node_id = node_id.clone();
         let mut minter = IdentityPublicData::new_empty();
-        let minter_node_id = PeerId::random().to_string();
+        let minter_node_id = BcrKeys::new().get_public_key();
         minter.node_id = minter_node_id.clone();
         let hashed_mint = util::base58_encode(&serde_json::to_vec(&mint).unwrap());
         let hashed_minter = util::base58_encode(&serde_json::to_vec(&minter).unwrap());
@@ -581,7 +578,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Mint,
             BcrKeys::new(),
@@ -613,7 +610,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Mint,
             BcrKeys::new(),
@@ -628,7 +625,7 @@ mod test {
     #[test]
     fn get_nodes_from_block_req_to_accept() {
         let mut requester = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         requester.node_id = node_id.clone();
         let hashed_requester = util::base58_encode(&serde_json::to_vec(&requester).unwrap());
 
@@ -638,7 +635,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::RequestToAccept,
             BcrKeys::new(),
@@ -664,7 +661,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::RequestToAccept,
             BcrKeys::new(),
@@ -682,7 +679,7 @@ mod test {
     #[test]
     fn get_nodes_from_block_accept() {
         let mut accepter = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         accepter.node_id = node_id.clone();
         let hashed_accepter = util::base58_encode(&serde_json::to_vec(&accepter).unwrap());
 
@@ -692,7 +689,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Accept,
             BcrKeys::new(),
@@ -718,7 +715,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Accept,
             BcrKeys::new(),
@@ -736,7 +733,7 @@ mod test {
     #[test]
     fn get_nodes_from_block_accept_fails_for_invalid_data() {
         let mut accepter = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         accepter.node_id = node_id.clone();
         let hashed_accepter = util::base58_encode(&serde_json::to_vec(&accepter).unwrap());
 
@@ -762,12 +759,8 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(
-                    // invalid data
-                    "some data".to_string().as_bytes(),
-                    TEST_PUB_KEY,
-                )
-                .unwrap(),
+                &util::crypto::encrypt_ecies("some data".to_string().as_bytes(), TEST_PUB_KEY_SECP)
+                    .unwrap(),
             ),
             BillOpCode::Accept,
             BcrKeys::new(),
@@ -781,7 +774,7 @@ mod test {
     #[test]
     fn get_nodes_from_block_req_to_pay() {
         let mut requester = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         requester.node_id = node_id.clone();
         let hashed_requester = util::base58_encode(&serde_json::to_vec(&requester).unwrap());
 
@@ -791,7 +784,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::RequestToPay,
             BcrKeys::new(),
@@ -817,7 +810,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::RequestToPay,
             BcrKeys::new(),
@@ -835,10 +828,10 @@ mod test {
     #[test]
     fn get_nodes_from_block_sell() {
         let mut buyer = IdentityPublicData::new_empty();
-        let node_id = PeerId::random().to_string();
+        let node_id = BcrKeys::new().get_public_key();
         buyer.node_id = node_id.clone();
         let mut seller = IdentityPublicData::new_empty();
-        let endorser_node_id = PeerId::random().to_string();
+        let endorser_node_id = BcrKeys::new().get_public_key();
         seller.node_id = endorser_node_id.clone();
         let hashed_buyer = util::base58_encode(&serde_json::to_vec(&buyer).unwrap());
         let hashed_seller = util::base58_encode(&serde_json::to_vec(&seller).unwrap());
@@ -849,7 +842,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Sell,
             BcrKeys::new(),
@@ -876,7 +869,7 @@ mod test {
             1,
             String::from("prevhash"),
             util::base58_encode(
-                &rsa::encrypt_bytes_with_public_key(data.as_bytes(), TEST_PUB_KEY).unwrap(),
+                &util::crypto::encrypt_ecies(data.as_bytes(), TEST_PUB_KEY_SECP).unwrap(),
             ),
             BillOpCode::Sell,
             BcrKeys::new(),

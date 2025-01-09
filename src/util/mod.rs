@@ -2,13 +2,11 @@ pub mod crypto;
 pub mod date;
 pub mod file;
 pub mod numbers_to_words;
-pub mod rsa;
 pub mod terminal;
 
 pub use crypto::BcrKeys;
 
-use bitcoin::{Network, PrivateKey, PublicKey};
-use openssl::sha::sha256;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -23,13 +21,11 @@ pub fn get_uuid_v4() -> Uuid {
     uuid!("00000000-0000-0000-0000-000000000000")
 }
 
-pub fn create_bitcoin_keypair(used_network: Network) -> (PrivateKey, PublicKey) {
-    let (private_key, public_key) = BcrKeys::new().get_bitcoin_keys(used_network);
-    (private_key, public_key)
-}
-
 pub fn sha256_hash(bytes: &[u8]) -> String {
-    base58_encode(&sha256(bytes))
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let hash = hasher.finalize();
+    base58_encode(&hash)
 }
 
 #[derive(Debug, Error)]

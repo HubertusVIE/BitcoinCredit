@@ -1,7 +1,6 @@
-use rocket::serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
 pub struct CreateCompanyPayload {
     pub name: String,
     pub country_of_registration: String,
@@ -15,7 +14,6 @@ pub struct CreateCompanyPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
 pub struct EditCompanyPayload {
     pub id: String,
     pub name: Option<String>,
@@ -25,14 +23,12 @@ pub struct EditCompanyPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
 pub struct AddSignatoryPayload {
     pub id: String,
     pub signatory_node_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(crate = "rocket::serde")]
 pub struct RemoveSignatoryPayload {
     pub id: String,
     pub signatory_node_id: String,

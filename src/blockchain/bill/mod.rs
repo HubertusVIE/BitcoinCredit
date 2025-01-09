@@ -113,20 +113,18 @@ mod test {
             bill_service::BitcreditBill,
             identity_service::{Identity, IdentityWithAll},
         },
-        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
+        tests::test::TEST_PUB_KEY_SECP,
         util::BcrKeys,
     };
-    use libp2p::PeerId;
 
     pub fn get_baseline_identity() -> IdentityWithAll {
+        let keys = BcrKeys::new();
         let mut identity = Identity::new_empty();
+        identity.node_id = keys.get_public_key();
         identity.name = "drawer".to_owned();
-        identity.public_key_pem = TEST_PUB_KEY.to_owned();
-        identity.private_key_pem = TEST_PRIVATE_KEY.to_owned();
         IdentityWithAll {
             identity,
-            node_id: PeerId::random(),
-            key_pair: BcrKeys::new(),
+            key_pair: keys,
         }
     }
 
@@ -137,9 +135,9 @@ mod test {
 
         let result = BillBlockchain::new(
             &bill,
-            IdentityPublicData::new(identity.identity.clone(), identity.node_id.to_string()),
+            IdentityPublicData::new(identity.identity.clone()),
             identity.key_pair,
-            TEST_PUB_KEY.to_owned(),
+            TEST_PUB_KEY_SECP.to_owned(),
             1731593928,
         );
 

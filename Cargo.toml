@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openssl = "0.10.68"
+sha2 = "0.10"
 borsh = "1.5.1"
 borsh-derive = "1.0.0"
 env_logger = "0.11.5"
@@ -63,6 +63,7 @@ infer = { version = "0.16", default-features = false }
 surrealdb = "2"
 lazy_static = "1.5.0"
 bs58 = "0.5.1"
+ecies = { version = "0.2", features = ["std"] }
 
 [dev-dependencies]
 mockall = "0.13.0"
