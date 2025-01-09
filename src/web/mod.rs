@@ -1,11 +1,15 @@
 use crate::service::ServiceContext;
+use api_docs::ApiDocs;
 use log::info;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::fs::FileServer;
 use rocket::http::{Header, Status};
 use rocket::{catch, catchers, routes, Build, Config, Request, Response, Rocket};
 use serde::Serialize;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
+pub mod api_docs;
 pub mod data;
 mod handlers;
 
@@ -116,11 +120,15 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             ],
         )
         .mount(
-            "/notifications",
+            "/",
             routes![
                 handlers::notifications::list_notifications,
                 handlers::notifications::mark_notification_done,
             ],
+        )
+        .mount(
+            "/",
+            SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDocs::openapi()),
         )
         .attach(Cors);
 

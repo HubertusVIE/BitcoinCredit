@@ -31,6 +31,7 @@ pub use email::NotificationEmailTransportApi;
 pub use event::{EventEnvelope, EventType};
 pub use nostr::{NostrClient, NostrConfig, NostrConsumer};
 pub use transport::NotificationJsonTransportApi;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::contact_service::ContactServiceApi;
@@ -182,7 +183,7 @@ pub trait NotificationServiceApi: Send + Sync {
 /// time when the client received the notification. The type determines the payload
 /// type and the reference_id is used to identify and optional other entity like a
 /// Bill or Company.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Notification {
     /// The unique id of the notification
     pub id: String,
@@ -190,9 +191,10 @@ pub struct Notification {
     pub notification_type: NotificationType,
     /// An optional reference to some other entity
     pub reference_id: Option<String>,
-    /// A descriotion to quickly show to a user in the ui (probably a translation key)
+    /// A description to quickly show to a user in the ui (probably a translation key)
     pub description: String,
     /// The datetime when the notification was created
+    #[schema(value_type = chrono::DateTime<chrono::Utc>)]
     pub datetime: DateTimeUtc,
     /// Whether the notification is active or not. If active the user shold still perform
     /// some action to dismiss the notification.
@@ -216,7 +218,7 @@ impl Notification {
 }
 
 /// The type/topic of a notification we show to the user
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum NotificationType {
     General,
     Bill,

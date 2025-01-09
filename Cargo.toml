@@ -63,6 +63,8 @@ infer = { version = "0.16", default-features = false }
 surrealdb = "2"
 lazy_static = "1.5.0"
 bs58 = "0.5.1"
+utoipa = { version = "5", features = ["rocket_extras", "chrono"] }
+utoipa-swagger-ui = { version = "8", features = ["rocket", "vendored"] }
 
 [dev-dependencies]
 mockall = "0.13.0"

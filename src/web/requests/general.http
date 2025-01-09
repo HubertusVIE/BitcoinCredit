@@ -1,0 +1,2 @@
+### get openapi spec
+GET {{host}}/api-docs/openapi.json
