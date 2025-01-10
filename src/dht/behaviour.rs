@@ -489,6 +489,19 @@ mod test {
     }
 
     #[test]
+    fn parse_inbound_file_request_validate_peer_id() {
+        let keys = BcrKeys::new();
+        let other_keys = BcrKeys::new();
+        let other_peer_id = other_keys.get_libp2p_keys().unwrap().public().to_peer_id();
+        let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
+        let nodeid = keys.get_public_key();
+        assert!(parse_inbound_file_request(&format!("{nodeid}_BILL_TEST"), &peer_id).is_ok());
+        assert!(
+            parse_inbound_file_request(&format!("{nodeid}_BILL_TEST"), &other_peer_id).is_err()
+        );
+    }
+
+    #[test]
     fn parse_inbound_file_request_prefixes() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
