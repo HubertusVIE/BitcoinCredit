@@ -7,10 +7,12 @@ use crate::util::date::{now, DateTimeUtc};
 use crate::util::{self};
 use crate::{config::Config, service::bill_service::BitcreditBill};
 use async_trait::async_trait;
+use bill_action_event_handler::BillActionEventHandler;
 use default_service::DefaultNotificationService;
 use handler::{LoggingEventHandler, NotificationHandlerApi};
 #[cfg(test)]
 use mockall::automock;
+use push_notification::PushApi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -18,6 +20,7 @@ use thiserror::Error;
 #[cfg(test)]
 pub mod test_utils;
 
+pub mod bill_action_event_handler;
 pub mod default_service;
 mod email;
 mod email_lettre;
@@ -25,6 +28,7 @@ mod email_sendgrid;
 mod event;
 mod handler;
 mod nostr;
+pub mod push_notification;
 mod transport;
 
 pub use email::NotificationEmailTransportApi;
@@ -110,12 +114,20 @@ pub async fn create_nostr_consumer(
     client: NostrClient,
     contact_service: Arc<dyn ContactServiceApi>,
     nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
+    notification_store: Arc<dyn NotificationStoreApi>,
+    push_service: Arc<dyn PushApi>,
 ) -> Result<NostrConsumer> {
     // register the logging event handler for all events for now. Later we will probably
     // setup the handlers outside and pass them to the consumer via this functions arguments.
-    let handlers: Vec<Box<dyn NotificationHandlerApi>> = vec![Box::new(LoggingEventHandler {
-        event_types: EventType::all(),
-    })];
+    let handlers: Vec<Box<dyn NotificationHandlerApi>> = vec![
+        Box::new(LoggingEventHandler {
+            event_types: EventType::all(),
+        }),
+        Box::new(BillActionEventHandler::new(
+            notification_store,
+            push_service,
+        )),
+    ];
     let consumer = NostrConsumer::new(client, contact_service, handlers, nostr_event_offset_store);
     Ok(consumer)
 }

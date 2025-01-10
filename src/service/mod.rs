@@ -18,6 +18,7 @@ use contact_service::{ContactService, ContactServiceApi};
 use file_upload_service::{FileUploadService, FileUploadServiceApi};
 use identity_service::{IdentityService, IdentityServiceApi};
 use log::error;
+use notification_service::push_notification::{PushApi, PushService};
 use notification_service::{
     create_nostr_client, create_nostr_consumer, create_notification_service, NostrConsumer,
     NotificationServiceApi,
@@ -155,6 +156,7 @@ pub struct ServiceContext {
     pub nostr_consumer: NostrConsumer,
     pub shutdown_sender: broadcast::Sender<bool>,
     pub notification_service: Arc<dyn NotificationServiceApi>,
+    pub push_service: Arc<dyn PushApi>,
 }
 
 impl ServiceContext {
@@ -213,10 +215,14 @@ pub async fn create_service_context(
     );
     let file_upload_service = FileUploadService::new(db.file_upload_store);
 
+    let push_service = Arc::new(PushService::new());
+
     let nostr_consumer = create_nostr_consumer(
         nostr_client,
         contact_service.clone(),
         db.nostr_event_offset_store.clone(),
+        db.notification_store.clone(),
+        push_service.clone(),
     )
     .await?;
 
@@ -231,5 +237,6 @@ pub async fn create_service_context(
         nostr_consumer,
         shutdown_sender,
         notification_service,
+        push_service,
     })
 }

@@ -1,2 +1,14 @@
 ### get openapi spec
 GET {{host}}/api-docs/openapi.json
+
+### trigger notification
+POST {{host}}/send_sse
+Content-Type: application/json
+
+{
+    "topic": "BillAction",
+    "payload": {
+      "some": "thing",
+      "has": "happened"
+    }
+}

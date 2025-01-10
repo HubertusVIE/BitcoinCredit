@@ -219,6 +219,7 @@ mod tests {
     use crate::persistence::notification::MockNotificationStoreApi;
     use crate::service::contact_service::MockContactServiceApi;
     use crate::service::notification_service::create_nostr_consumer;
+    use crate::service::notification_service::push_notification::MockPushApi;
     use crate::service::notification_service::transport::MockNotificationJsonTransportApi;
 
     use super::super::test_utils::{
@@ -476,6 +477,15 @@ mod tests {
         let client = get_mock_nostr_client().await;
         let contact_service = Arc::new(MockContactServiceApi::new());
         let store = Arc::new(MockNostrEventOffsetStoreApi::new());
-        let _ = create_nostr_consumer(client, contact_service, store).await;
+        let notification_store = Arc::new(MockNotificationStoreApi::new());
+        let push_service = Arc::new(MockPushApi::new());
+        let _ = create_nostr_consumer(
+            client,
+            contact_service,
+            store,
+            notification_store,
+            push_service,
+        )
+        .await;
     }
 }

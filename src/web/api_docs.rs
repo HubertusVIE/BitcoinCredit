@@ -11,6 +11,8 @@ use utoipa::OpenApi;
     paths(
         handlers::notifications::list_notifications,
         handlers::notifications::mark_notification_done,
+        handlers::notifications::websocket,
+        handlers::notifications::sse,
     )
 )]
 pub struct ApiDocs;

@@ -124,6 +124,9 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             routes![
                 handlers::notifications::list_notifications,
                 handlers::notifications::mark_notification_done,
+                handlers::notifications::websocket,
+                handlers::notifications::sse,
+                handlers::notifications::trigger_msg,
             ],
         )
         .mount(
