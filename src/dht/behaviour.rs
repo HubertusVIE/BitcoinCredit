@@ -304,9 +304,9 @@ pub fn parse_inbound_file_request(
 ) -> super::Result<ParsedInboundFileRequest> {
     let parts = request.splitn(4, "_").collect::<Vec<&str>>();
     if parts.len() < 3 {
-        return Err(Error::InvalidFileRequest(
-            "need at least 3 parts in {request}".to_string(),
-        ));
+        return Err(Error::InvalidFileRequest(format!(
+            "need at least 3 parts in {request}"
+        )));
     }
 
     let node_id = parts[0].to_owned();
