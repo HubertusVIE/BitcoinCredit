@@ -378,7 +378,7 @@ impl CompanyServiceApi for CompanyService {
             },
             &full_identity.key_pair,
             &company_keys,
-            &full_identity.key_pair.get_public_key(),
+            &signatory_node_id,
             timestamp,
         )?;
 
@@ -1207,6 +1207,8 @@ pub mod test {
             mut identity_chain_store,
             mut company_chain_store,
         ) = get_storages();
+        let signatory_keys = BcrKeys::new();
+        let signatory_node_id = signatory_keys.get_public_key();
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| Ok(()));
         storage
@@ -1218,10 +1220,11 @@ pub mod test {
         company_chain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
-        contact_store.expect_get_map().returning(|| {
+        let signatory_node_id_clone = signatory_node_id.clone();
+        contact_store.expect_get_map().returning(move || {
             let mut map = HashMap::new();
             let mut identity = IdentityPublicData::new_empty();
-            identity.node_id = "new_signatory_node_id".to_string();
+            identity.node_id = signatory_node_id_clone.clone();
             map.insert("my best friend".to_string(), identity);
             Ok(map)
         });
@@ -1260,7 +1263,7 @@ pub mod test {
             company_chain_store,
         );
         let res = service
-            .add_signatory("some_id", "new_signatory_node_id".to_string(), 1731593928)
+            .add_signatory("some_id", signatory_node_id, 1731593928)
             .await;
         assert!(res.is_ok());
     }

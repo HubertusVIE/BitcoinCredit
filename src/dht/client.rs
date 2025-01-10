@@ -3138,6 +3138,9 @@ mod test {
         company_blockchain_store
             .expect_add_block()
             .returning(|_, _| Ok(()));
+        company_blockchain_store
+            .expect_remove()
+            .returning(|_| Ok(()));
 
         let node_id_clone = node_id.clone();
         identity_store.expect_get().returning(move || {
