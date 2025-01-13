@@ -1,5 +1,6 @@
 use borsh_derive::{self, BorshDeserialize, BorshSerialize};
 use std::{collections::HashMap, sync::Arc};
+use utoipa::ToSchema;
 
 use async_trait::async_trait;
 #[cfg(test)]
@@ -135,17 +136,28 @@ fn as_contacts(identities: HashMap<String, IdentityPublicData>) -> Vec<Contact> 
         .collect()
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, Eq, PartialEq, ToSchema,
+)]
 #[serde(crate = "rocket::serde")]
 pub struct IdentityPublicData {
+    /// The P2P node id of the identity
     pub node_id: String,
+    /// The name of the identity
     pub name: String,
+    /// The name of the company this identity represents
     pub company: String,
+    /// Bitcoin public key of the identity
     pub bitcoin_public_key: String,
+    /// Full postal address of the identity
     pub postal_address: String,
+    /// email address of the identity
     pub email: String,
+    /// Public encryption key of the identity
     pub rsa_public_key_pem: String,
+    /// The Nostr npub to use for sending messages to this identity
     pub nostr_npub: Option<String>,
+    /// The preferred Nostr relay to deliver Nostr messages to
     pub nostr_relay: Option<String>,
 }
 

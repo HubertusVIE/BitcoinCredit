@@ -1,5 +1,6 @@
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::{Blockchain, Result};
 use crate::service::bill_service::BillKeys;
@@ -11,7 +12,9 @@ mod chain;
 pub use block::BillBlock;
 pub use chain::BillBlockchain;
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema,
+)]
 pub enum BillOpCode {
     Issue,
     Accept,
@@ -35,7 +38,7 @@ pub struct PaymentInfo {
     pub amount: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct BillBlockchainToReturn {
     pub blocks: Vec<BillBlockToReturn>,
 }
@@ -60,7 +63,7 @@ impl BillBlockchainToReturn {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
 pub struct BillBlockToReturn {
     pub id: u64,
     pub hash: String,

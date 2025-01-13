@@ -13,6 +13,8 @@ use utoipa::OpenApi;
         handlers::notifications::mark_notification_done,
         handlers::notifications::websocket,
         handlers::notifications::sse,
+        handlers::bill::return_bills_list,
+        handlers::bill::return_bill,
     )
 )]
 pub struct ApiDocs;

@@ -30,6 +30,7 @@ use rocket::serde::{Deserialize, Serialize};
 use rocket::{http::Status, response::Responder};
 use std::sync::Arc;
 use thiserror::Error;
+use utoipa::ToSchema;
 
 /// Generic result type
 pub type Result<T> = std::result::Result<T, Error>;
@@ -1096,16 +1097,19 @@ impl BillServiceApi for BillService {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 #[serde(crate = "rocket::serde")]
 pub struct BitcreditBillToReturn {
     pub name: String,
     pub to_payee: bool,
     pub bill_jurisdiction: String,
     pub timestamp_at_drawing: i64,
+    /// The party obliged to pay a Bill
     pub drawee: IdentityPublicData,
+    /// The party issuing a Bill
     pub drawer: IdentityPublicData,
     pub payee: IdentityPublicData,
+    /// The person to whom the Payee or an Endorsee endorses a bill
     pub endorsee: IdentityPublicData,
     pub place_of_drawing: String,
     pub currency_code: String,
@@ -1115,6 +1119,7 @@ pub struct BitcreditBillToReturn {
     pub date_of_issue: String,
     pub compounding_interest_rate: u64,
     pub type_of_interest_calculation: bool,
+    /// Defaulting to the drawee’s id/ address.
     pub place_of_payment: String,
     pub public_key: String,
     pub private_key: String,
@@ -1136,6 +1141,7 @@ pub struct BitcreditBillToReturn {
     pub pending: bool,
     pub address_to_pay: String,
     pub chain_of_blocks: BillBlockchainToReturn,
+    /// The currently active notification for this bill if any
     pub active_notification: Option<Notification>,
 }
 

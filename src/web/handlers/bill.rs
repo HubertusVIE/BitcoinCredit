@@ -51,6 +51,14 @@ pub async fn attachment(
     Ok((content_type, file_bytes))
 }
 
+#[utoipa::path(
+    tag = "bills",
+    path = "bill/return",
+    description = "Get all bill details",
+    responses(
+        (status = 200, description = "List of bills", body = Vec<BitcreditBillToReturn>)
+    )
+)]
 #[get("/return")]
 pub async fn return_bills_list(
     state: &State<ServiceContext>,
@@ -83,6 +91,18 @@ pub async fn find_bill_in_dht(state: &State<ServiceContext>, bill_id: String) ->
     Ok(Status::Ok)
 }
 
+#[utoipa::path(
+    tag = "bills",
+    path = "bill/return/{id}",
+    description = "Get bill details by id",
+    params(
+        ("id" = String, Path, description = "Id of the bill to return")
+    ),
+    responses(
+        (status = 200, description = "The Bill with given id", body = BitcreditBillToReturn),
+        (status = 404, description = "Bill not found")
+    )
+)]
 #[get("/return/<id>")]
 pub async fn return_bill(
     state: &State<ServiceContext>,
