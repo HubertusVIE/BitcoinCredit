@@ -165,8 +165,8 @@ impl BillStoreApi for FileBasedBillStore {
         public_key: String,
     ) -> Result<()> {
         let keys: BillKeys = BillKeys {
-            private_key_pem: private_key,
-            public_key_pem: public_key,
+            private_key,
+            public_key,
         };
 
         let output_path = self.get_path_for_bill_keys(&bill_id);

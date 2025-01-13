@@ -1121,6 +1121,7 @@ dependencies = [
  "bs58 0.5.1",
  "chrono",
  "clap",
+ "ecies",
  "env_logger",
  "futures",
  "hf",
@@ -1136,13 +1137,13 @@ dependencies = [
  "nostr-relay-builder",
  "nostr-sdk",
  "open",
- "openssl",
  "reqwest 0.12.8",
  "rocket",
  "rocket_dyn_templates",
  "rocket_ws",
  "serde",
  "serde_json",
+ "sha2 0.10.8",
  "surrealdb",
  "thiserror 2.0.0",
  "tokio",
@@ -2148,6 +2149,23 @@ dependencies = [
  "imbl",
  "thiserror 1.0.64",
  "tokio",
+]
+
+[[package]]
+name = "ecies"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53f43496fc04523aa716c5dd76133cb6d7c81eb213375684d06a8b1683f8bc1e"
+dependencies = [
+ "getrandom 0.2.15",
+ "hkdf",
+ "libsecp256k1",
+ "once_cell",
+ "openssl",
+ "parking_lot 0.12.3",
+ "rand_core 0.6.4",
+ "sha2 0.10.8",
+ "wasm-bindgen",
 ]
 
 [[package]]

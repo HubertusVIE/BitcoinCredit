@@ -1,6 +1,7 @@
 use crate::external;
+use crate::service::identity_service::NodeId;
 use crate::service::Result;
-use crate::web::data::{ChangeIdentityPayload, IdentityPayload, NodeId};
+use crate::web::data::{ChangeIdentityPayload, IdentityPayload};
 use crate::{service::identity_service::Identity, service::ServiceContext};
 use rocket::http::Status;
 use rocket::serde::json::Json;
@@ -18,9 +19,9 @@ pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<Ident
 
 #[get("/node_id/return")]
 pub async fn return_node_id(state: &State<ServiceContext>) -> Result<Json<NodeId>> {
-    let node_id = state.identity_service.get_node_id().await?;
-    let node_id = NodeId::new(node_id.to_string());
-    Ok(Json(node_id))
+    Ok(Json(NodeId::new(
+        state.identity_service.get_identity().await?.node_id,
+    )))
 }
 
 #[post("/create", format = "json", data = "<identity_payload>")]

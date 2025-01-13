@@ -215,7 +215,7 @@ mod tests {
     use super::*;
     use crate::{
         persistence::db::get_memory_db,
-        tests::test::{TEST_PRIVATE_KEY, TEST_PUB_KEY},
+        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
     };
 
     async fn get_store() -> SurrealCompanyStore {
@@ -253,8 +253,8 @@ mod tests {
             .save_key_pair(
                 "some_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
@@ -284,8 +284,8 @@ mod tests {
             .save_key_pair(
                 "some_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
@@ -302,14 +302,14 @@ mod tests {
             .save_key_pair(
                 "some_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
             .unwrap();
         let company_keys = store.get_key_pair("some_id").await.unwrap();
-        assert_eq!(company_keys.public_key, TEST_PUB_KEY.to_string());
+        assert_eq!(company_keys.public_key, TEST_PUB_KEY_SECP.to_string());
     }
 
     #[tokio::test]
@@ -350,8 +350,8 @@ mod tests {
             .save_key_pair(
                 "some_other_id",
                 &CompanyKeys {
-                    private_key: TEST_PRIVATE_KEY.to_string(),
-                    public_key: TEST_PUB_KEY.to_string(),
+                    private_key: TEST_PRIVATE_KEY_SECP.to_string(),
+                    public_key: TEST_PUB_KEY_SECP.to_string(),
                 },
             )
             .await
@@ -377,7 +377,7 @@ mod tests {
                 .unwrap()
                 .1
                 .public_key,
-            TEST_PUB_KEY.to_owned()
+            TEST_PUB_KEY_SECP.to_owned()
         );
     }
 }

@@ -1,3 +1,4 @@
+use crate::blockchain::company::{CompanyBlock, CompanyBlockchain};
 use crate::service::company_service::{Company, CompanyKeys};
 use std::collections::HashMap;
 
@@ -35,6 +36,19 @@ pub trait CompanyStoreApi: Send + Sync {
     async fn get_key_pair(&self, id: &str) -> Result<CompanyKeys>;
 }
 
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait CompanyChainStoreApi: Send + Sync {
+    /// Gets the latest block of the chain
+    async fn get_latest_block(&self, id: &str) -> Result<CompanyBlock>;
+    /// Adds the block to the chain
+    async fn add_block(&self, id: &str, block: &CompanyBlock) -> Result<()>;
+    /// Removes the whole blockchain
+    async fn remove(&self, id: &str) -> Result<()>;
+    /// Get the whole blockchain
+    async fn get_chain(&self, id: &str) -> Result<CompanyBlockchain>;
+}
+
 pub fn company_from_bytes(bytes: &[u8]) -> Result<Company> {
     let company: Company = serde_json::from_slice(bytes)?;
     Ok(company)
@@ -52,5 +66,15 @@ pub fn company_keys_from_bytes(bytes: &[u8]) -> Result<CompanyKeys> {
 
 pub fn company_keys_to_bytes(company_keys: &CompanyKeys) -> Result<Vec<u8>> {
     let bytes = serde_json::to_vec(&company_keys)?;
+    Ok(bytes)
+}
+
+pub fn company_chain_from_bytes(bytes: &[u8]) -> Result<CompanyBlockchain> {
+    let company_chain: CompanyBlockchain = serde_json::from_slice(bytes)?;
+    Ok(company_chain)
+}
+
+pub fn company_chain_to_bytes(company_chain: &CompanyBlockchain) -> Result<Vec<u8>> {
+    let bytes = serde_json::to_vec(&company_chain)?;
     Ok(bytes)
 }

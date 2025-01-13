@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openssl = "0.10.68"
+sha2 = "0.10"
 borsh = "1.5.1"
 borsh-derive = "1.0.0"
 env_logger = "0.11.5"
@@ -66,6 +66,7 @@ lazy_static = "1.5.0"
 bs58 = "0.5.1"
 utoipa = { version = "5", features = ["rocket_extras", "chrono"] }
 utoipa-swagger-ui = { version = "8", features = ["rocket", "vendored"] }
+ecies = { version = "0.2", features = ["std"] }
 
 [dev-dependencies]
 mockall = "0.13.0"

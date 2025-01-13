@@ -8,7 +8,6 @@ pub mod notification_service;
 use super::{dht::Client, Config};
 use crate::external::bitcoin::BitcoinClient;
 use crate::persistence::DbContext;
-use crate::util::rsa;
 use crate::web::ErrorResponse;
 use crate::{blockchain, dht, external};
 use crate::{persistence, util};
@@ -58,10 +57,6 @@ pub enum Error {
     #[error("Bill service error: {0}")]
     BillService(#[from] bill_service::Error),
 
-    /// errors stemming from cryptography, such as converting keys, encryption and decryption
-    #[error("Cryptography error: {0}")]
-    Cryptography(#[from] rsa::Error),
-
     /// errors stemming from crypto utils
     #[error("Crypto util error: {0}")]
     CryptoUtil(#[from] util::crypto::Error),
@@ -90,11 +85,6 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
         match self {
             // for now, DHT errors are InternalServerError
             Error::Dht(e) => {
-                error!("{e}");
-                Status::InternalServerError.respond_to(req)
-            }
-            // for now, Cryptography errors are InternalServerError
-            Error::Cryptography(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
@@ -212,6 +202,7 @@ pub async fn create_service_context(
         db.identity_store.clone(),
         db.contact_store,
         db.identity_chain_store,
+        db.company_chain_store,
     );
     let file_upload_service = FileUploadService::new(db.file_upload_store);
 

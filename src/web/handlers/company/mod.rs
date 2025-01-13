@@ -42,7 +42,12 @@ pub async fn get_file(
     id: &str,
     file_name: &str,
 ) -> Result<(ContentType, Vec<u8>)> {
-    let private_key = state.identity_service.get_identity().await?.private_key_pem;
+    let private_key = state
+        .identity_service
+        .get_full_identity()
+        .await?
+        .key_pair
+        .get_private_key_string();
 
     let file_bytes = state
         .company_service
@@ -115,7 +120,7 @@ pub async fn create(
         .await?;
 
     let id = &created_company.id;
-    let node_id = state.identity_service.get_node_id().await?;
+    let node_id = state.identity_service.get_identity().await?.node_id;
 
     let mut dht_client = state.dht_client();
     dht_client
@@ -136,6 +141,7 @@ pub async fn edit(
     edit_company_payload: Json<EditCompanyPayload>,
 ) -> Result<()> {
     let payload = edit_company_payload.0;
+    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     state
         .company_service
         .edit_company(
@@ -144,6 +150,7 @@ pub async fn edit(
             payload.email,
             payload.postal_address,
             payload.logo_file_upload_id,
+            timestamp,
         )
         .await?;
 
@@ -219,7 +226,7 @@ pub async fn remove_signatory(
         .await?;
 
     // if we're removing ourselves, we need to stop subscribing and stop providing
-    let node_id = state.identity_service.get_node_id().await?;
+    let node_id = state.identity_service.get_identity().await?.node_id;
     if node_id.to_string().eq(&payload.signatory_node_id) {
         dht_client.stop_providing_company(&payload.id).await?;
         dht_client

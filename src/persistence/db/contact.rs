@@ -107,7 +107,6 @@ pub struct ContactDb {
     pub bitcoin_public_key: Option<String>,
     pub postal_address: Option<String>,
     pub email: Option<String>,
-    pub rsa_public_key_pem: Option<String>,
     pub nostr_npub: Option<String>,
     pub nostr_relays: Vec<String>,
 }
@@ -121,7 +120,6 @@ impl From<ContactDb> for IdentityPublicData {
             bitcoin_public_key: contact.bitcoin_public_key.unwrap_or("".to_owned()),
             postal_address: contact.postal_address.unwrap_or("".to_owned()),
             email: contact.email.unwrap_or("".to_owned()),
-            rsa_public_key_pem: contact.rsa_public_key_pem.unwrap_or("".to_owned()),
             nostr_npub: contact.nostr_npub,
             nostr_relay: contact.nostr_relays.first().map(|v| v.to_owned()),
         }
@@ -137,7 +135,6 @@ impl From<IdentityPublicData> for ContactDb {
             bitcoin_public_key: as_opt(value.bitcoin_public_key),
             postal_address: as_opt(value.postal_address),
             email: as_opt(value.email),
-            rsa_public_key_pem: as_opt(value.rsa_public_key_pem),
             nostr_npub: value.nostr_npub,
             nostr_relays: value.nostr_relay.into_iter().collect(),
         }

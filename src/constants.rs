@@ -8,6 +8,7 @@ pub const KEY_PREFIX: &str = "KEY";
 pub const COMPANIES_PREFIX: &str = "COMPANIES";
 pub const COMPANY_PREFIX: &str = "COMPANY";
 pub const COMPANY_KEY_PREFIX: &str = "COMPANYKEY";
+pub const COMPANY_CHAIN_PREFIX: &str = "COMPANYCHAIN";
 pub const COMPANY_LOGO_PREFIX: &str = "COMPANYLOGO";
 pub const COMPANY_PROOF_PREFIX: &str = "COMPANYPROOF";
 pub const IDENTITY_PREFIX: &str = "IDENTITY";
@@ -30,7 +31,7 @@ pub const COMPOUNDING_INTEREST_RATE_ZERO: u64 = 0;
 // Relay
 pub const RELAY_BOOTSTRAP_NODE_ONE_IP: Ipv4Addr = Ipv4Addr::new(45, 147, 248, 87);
 pub const RELAY_BOOTSTRAP_NODE_ONE_TCP: u16 = 1908;
-pub const RELAY_BOOTSTRAP_NODE_ONE_NODE_ID: &str =
+pub const RELAY_BOOTSTRAP_NODE_ONE_PEER_ID: &str =
     "12D3KooWL5y2jyVFtk541g9ySSoKGjNf61GEPG1XbPhop5MRfyA8";
 
 // Bill Data constants
@@ -53,9 +54,11 @@ pub const DB_PREVIOUS_HASH: &str = "previous_hash";
 pub const DB_SIGNATURE: &str = "signature";
 pub const DB_TIMESTAMP: &str = "timestamp";
 pub const DB_PUBLIC_KEY: &str = "public_key";
+pub const DB_SIGNATORY_NODE_ID: &str = "signatory_node_id";
 pub const DB_DATA: &str = "data";
 pub const DB_OP_CODE: &str = "op_code";
 
+pub const DB_COMPANY_ID: &str = "company_id";
 pub const DB_NAME: &str = "name";
 pub const DB_NPUB: &str = "npub";
 pub const DB_NEW_NAME: &str = "new_name";

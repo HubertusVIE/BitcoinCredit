@@ -8,7 +8,7 @@ use crate::{
         DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PREVIOUS_HASH, DB_PUBLIC_KEY, DB_SIGNATURE,
         DB_TABLE, DB_TIMESTAMP,
     },
-    persistence::identity_chain::IdentityChainStoreApi,
+    persistence::identity::IdentityChainStoreApi,
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -137,7 +137,7 @@ pub struct IdentityBlockDb {
     pub hash: String,
     pub previous_hash: String,
     pub signature: String,
-    pub timestamp: i64,
+    pub timestamp: u64,
     pub public_key: String,
     pub data: String,
     pub op_code: IdentityOpCode,
@@ -178,7 +178,7 @@ mod tests {
     use super::*;
     use crate::{
         blockchain::identity::IdentityUpdateBlockData, persistence::db::get_memory_db,
-        service::identity_service::Identity, tests::test::TEST_PUB_KEY, util::BcrKeys,
+        service::identity_service::Identity, util::BcrKeys,
     };
 
     async fn get_store() -> SurrealIdentityChainStore {
@@ -196,7 +196,6 @@ mod tests {
             "genesis hash".to_string(),
             &Identity::new_empty().into(),
             &BcrKeys::new(),
-            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap();
@@ -214,7 +213,6 @@ mod tests {
                 postal_address: None,
             },
             &BcrKeys::new(),
-            TEST_PUB_KEY,
             1731593928,
         )
         .unwrap();

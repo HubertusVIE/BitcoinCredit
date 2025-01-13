@@ -4,7 +4,18 @@ Core for Bitcredit project.
 
 ### Backend
 
-Make sure to have a recent version of the Rust toolchain installed.
+
+Make sure to have at least Rust version 1.77 as well as a recent version of build-essential, libclang-dev and pkg-config installed.
+Furthermore protobuf and openssl i.e. libssl-dev are necesssary. So for example on Ubuntu:
+
+```bash
+# Install libs
+sudo apt install -y protobuf-compiler libclang-dev libssl-dev pkg-config build-essential
+
+# Build project
+cargo build
+```
+For installation of protobuf on other systems refer to: https://grpc.io/docs/protoc-installation/
 
 Start the backend server in development mode:
 

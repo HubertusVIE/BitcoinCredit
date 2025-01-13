@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
         &conf,
         db.bill_store.clone(),
         db.company_store.clone(),
+        db.company_chain_store.clone(),
         db.identity_store.clone(),
         db.file_upload_store.clone(),
     )
@@ -69,30 +70,30 @@ async fn main() -> Result<()> {
         }
     });
 
-    let local_node_id = db.identity_store.get_node_id().await?;
-    if let Err(e) = dht_client.check_new_bills().await {
-        error!("Error while checking for new bills: {e}");
-    }
-    if let Err(e) = dht_client
-        .update_bills_table(local_node_id.to_string())
-        .await
-    {
-        error!("Error while updating bills table: {e}");
-    }
-    dht_client.subscribe_to_all_bills_topics().await?;
-    dht_client.put_bills_for_parties().await?;
-    dht_client.start_providing_bills().await?;
-    dht_client.receive_updates_for_all_bills_topics().await?;
+    // These actions only make sense, if we already have created an identity
+    if db.identity_store.exists().await {
+        let local_node_id = db.identity_store.get().await?.node_id;
+        if let Err(e) = dht_client.check_new_bills().await {
+            error!("Error while checking for new bills: {e}");
+        }
+        if let Err(e) = dht_client.update_bills_table(local_node_id).await {
+            error!("Error while updating bills table: {e}");
+        }
+        dht_client.subscribe_to_all_bills_topics().await?;
+        dht_client.put_bills_for_parties().await?;
+        dht_client.start_providing_bills().await?;
+        dht_client.receive_updates_for_all_bills_topics().await?;
 
-    dht_client.put_identity_public_data_in_dht().await?;
+        dht_client.put_identity_public_data_in_dht().await?;
 
-    if let Err(e) = dht_client.check_companies().await {
-        error!("Error while checking for new companies: {e}");
+        if let Err(e) = dht_client.check_companies().await {
+            error!("Error while checking for new companies: {e}");
+        }
+        dht_client.put_companies_for_signatories().await?;
+        dht_client.put_companies_public_data_in_dht().await?;
+        dht_client.start_providing_companies().await?;
+        dht_client.subscribe_to_all_companies_topics().await?;
     }
-    dht_client.put_companies_for_signatories().await?;
-    dht_client.put_companies_public_data_in_dht().await?;
-    dht_client.start_providing_companies().await?;
-    dht_client.subscribe_to_all_companies_topics().await?;
 
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
     let service_context =
