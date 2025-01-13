@@ -1,6 +1,6 @@
 use super::contact_service::IdentityPublicData;
 use super::identity_service::IdentityWithAll;
-use super::notification_service::{self, NotificationServiceApi};
+use super::notification_service::{self, Notification, NotificationServiceApi};
 use crate::blockchain::bill::{
     BillBlock, BillBlockchain, BillBlockchainToReturn, BillOpCode, WaitingForPayment,
 };
@@ -387,6 +387,11 @@ impl BillServiceApi for BillService {
                 paid = check_if_already_paid.0;
             }
 
+            let active_notification = self
+                .notification_service
+                .get_active_bill_notification(&bill.name)
+                .await;
+
             res.push(BitcreditBillToReturn {
                 name: bill.name,
                 to_payee: bill.to_payee,
@@ -425,6 +430,7 @@ impl BillServiceApi for BillService {
                 pending: false,
                 address_to_pay,
                 chain_of_blocks: chain_to_return,
+                active_notification,
             });
         }
 
@@ -535,6 +541,11 @@ impl BillServiceApi for BillService {
             )?;
         }
 
+        let active_notification = self
+            .notification_service
+            .get_active_bill_notification(&bill.name)
+            .await;
+
         Ok(BitcreditBillToReturn {
             name: bill.name,
             to_payee: bill.to_payee,
@@ -573,6 +584,7 @@ impl BillServiceApi for BillService {
             number_of_confirmations,
             pending,
             chain_of_blocks: chain_to_return,
+            active_notification,
         })
     }
 
@@ -1124,6 +1136,7 @@ pub struct BitcreditBillToReturn {
     pub pending: bool,
     pub address_to_pay: String,
     pub chain_of_blocks: BillBlockchainToReturn,
+    pub active_notification: Option<Notification>,
 }
 
 #[derive(Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone)]
@@ -1716,6 +1729,9 @@ pub mod test {
     async fn get_bills_baseline() {
         let (mut storage, identity_storage, file_upload_storage, identity_chain_store) =
             get_storages();
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
         storage.expect_read_bill_keys_from_file().returning(|_| {
             Ok(BillKeys {
                 private_key_pem: TEST_PRIVATE_KEY.to_owned(),
@@ -1728,11 +1744,18 @@ pub mod test {
         storage
             .expect_get_bills()
             .returning(|| Ok(vec![get_baseline_bill("some name")]));
-        let service = get_service(
+
+        notification_service
+            .expect_get_active_bill_notification()
+            .with(eq("some name"))
+            .returning(|_| None);
+
+        let service = get_service_base(
             storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
+            notification_service,
         );
 
         let res = service.get_bills().await;
@@ -1763,6 +1786,7 @@ pub mod test {
     async fn get_full_bill_baseline() {
         let (mut storage, mut identity_storage, file_upload_storage, identity_chain_store) =
             get_storages();
+        let mut notification_service = MockNotificationServiceApi::new();
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some name");
         bill.drawee = IdentityPublicData::new_only_node_id(identity.node_id.to_string());
@@ -1782,11 +1806,17 @@ pub mod test {
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
-        let service = get_service(
+        notification_service
+            .expect_get_active_bill_notification()
+            .with(eq("some name"))
+            .returning(|_| None);
+
+        let service = get_service_base(
             storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
+            notification_service,
         );
 
         let res = service.get_full_bill("some name", 1731593928).await;

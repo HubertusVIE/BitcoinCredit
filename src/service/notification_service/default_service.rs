@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use super::event::{ActionType, BillActionEventPayload, Event, EventType};
 use super::transport::NotificationJsonTransportApi;
-use super::{Notification, NotificationServiceApi, Result};
+use super::{Notification, NotificationServiceApi, NotificationType, Result};
 use crate::persistence::notification::NotificationStoreApi;
 use crate::service::bill_service::BitcreditBill;
 
@@ -205,6 +205,13 @@ impl NotificationServiceApi for DefaultNotificationService {
             .mark_as_done(notification_id)
             .await?;
         Ok(())
+    }
+
+    async fn get_active_bill_notification(&self, bill_id: &str) -> Option<Notification> {
+        self.notification_store
+            .get_latest_by_reference(bill_id, NotificationType::Bill)
+            .await
+            .unwrap_or_default()
     }
 }
 

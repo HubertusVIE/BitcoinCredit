@@ -187,6 +187,9 @@ pub trait NotificationServiceApi: Send + Sync {
 
     /// Marks the notification with given id as done
     async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
+
+    /// Returns the active bill notification for the given bill id
+    async fn get_active_bill_notification(&self, bill_id: &str) -> Option<Notification>;
 }
 
 /// A notification as it will be delivered to the UI.
