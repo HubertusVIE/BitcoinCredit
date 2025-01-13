@@ -4,18 +4,49 @@ Core for Bitcredit project.
 
 ### Backend
 
-Make sure to have at least Rust version 1.77 as well as a recent version of build-essential, libclang-dev and pkg-config installed.
-Furthermore protobuf and openssl i.e. libssl-dev are necesssary. So for example on Ubuntu:
+Make sure to have at least Rust version 1.77 as well as a recent version of toolchain installed. Furthermore protobuf and openssl are necesssary.
 
+#### On Ubuntu:
 ```bash
 # Install libs
 sudo apt install -y protobuf-compiler libclang-dev libssl-dev pkg-config build-essential
-
-# Build project
-cargo build
 ```
 
-For installation of protobuf on other systems refer to: <https://grpc.io/docs/protoc-installation/>
+#### On Fedora
+```bash
+# Install libs
+sudo dnf install -y make automake gcc gcc-c++ kernel-devel clang-devel
+sudo dnf install -y openssl-devel pkgconf-pkg-config @development-tools
+sudo dnf install -y protobuf-compiler
+```
+
+#### On Windows:
+```bash
+# Using MSYS2 terminal
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-llvm 
+pacman -S mingw-w64-x86_64-protobuf base-devel pkgconf
+```
+
+For installation of Openssl use vcpkg:
+
+```bash
+# In vcpkg directory
+vcpkg install openssl:x64-windows
+
+# Set Openssl environment variables:
+set OPENSSL_DIR=C:\<path>\<to>\vcpkg\packages\openssl_x64-windows
+set OPENSSL_LIB_DIR=%OPENSSL_DIR%\lib
+set OPENSSL_INCLUDE_DIR=%OPENSSL_DIR%\include
+
+```
+
+Finally build the backend
+```bash
+cargo build
+
+# or with embedded db
+cargo build --features embedded-db
+```
 
 Start the backend server in development mode:
 
