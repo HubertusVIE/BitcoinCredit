@@ -4,7 +4,6 @@ Core for Bitcredit project.
 
 ### Backend
 
-
 Make sure to have at least Rust version 1.77 as well as a recent version of build-essential, libclang-dev and pkg-config installed.
 Furthermore protobuf and openssl i.e. libssl-dev are necesssary. So for example on Ubuntu:
 
@@ -15,7 +14,8 @@ sudo apt install -y protobuf-compiler libclang-dev libssl-dev pkg-config build-e
 # Build project
 cargo build
 ```
-For installation of protobuf on other systems refer to: https://grpc.io/docs/protoc-installation/
+
+For installation of protobuf on other systems refer to: <https://grpc.io/docs/protoc-installation/>
 
 Start the backend server in development mode:
 
@@ -71,6 +71,10 @@ cargo test
 // with logs - (env_logger needs to be activated in the test to show logs)
 RUST_LOG=info cargo test -- --nocapture
 ```
+
+### API docs
+
+OpenApi specs and a Swagger UI are available at [http://localhost:8000/swagger-ui/](http://localhost:8000/swagger-ui/) when running the service.
 
 ### Docker
 

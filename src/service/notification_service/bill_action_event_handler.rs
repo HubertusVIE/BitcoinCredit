@@ -62,7 +62,7 @@ impl NotificationHandlerApi for BillActionEventHandler {
                 Some(serde_json::to_value(&event.data)?),
             );
 
-            // mark current active Bill event as done if any
+            // mark Bill event as done if any active one exists
             if let Some(currently_active) = self
                 .notification_store
                 .get_latest_by_reference(&event.data.bill_id, NotificationType::Bill)
