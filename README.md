@@ -6,7 +6,7 @@ Core for Bitcredit project.
 
 Make sure to have at least Rust version 1.77 as well as a recent version of toolchain installed. Furthermore protobuf and openssl are necesssary.
 
-#### On Ubuntu:
+#### On Ubuntu
 ```bash
 # Install libs
 sudo apt install -y protobuf-compiler libclang-dev libssl-dev pkg-config build-essential
@@ -20,7 +20,7 @@ sudo dnf install -y openssl-devel pkgconf-pkg-config @development-tools
 sudo dnf install -y protobuf-compiler
 ```
 
-#### On Windows:
+#### On Windows
 ```bash
 # Using MSYS2 terminal
 pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-llvm 
