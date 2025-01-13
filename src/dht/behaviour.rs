@@ -494,10 +494,10 @@ mod test {
         let other_keys = BcrKeys::new();
         let other_peer_id = other_keys.get_libp2p_keys().unwrap().public().to_peer_id();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
-        assert!(parse_inbound_file_request(&format!("{nodeid}_BILL_TEST"), &peer_id).is_ok());
+        let node_id = keys.get_public_key();
+        assert!(parse_inbound_file_request(&format!("{node_id}_BILL_TEST"), &peer_id).is_ok());
         assert!(
-            parse_inbound_file_request(&format!("{nodeid}_BILL_TEST"), &other_peer_id).is_err()
+            parse_inbound_file_request(&format!("{node_id}_BILL_TEST"), &other_peer_id).is_err()
         );
     }
 
@@ -505,22 +505,24 @@ mod test {
     fn parse_inbound_file_request_prefixes() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
-        assert!(parse_inbound_file_request("nodeid_BLA_TEST", &PeerId::random()).is_err());
-        assert!(parse_inbound_file_request("nodeid_BLA_TEST_TEST", &PeerId::random()).is_err());
-        assert!(parse_inbound_file_request(&format!("{nodeid}_BILL_TEST"), &peer_id).is_ok());
-        assert!(parse_inbound_file_request(&format!("{nodeid}_KEY_TEST"), &peer_id).is_ok());
+        let node_id = keys.get_public_key();
+        assert!(parse_inbound_file_request("node_id_BLA_TEST", &PeerId::random()).is_err());
+        assert!(parse_inbound_file_request("node_id_BLA_TEST_TEST", &PeerId::random()).is_err());
+        assert!(parse_inbound_file_request(&format!("{node_id}_BILL_TEST"), &peer_id).is_ok());
+        assert!(parse_inbound_file_request(&format!("{node_id}_KEY_TEST"), &peer_id).is_ok());
         assert!(
-            parse_inbound_file_request(&format!("{nodeid}_BILLATT_TEST_TEST"), &peer_id).is_ok()
+            parse_inbound_file_request(&format!("{node_id}_BILLATT_TEST_TEST"), &peer_id).is_ok()
         );
-        assert!(parse_inbound_file_request(&format!("{nodeid}_COMPANY_TEST"), &peer_id).is_ok());
-        assert!(parse_inbound_file_request(&format!("{nodeid}_COMPANYKEY_TEST"), &peer_id).is_ok());
+        assert!(parse_inbound_file_request(&format!("{node_id}_COMPANY_TEST"), &peer_id).is_ok());
         assert!(
-            parse_inbound_file_request(&format!("{nodeid}_COMPANYLOGO_TEST_TEST"), &peer_id)
+            parse_inbound_file_request(&format!("{node_id}_COMPANYKEY_TEST"), &peer_id).is_ok()
+        );
+        assert!(
+            parse_inbound_file_request(&format!("{node_id}_COMPANYLOGO_TEST_TEST"), &peer_id)
                 .is_ok()
         );
         assert!(
-            parse_inbound_file_request(&format!("{nodeid}_COMPANYPROOF_TEST_TEST"), &peer_id)
+            parse_inbound_file_request(&format!("{node_id}_COMPANYPROOF_TEST_TEST"), &peer_id)
                 .is_ok()
         );
     }
@@ -529,9 +531,9 @@ mod test {
     fn parse_inbound_file_request_content_bill() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&format!("{nodeid}_BILL_TEST"), &peer_id).unwrap(),
+            parse_inbound_file_request(&format!("{node_id}_BILL_TEST"), &peer_id).unwrap(),
             ParsedInboundFileRequest::Bill(BillFileRequest {
                 bill_id: "TEST".to_string()
             })
@@ -542,9 +544,9 @@ mod test {
     fn file_request_parse_inbound_file_request_bill() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&file_request_for_bill(&nodeid, "TEST"), &peer_id).unwrap(),
+            parse_inbound_file_request(&file_request_for_bill(&node_id, "TEST"), &peer_id).unwrap(),
             ParsedInboundFileRequest::Bill(BillFileRequest {
                 bill_id: "TEST".to_string()
             })
@@ -555,11 +557,11 @@ mod test {
     fn parse_inbound_file_request_content_key() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&format!("{nodeid}_KEY_TEST"), &peer_id).unwrap(),
+            parse_inbound_file_request(&format!("{node_id}_KEY_TEST"), &peer_id).unwrap(),
             ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
-                node_id: nodeid,
+                node_id,
                 key_name: "TEST".to_string()
             })
         );
@@ -569,12 +571,12 @@ mod test {
     fn file_request_parse_inbound_file_request_content_key() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&file_request_for_bill_keys(&nodeid, "TEST"), &peer_id)
+            parse_inbound_file_request(&file_request_for_bill_keys(&node_id, "TEST"), &peer_id)
                 .unwrap(),
             ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
-                node_id: nodeid,
+                node_id,
                 key_name: "TEST".to_string()
             })
         );
@@ -584,19 +586,19 @@ mod test {
     fn parse_inbound_file_request_attachment_length() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
-        assert!(parse_inbound_file_request(&format!("{nodeid}_BILLATT_TEST"), &peer_id).is_err(),);
+        let node_id = keys.get_public_key();
+        assert!(parse_inbound_file_request(&format!("{node_id}_BILLATT_TEST"), &peer_id).is_err(),);
     }
 
     #[test]
     fn parse_inbound_file_request_content_attachment() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&format!("{nodeid}_BILLATT_TEST_FILE"), &peer_id).unwrap(),
+            parse_inbound_file_request(&format!("{node_id}_BILLATT_TEST_FILE"), &peer_id).unwrap(),
             ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
-                node_id: nodeid,
+                node_id,
                 bill_id: "TEST".to_string(),
                 file_name: "FILE".to_string(),
             })
@@ -607,15 +609,15 @@ mod test {
     fn file_request_parse_inbound_file_request_content_attachment() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
             parse_inbound_file_request(
-                &file_request_for_bill_attachment(&nodeid, "TEST", "FILE"),
+                &file_request_for_bill_attachment(&node_id, "TEST", "FILE"),
                 &peer_id
             )
             .unwrap(),
             ParsedInboundFileRequest::BillAttachment(BillAttachmentFileRequest {
-                node_id: nodeid,
+                node_id,
                 bill_id: "TEST".to_string(),
                 file_name: "FILE".to_string(),
             })
@@ -626,11 +628,11 @@ mod test {
     fn parse_inbound_file_request_content_company_data() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&format!("{nodeid}_COMPANY_TEST"), &peer_id).unwrap(),
+            parse_inbound_file_request(&format!("{node_id}_COMPANY_TEST"), &peer_id).unwrap(),
             ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
             })
         );
@@ -640,12 +642,12 @@ mod test {
     fn file_request_parse_inbound_file_request_content_company_data() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&file_request_for_company_data(&nodeid, "TEST"), &peer_id)
+            parse_inbound_file_request(&file_request_for_company_data(&node_id, "TEST"), &peer_id)
                 .unwrap(),
             ParsedInboundFileRequest::CompanyData(CompanyDataRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
             })
         );
@@ -655,11 +657,11 @@ mod test {
     fn parse_inbound_file_request_content_company_keys() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&format!("{nodeid}_COMPANYKEY_TEST"), &peer_id).unwrap(),
+            parse_inbound_file_request(&format!("{node_id}_COMPANYKEY_TEST"), &peer_id).unwrap(),
             ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
             })
         );
@@ -669,12 +671,12 @@ mod test {
     fn file_request_parse_inbound_file_request_content_company_keys() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&file_request_for_company_keys(&nodeid, "TEST"), &peer_id)
+            parse_inbound_file_request(&file_request_for_company_keys(&node_id, "TEST"), &peer_id)
                 .unwrap(),
             ParsedInboundFileRequest::CompanyKeys(CompanyKeysRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
             })
         );
@@ -684,12 +686,12 @@ mod test {
     fn parse_inbound_file_request_content_company_logo() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&format!("{nodeid}_COMPANYLOGO_TEST_TEST"), &peer_id)
+            parse_inbound_file_request(&format!("{node_id}_COMPANYLOGO_TEST_TEST"), &peer_id)
                 .unwrap(),
             ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
                 file_name: "TEST".to_string(),
             })
@@ -700,15 +702,15 @@ mod test {
     fn file_request_parse_inbound_file_request_content_company_logo() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
             parse_inbound_file_request(
-                &file_request_for_company_logo(&nodeid, "TEST", "TEST"),
+                &file_request_for_company_logo(&node_id, "TEST", "TEST"),
                 &peer_id
             )
             .unwrap(),
             ParsedInboundFileRequest::CompanyLogo(CompanyLogoRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
                 file_name: "TEST".to_string(),
             })
@@ -719,12 +721,12 @@ mod test {
     fn parse_inbound_file_request_content_company_proof() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
-            parse_inbound_file_request(&format!("{nodeid}_COMPANYPROOF_TEST_TEST"), &peer_id)
+            parse_inbound_file_request(&format!("{node_id}_COMPANYPROOF_TEST_TEST"), &peer_id)
                 .unwrap(),
             ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
                 file_name: "TEST".to_string(),
             })
@@ -735,15 +737,15 @@ mod test {
     fn file_request_parse_inbound_file_request_content_company_proof() {
         let keys = BcrKeys::new();
         let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let nodeid = keys.get_public_key();
+        let node_id = keys.get_public_key();
         assert_eq!(
             parse_inbound_file_request(
-                &file_request_for_company_proof(&nodeid, "TEST", "TEST"),
+                &file_request_for_company_proof(&node_id, "TEST", "TEST"),
                 &peer_id
             )
             .unwrap(),
             ParsedInboundFileRequest::CompanyProof(CompanyProofRequest {
-                node_id: nodeid,
+                node_id,
                 company_id: "TEST".to_string(),
                 file_name: "TEST".to_string(),
             })
