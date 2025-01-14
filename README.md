@@ -4,7 +4,7 @@ Core for Bitcredit project.
 
 ### Backend
 
-Make sure to have at least Rust version 1.77 as well as a recent version of toolchain installed. Furthermore protobuf and openssl are necesssary.
+Make sure to have at least Rust version 1.77 as well as a recent version of the toolchain installed. Furthermore protobuf and openssl are necesssary.
 
 #### On Ubuntu
 ```bash
