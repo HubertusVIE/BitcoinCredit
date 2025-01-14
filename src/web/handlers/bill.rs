@@ -555,7 +555,6 @@ pub async fn accept_mint_bill(
         .bill_service
         .get_bill(&accept_mint_bill_payload.bill_id)
         .await?;
-    let bill_amount = bill.amount_numbers;
     let holder_node_id = bill.payee.node_id.clone();
 
     //TODO: calculate percent
@@ -563,7 +562,7 @@ pub async fn accept_mint_bill(
     // thread, but this logic will be replaced soon
     thread::spawn(move || {
         accept_mint_bitcredit(
-            bill_amount,
+            accept_mint_bill_payload.amount.clone(),
             accept_mint_bill_payload.bill_id.clone(),
             holder_node_id,
         )

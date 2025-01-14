@@ -43,7 +43,7 @@ pub struct MintBitcreditBillPayload {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AcceptMintBitcreditBillPayload {
-    pub interest: u64,
+    pub amount: u64,
     pub bill_id: String,
 }
 
