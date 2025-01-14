@@ -44,6 +44,10 @@ pub enum Error {
     #[error("not acceptable")]
     PreconditionFailed,
 
+    /// errors that currently return early http status code Status::NotFound
+    #[error("not found")]
+    NotFound,
+
     /// errors stemming from json deserialization. Most of the time this is a
     /// bad request on the api but can also be caused by deserializing other messages
     #[error("JSON Serialization/Deserialization error: {0}")]
@@ -107,6 +111,15 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
                 Status::BadRequest.respond_to(req)
             }
             Error::PreconditionFailed => Status::NotAcceptable.respond_to(req),
+            Error::NotFound => {
+                let body =
+                    ErrorResponse::new("not_found", "not found".to_string(), 404).to_json_string();
+                Response::build()
+                    .status(Status::NotFound)
+                    .header(ContentType::JSON)
+                    .sized_body(body.len(), Cursor::new(body))
+                    .ok()
+            }
             Error::NotificationService(_) => Status::InternalServerError.respond_to(req),
             Error::BillService(e) => {
                 error!("{e}");
@@ -172,8 +185,9 @@ pub async fn create_service_context(
     db: DbContext,
 ) -> Result<ServiceContext> {
     let contact_service = Arc::new(ContactService::new(
-        client.clone(),
         db.contact_store.clone(),
+        db.file_upload_store.clone(),
+        db.identity_store.clone(),
     ));
     let bitcoin_client = Arc::new(BitcoinClient::new());
 
@@ -190,11 +204,8 @@ pub async fn create_service_context(
         notification_service.clone(),
         db.identity_chain_store.clone(),
     );
-    let identity_service = IdentityService::new(
-        client.clone(),
-        db.identity_store.clone(),
-        db.identity_chain_store.clone(),
-    );
+    let identity_service =
+        IdentityService::new(db.identity_store.clone(), db.identity_chain_store.clone());
 
     let company_service = CompanyService::new(
         db.company_store,

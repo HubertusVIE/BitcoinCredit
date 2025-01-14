@@ -84,8 +84,6 @@ async fn main() -> Result<()> {
         dht_client.start_providing_bills().await?;
         dht_client.receive_updates_for_all_bills_topics().await?;
 
-        dht_client.put_identity_public_data_in_dht().await?;
-
         if let Err(e) = dht_client.check_companies().await {
             error!("Error while checking for new companies: {e}");
         }

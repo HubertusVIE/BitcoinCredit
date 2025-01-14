@@ -2,7 +2,7 @@ use crate::external;
 use crate::external::mint::{
     check_bitcredit_quote, client_accept_bitcredit_quote, get_quote_from_map,
 };
-use crate::service::{bill_service::BitcreditEbillQuote, Result, ServiceContext};
+use crate::service::{bill_service::BitcreditEbillQuote, Error, Result, ServiceContext};
 use rocket::serde::json::Json;
 use rocket::{get, put, State};
 use std::thread;
@@ -12,7 +12,7 @@ pub async fn return_quote(
     state: &State<ServiceContext>,
     id: String,
 ) -> Result<Json<BitcreditEbillQuote>> {
-    let mut quote = get_quote_from_map(&id);
+    let mut quote = get_quote_from_map(&id).ok_or(Error::NotFound)?;
     let copy_id = id.clone();
     let local_node_id = state.identity_service.get_identity().await?.node_id;
     if !quote.bill_id.is_empty() && quote.quote_id.is_empty() {
@@ -22,7 +22,7 @@ pub async fn return_quote(
             .join()
             .expect("Thread panicked");
     }
-    quote = get_quote_from_map(&id);
+    quote = get_quote_from_map(&id).ok_or(Error::NotFound)?;
     Ok(Json(quote))
 }
 
@@ -31,21 +31,21 @@ pub async fn accept_quote(
     state: &State<ServiceContext>,
     id: String,
 ) -> Result<Json<BitcreditEbillQuote>> {
-    let mut quote = get_quote_from_map(&id);
+    let mut quote = get_quote_from_map(&id).ok_or(Error::NotFound)?;
 
     let public_data_endorsee = state
         .contact_service
-        .get_identity_by_name(&quote.mint_node_id)
+        .get_identity_by_node_id(&quote.mint_node_id)
         .await?;
 
-    if !public_data_endorsee.name.is_empty() {
+    if let Some(endorsee) = public_data_endorsee {
         let timestamp = external::time::TimeApi::get_atomic_time()
             .await
             .unwrap()
             .timestamp;
         state
             .bill_service
-            .endorse_bitcredit_bill(&quote.bill_id, public_data_endorsee.clone(), timestamp)
+            .endorse_bitcredit_bill(&quote.bill_id, endorsee.clone(), timestamp)
             .await?;
     }
 
@@ -57,6 +57,6 @@ pub async fn accept_quote(
             .join()
             .expect("Thread panicked");
     }
-    quote = get_quote_from_map(&id);
+    quote = get_quote_from_map(&id).ok_or(Error::NotFound)?;
     Ok(Json(quote))
 }

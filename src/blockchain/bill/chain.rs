@@ -106,16 +106,7 @@ impl BillBlockchain {
         let decrypted_bytes = first_block.get_decrypted_block_bytes(bill_keys)?;
         let bill_first_version: BitcreditBill = from_slice(&decrypted_bytes)?;
 
-        let mut last_endorsee = IdentityPublicData {
-            node_id: "".to_string(),
-            name: "".to_string(),
-            company: "".to_string(),
-            bitcoin_public_key: "".to_string(),
-            postal_address: "".to_string(),
-            email: "".to_string(),
-            nostr_npub: None,
-            nostr_relay: None,
-        };
+        let mut last_endorsee = None;
 
         if self.blocks.len() > 1 && self.has_been_endorsed_sold_or_minted() {
             let last_version_block_endorse = self.get_last_version_block_with_op_code(Endorse);
@@ -140,7 +131,7 @@ impl BillBlockchain {
                     )?,
                 )?)?;
 
-                last_endorsee = buyer;
+                last_endorsee = Some(buyer);
             } else if self.block_with_operation_code_exists(Endorse.clone())
                 && (last_version_block_endorse.id > last_version_block_mint.id)
             {
@@ -152,7 +143,7 @@ impl BillBlockchain {
                     )?,
                 )?)?;
 
-                last_endorsee = endorsee;
+                last_endorsee = Some(endorsee);
             } else if self.block_with_operation_code_exists(Mint.clone())
                 && (last_version_block_mint.id > last_version_block_endorse.id)
             {
@@ -163,14 +154,14 @@ impl BillBlockchain {
                         .ok_or(Error::InvalidBlockdata(String::from("Mint: No mint found")))?,
                 )?)?;
 
-                last_endorsee = mint;
+                last_endorsee = Some(mint);
             }
         }
 
         let mut payee = bill_first_version.payee;
 
-        if !last_endorsee.node_id.is_empty() {
-            payee = last_endorsee.clone();
+        if let Some(ref endorsee) = last_endorsee {
+            payee = endorsee.clone();
         }
 
         Ok(BitcreditBill {
@@ -427,7 +418,7 @@ mod test {
         let result = chain.get_last_version_bill(&keys);
         assert!(result.is_ok());
         assert_eq!(
-            result.as_ref().unwrap().endorsee.node_id,
+            result.as_ref().unwrap().endorsee.as_ref().unwrap().node_id,
             node_id_last_endorsee
         );
     }

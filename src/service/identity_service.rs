@@ -1,6 +1,6 @@
 use super::Result;
 use crate::CONFIG;
-use crate::{dht::Client, persistence::identity::IdentityStoreApi, util::BcrKeys};
+use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
 
 use crate::blockchain::identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData};
 use crate::blockchain::Blockchain;
@@ -16,7 +16,6 @@ pub trait IdentityServiceApi: Send + Sync {
     async fn update_identity(
         &self,
         name: Option<String>,
-        company: Option<String>,
         email: Option<String>,
         postal_address: Option<String>,
         timestamp: u64,
@@ -31,7 +30,6 @@ pub trait IdentityServiceApi: Send + Sync {
     async fn create_identity(
         &self,
         name: String,
-        company: String,
         date_of_birth: String,
         city_of_birth: String,
         country_of_birth: String,
@@ -45,19 +43,16 @@ pub trait IdentityServiceApi: Send + Sync {
 /// with the dht data.
 #[derive(Clone)]
 pub struct IdentityService {
-    client: Client,
     store: Arc<dyn IdentityStoreApi>,
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
 }
 
 impl IdentityService {
     pub fn new(
-        client: Client,
         store: Arc<dyn IdentityStoreApi>,
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
     ) -> Self {
         Self {
-            client,
             store,
             blockchain_store,
         }
@@ -74,7 +69,6 @@ impl IdentityServiceApi for IdentityService {
     async fn update_identity(
         &self,
         name: Option<String>,
-        company: Option<String>,
         email: Option<String>,
         postal_address: Option<String>,
         timestamp: u64,
@@ -85,13 +79,6 @@ impl IdentityServiceApi for IdentityService {
         if let Some(ref name_to_set) = name {
             if identity.name != name_to_set.trim() {
                 identity.name = name_to_set.trim().to_owned();
-                changed = true;
-            }
-        }
-
-        if let Some(ref company_to_set) = company {
-            if identity.company != company_to_set.trim() {
-                identity.company = company_to_set.trim().to_owned();
                 changed = true;
             }
         }
@@ -121,7 +108,6 @@ impl IdentityServiceApi for IdentityService {
             &previous_block,
             &IdentityUpdateBlockData {
                 name,
-                company,
                 email,
                 postal_address,
             },
@@ -131,10 +117,6 @@ impl IdentityServiceApi for IdentityService {
         self.blockchain_store.add_block(&new_block).await?;
 
         self.store.save(&identity).await?;
-        self.client
-            .clone()
-            .put_identity_public_data_in_dht()
-            .await?;
         Ok(())
     }
 
@@ -150,7 +132,6 @@ impl IdentityServiceApi for IdentityService {
     async fn create_identity(
         &self,
         name: String,
-        company: String,
         date_of_birth: String,
         city_of_birth: String,
         country_of_birth: String,
@@ -163,18 +144,12 @@ impl IdentityServiceApi for IdentityService {
 
         let identity = Identity {
             node_id: node_id.clone(),
-            bitcoin_public_key: keys
-                .get_bitcoin_keys(CONFIG.bitcoin_network())
-                .1
-                .to_string(),
             name,
-            company,
             date_of_birth,
             city_of_birth,
             country_of_birth,
             email,
             postal_address,
-            nostr_npub: Some(keys.get_nostr_npub()?),
             nostr_relay: Some(CONFIG.nostr_relay.to_owned()),
         };
 
@@ -185,11 +160,6 @@ impl IdentityServiceApi for IdentityService {
 
         // persist the identity in the DB
         self.store.save(&identity).await?;
-        self.client
-            .clone()
-            .put_identity_public_data_in_dht()
-            .await?;
-
         Ok(())
     }
 }
@@ -205,51 +175,62 @@ pub struct IdentityWithAll {
 pub struct Identity {
     pub name: String,
     pub node_id: String,
-    pub bitcoin_public_key: String,
-    pub company: String,
     pub date_of_birth: String,
     pub city_of_birth: String,
     pub country_of_birth: String,
     pub email: String,
     pub postal_address: String,
-    pub nostr_npub: Option<String>,
     pub nostr_relay: Option<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
-pub struct NodeId {
-    id: String,
-}
-
-impl NodeId {
-    pub fn new(node_id: String) -> Self {
-        Self { id: node_id }
-    }
-}
-
 impl Identity {
+    #[cfg(test)]
     pub fn new_empty() -> Self {
         Self {
             name: "".to_string(),
             node_id: "".to_string(),
-            bitcoin_public_key: "".to_string(),
-            company: "".to_string(),
             date_of_birth: "".to_string(),
             city_of_birth: "".to_string(),
             postal_address: "".to_string(),
             email: "".to_string(),
             country_of_birth: "".to_string(),
-            nostr_npub: None,
             nostr_relay: None,
         }
     }
 
     pub fn get_nostr_name(&self) -> String {
-        if !self.name.is_empty() {
-            self.name.clone()
-        } else {
-            self.company.to_owned()
-        }
+        self.name.clone()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IdentityToReturn {
+    pub name: String,
+    pub node_id: String,
+    pub bitcoin_public_key: String,
+    pub npub: String,
+    pub date_of_birth: String,
+    pub city_of_birth: String,
+    pub country_of_birth: String,
+    pub email: String,
+    pub postal_address: String,
+    pub nostr_relay: Option<String>,
+}
+
+impl IdentityToReturn {
+    pub fn from(identity: Identity, keys: BcrKeys) -> Result<Self> {
+        Ok(Self {
+            name: identity.name,
+            node_id: identity.node_id.clone(),
+            bitcoin_public_key: identity.node_id.clone(),
+            npub: keys.get_nostr_npub()?,
+            date_of_birth: identity.date_of_birth,
+            city_of_birth: identity.city_of_birth,
+            country_of_birth: identity.country_of_birth,
+            email: identity.email,
+            postal_address: identity.postal_address,
+            nostr_relay: identity.nostr_relay,
+        })
     }
 }
 
@@ -258,26 +239,11 @@ mod test {
     use super::*;
     use crate::persistence::{
         self,
-        bill::MockBillStoreApi,
-        company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
-        file_upload::MockFileUploadStoreApi,
         identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
     };
-    use futures::channel::mpsc;
 
     fn get_service(mock_storage: MockIdentityStoreApi) -> IdentityService {
-        let (sender, _) = mpsc::channel(0);
-        let mut client_storage = MockIdentityStoreApi::new();
-        client_storage.expect_exists().returning(|| false);
         IdentityService::new(
-            Client::new(
-                sender,
-                Arc::new(MockBillStoreApi::new()),
-                Arc::new(MockCompanyStoreApi::new()),
-                Arc::new(MockCompanyChainStoreApi::new()),
-                Arc::new(client_storage),
-                Arc::new(MockFileUploadStoreApi::new()),
-            ),
             Arc::new(mock_storage),
             Arc::new(MockIdentityChainStoreApi::new()),
         )
@@ -287,21 +253,7 @@ mod test {
         mock_storage: MockIdentityStoreApi,
         mock_chain_storage: MockIdentityChainStoreApi,
     ) -> IdentityService {
-        let (sender, _) = mpsc::channel(0);
-        let mut client_storage = MockIdentityStoreApi::new();
-        client_storage.expect_exists().returning(|| false);
-        IdentityService::new(
-            Client::new(
-                sender,
-                Arc::new(MockBillStoreApi::new()),
-                Arc::new(MockCompanyStoreApi::new()),
-                Arc::new(MockCompanyChainStoreApi::new()),
-                Arc::new(client_storage),
-                Arc::new(MockFileUploadStoreApi::new()),
-            ),
-            Arc::new(mock_storage),
-            Arc::new(mock_chain_storage),
-        )
+        IdentityService::new(Arc::new(mock_storage), Arc::new(mock_chain_storage))
     }
 
     #[tokio::test]
@@ -321,7 +273,6 @@ mod test {
         let res = service
             .create_identity(
                 "name".to_string(),
-                "company".to_string(),
                 "date_of_birth".to_string(),
                 "city_of_birth".to_string(),
                 "country_of_birth".to_string(),
@@ -360,7 +311,7 @@ mod test {
 
         let service = get_service_with_chain_storage(storage, chain_storage);
         let res = service
-            .update_identity(Some("new_name".to_string()), None, None, None, 1731593928)
+            .update_identity(Some("new_name".to_string()), None, None, 1731593928)
             .await;
 
         assert!(res.is_ok());
@@ -381,7 +332,7 @@ mod test {
 
         let service = get_service(storage);
         let res = service
-            .update_identity(Some("name".to_string()), None, None, None, 1731593928)
+            .update_identity(Some("name".to_string()), None, None, 1731593928)
             .await;
 
         assert!(res.is_ok());
@@ -417,7 +368,7 @@ mod test {
 
         let service = get_service_with_chain_storage(storage, chain_storage);
         let res = service
-            .update_identity(Some("new_name".to_string()), None, None, None, 1731593928)
+            .update_identity(Some("new_name".to_string()), None, None, 1731593928)
             .await;
 
         assert!(res.is_err());

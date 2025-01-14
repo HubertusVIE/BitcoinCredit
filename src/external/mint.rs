@@ -100,7 +100,7 @@ pub async fn client_accept_bitcredit_quote(bill_id: &String) -> String {
         .unwrap();
     let wallet_keyset = wallet_keysets.first().unwrap();
 
-    let quote = get_quote_from_map(bill_id);
+    let quote = get_quote_from_map(bill_id).unwrap();
     let quote_id = quote.quote_id.clone();
     let amount = quote.amount;
 
@@ -192,7 +192,7 @@ pub async fn init_wallet() {
     // let mint_url = Url::parse("http://127.0.0.1:3338").expect("Invalid url");
     //
     // let identity: Identity = read_identity_from_file();
-    // let bitcoin_key = identity.bitcoin_public_key.clone();
+    // let bitcoin_key = identity.node_id.clone();
     //
     // let wallet: Wallet<_, CrossPlatformHttpClient> = Wallet::builder()
     //     .with_localstore(localstore)
@@ -235,13 +235,13 @@ pub fn add_in_quotes_map(quote: BitcreditEbillQuote) {
     write_quotes_map(quotes);
 }
 
-pub fn get_quote_from_map(bill_id: &String) -> BitcreditEbillQuote {
+pub fn get_quote_from_map(bill_id: &String) -> Option<BitcreditEbillQuote> {
     let quotes = read_quotes_map();
     if quotes.contains_key(bill_id) {
         let data = quotes.get(bill_id).unwrap().clone();
-        data
+        Some(data)
     } else {
-        BitcreditEbillQuote::new_empty()
+        None
     }
 }
 
@@ -254,7 +254,7 @@ pub fn add_bitcredit_quote_and_amount_in_quotes_map(
     }
 
     let mut quotes: HashMap<String, BitcreditEbillQuote> = read_quotes_map();
-    let mut quote = get_quote_from_map(&bill_id);
+    let mut quote = get_quote_from_map(&bill_id).unwrap();
 
     quote.amount = response.amount;
     quote.quote_id = response.quote.clone();
@@ -270,7 +270,7 @@ pub fn add_bitcredit_token_in_quotes_map(token: String, bill_id: String) {
     }
 
     let mut quotes: HashMap<String, BitcreditEbillQuote> = read_quotes_map();
-    let mut quote = get_quote_from_map(&bill_id);
+    let mut quote = get_quote_from_map(&bill_id).unwrap();
 
     quote.token = token.clone();
 

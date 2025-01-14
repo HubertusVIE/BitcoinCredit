@@ -105,14 +105,11 @@ impl IdentityStoreApi for SurrealIdentityStore {
 pub struct IdentityDb {
     pub name: String,
     pub node_id: String,
-    pub bitcoin_public_key: String,
-    pub company: String,
     pub date_of_birth: String,
     pub city_of_birth: String,
     pub country_of_birth: String,
     pub email: String,
     pub postal_address: String,
-    pub nostr_npub: Option<String>,
     pub nostr_relay: Option<String>,
 }
 
@@ -121,14 +118,11 @@ impl From<IdentityDb> for Identity {
         Self {
             name: identity.name,
             node_id: identity.node_id,
-            bitcoin_public_key: identity.bitcoin_public_key,
-            company: identity.company,
             date_of_birth: identity.date_of_birth,
             city_of_birth: identity.city_of_birth,
             country_of_birth: identity.country_of_birth,
             email: identity.email,
             postal_address: identity.postal_address,
-            nostr_npub: identity.nostr_npub,
             nostr_relay: identity.nostr_relay,
         }
     }
@@ -139,14 +133,11 @@ impl From<&Identity> for IdentityDb {
         Self {
             name: identity.name.clone(),
             node_id: identity.node_id.clone(),
-            bitcoin_public_key: identity.bitcoin_public_key.clone(),
-            company: identity.company.clone(),
             date_of_birth: identity.date_of_birth.clone(),
             city_of_birth: identity.city_of_birth.clone(),
             country_of_birth: identity.country_of_birth.clone(),
             email: identity.email.clone(),
             postal_address: identity.postal_address.clone(),
-            nostr_npub: identity.nostr_npub.clone(),
             nostr_relay: identity.nostr_relay.clone(),
         }
     }

@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use crate::persistence::NostrEventOffset;
 use crate::persistence::NostrEventOffsetStoreApi;
 use crate::service::contact_service::ContactServiceApi;
-use crate::util::BcrKeys;
+use crate::util::{crypto, BcrKeys};
 
 use super::super::contact_service::IdentityPublicData;
 use super::handler::NotificationHandlerApi;
@@ -105,8 +105,8 @@ impl NostrClient {
 #[async_trait]
 impl NotificationJsonTransportApi for NostrClient {
     async fn send(&self, recipient: &IdentityPublicData, event: EventEnvelope) -> Result<()> {
-        if let Some(npub) = &recipient.nostr_npub {
-            let public_key = PublicKey::from_str(npub)?;
+        if let Ok(npub) = crypto::get_nostr_npub_as_hex_from_node_id(&recipient.node_id) {
+            let public_key = PublicKey::from_str(&npub)?;
             let message = serde_json::to_string(&event)?;
             if let Some(relay) = &recipient.nostr_relay {
                 if let Err(e) = self
@@ -188,10 +188,12 @@ impl NostrConsumer {
                         client.unwrap_envelope(note).await
                     {
                         if !offset_store.is_processed(&event_id.to_hex()).await? {
-                            if let Ok(sender) = sender.to_bech32() {
-                                trace!("Received event: {envelope:?} from {sender:?}");
-                                if contact_service.is_known_npub(sender.as_str()).await? {
-                                    trace!("Received event: {envelope:?} from {sender:?}");
+                            if let Ok(sender_npub) = sender.to_bech32() {
+                                let sender_node_id = sender.to_hex();
+                                trace!("Received event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id})");
+                                // We use hex here, so we can compare it with our node_ids
+                                if contact_service.is_known_npub(&sender_node_id).await? {
+                                    trace!("Received event: {envelope:?} from {sender_node_id:?} (hex: {sender_node_id})");
                                     handle_event(envelope, &event_handlers).await?;
                                 }
                             }
@@ -324,12 +326,8 @@ mod tests {
             .expect("failed to create nostr client 2");
 
         // and a contact we want to send an event to
-        let contact = get_identity_public_data(
-            "payee",
-            "payee@example.com",
-            Some(&keys2.get_nostr_npub().expect("get npub 2")),
-            Some(&url),
-        );
+        let contact =
+            get_identity_public_data(&keys2.get_public_key(), "payee@example.com", Some(&url));
         let mut event = create_test_event(&EventType::BillSigned);
         event.node_id = contact.node_id.to_owned();
 
@@ -337,7 +335,7 @@ mod tests {
         let mut contact_service = MockContactServiceApi::new();
         contact_service
             .expect_is_known_npub()
-            .with(predicate::eq(keys1.get_nostr_npub().expect("get npub 1")))
+            .with(predicate::eq(keys1.get_nostr_npub_as_hex()))
             .returning(|_| Ok(true));
 
         // expect a handler that is subscribed to the event type w sent

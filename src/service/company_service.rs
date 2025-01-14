@@ -185,7 +185,7 @@ impl CompanyServiceApi for CompanyService {
         let private_key = keys.get_private_key_string();
         let public_key = keys.get_public_key();
 
-        let id = util::sha256_hash(public_key.as_bytes());
+        let id = keys.get_public_key();
 
         let company_keys = CompanyKeys {
             private_key: private_key.to_string(),
@@ -270,9 +270,7 @@ impl CompanyServiceApi for CompanyService {
         timestamp: u64,
     ) -> Result<()> {
         if !self.store.exists(id).await {
-            return Err(super::Error::Validation(format!(
-                "No company with id: {id} found",
-            )));
+            return Err(super::Error::NotFound);
         }
         let full_identity = self.identity_store.get_full().await?;
         let node_id = full_identity.identity.node_id;
@@ -351,7 +349,7 @@ impl CompanyServiceApi for CompanyService {
         let contacts = self.contact_store.get_map().await?;
         let is_in_contacts = contacts
             .iter()
-            .any(|(_name, identity)| identity.node_id == signatory_node_id);
+            .any(|(node_id, _contact)| *node_id == signatory_node_id);
         if !is_in_contacts {
             return Err(super::Error::Validation(format!(
                 "Node Id {signatory_node_id} is not in the contacts.",
@@ -612,14 +610,12 @@ pub mod test {
             self,
             company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
             contact::MockContactStoreApi,
+            db::contact::tests::get_baseline_contact,
             file_upload::MockFileUploadStoreApi,
             identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
         },
-        service::{
-            contact_service::IdentityPublicData,
-            identity_service::{Identity, IdentityWithAll},
-        },
-        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        service::identity_service::{Identity, IdentityWithAll},
+        tests::test::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
     };
     use mockall::predicate::{always, eq};
     use std::collections::HashMap;
@@ -1223,9 +1219,9 @@ pub mod test {
         let signatory_node_id_clone = signatory_node_id.clone();
         contact_store.expect_get_map().returning(move || {
             let mut map = HashMap::new();
-            let mut identity = IdentityPublicData::new_empty();
-            identity.node_id = signatory_node_id_clone.clone();
-            map.insert("my best friend".to_string(), identity);
+            let mut contact = get_baseline_contact();
+            contact.node_id = signatory_node_id_clone.clone();
+            map.insert(signatory_node_id_clone.clone(), contact);
             Ok(map)
         });
         storage
@@ -1355,14 +1351,13 @@ pub mod test {
         });
         contact_store.expect_get_map().returning(|| {
             let mut map = HashMap::new();
-            let mut identity = IdentityPublicData::new_empty();
-            identity.node_id = "new_signatory_node_id".to_string();
-            map.insert("my best friend".to_string(), identity);
+            let contact = get_baseline_contact();
+            map.insert(TEST_NODE_ID_SECP.to_owned(), contact);
             Ok(map)
         });
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1 .0;
-            data.signatories.push("new_signatory_node_id".to_string());
+            data.signatories.push(TEST_NODE_ID_SECP.to_string());
             Ok(data)
         });
         storage
@@ -1377,7 +1372,7 @@ pub mod test {
             company_chain_store,
         );
         let res = service
-            .add_signatory("some_id", "new_signatory_node_id".to_string(), 1731593928)
+            .add_signatory("some_id", TEST_NODE_ID_SECP.to_string(), 1731593928)
             .await;
         assert!(res.is_err());
     }
@@ -1402,9 +1397,8 @@ pub mod test {
         });
         contact_store.expect_get_map().returning(|| {
             let mut map = HashMap::new();
-            let mut identity = IdentityPublicData::new_empty();
-            identity.node_id = "new_signatory_node_id".to_string();
-            map.insert("my best friend".to_string(), identity);
+            let contact = get_baseline_contact();
+            map.insert(TEST_NODE_ID_SECP.to_owned(), contact);
             Ok(map)
         });
         storage.expect_update().returning(|_, _| {
@@ -1428,7 +1422,7 @@ pub mod test {
             company_chain_store,
         );
         let res = service
-            .add_signatory("some_id", "new_signatory_node_id".to_string(), 1731593928)
+            .add_signatory("some_id", TEST_NODE_ID_SECP.to_string(), 1731593928)
             .await;
         assert!(res.is_err());
     }

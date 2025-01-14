@@ -126,7 +126,7 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_bill_is_endorsed_event(&self, bill: &BitcreditBill) -> Result<()> {
         let event = Event::new(
             EventType::BillEndorsed,
-            &bill.endorsee.node_id,
+            &bill.endorsee.as_ref().unwrap().node_id,
             BillActionEventPayload {
                 bill_id: bill.name.clone(),
                 action_type: ActionType::CheckBill,
@@ -134,7 +134,7 @@ impl NotificationServiceApi for DefaultNotificationService {
         );
 
         self.notification_transport
-            .send(&bill.endorsee, event.try_into()?)
+            .send(bill.endorsee.as_ref().unwrap(), event.try_into()?)
             .await?;
         Ok(())
     }
@@ -142,14 +142,14 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_request_to_sell_event(&self, bill: &BitcreditBill) -> Result<()> {
         let event = Event::new(
             EventType::BillSellRequested,
-            &bill.endorsee.node_id,
+            &bill.endorsee.as_ref().unwrap().node_id,
             BillActionEventPayload {
                 bill_id: bill.name.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
         self.notification_transport
-            .send(&bill.endorsee, event.try_into()?)
+            .send(bill.endorsee.as_ref().unwrap(), event.try_into()?)
             .await?;
         Ok(())
     }
@@ -172,14 +172,14 @@ impl NotificationServiceApi for DefaultNotificationService {
     async fn send_request_to_mint_event(&self, bill: &BitcreditBill) -> Result<()> {
         let event = Event::new(
             EventType::BillMintingRequested,
-            &bill.endorsee.node_id,
+            &bill.endorsee.as_ref().unwrap().node_id,
             BillActionEventPayload {
                 bill_id: bill.name.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
         self.notification_transport
-            .send(&bill.endorsee, event.try_into()?)
+            .send(bill.endorsee.as_ref().unwrap(), event.try_into()?)
             .await?;
         Ok(())
     }
@@ -237,8 +237,8 @@ mod tests {
     #[tokio::test]
     async fn test_send_bill_is_signed_event() {
         // given a payer and payee with a new bill
-        let payer = get_identity_public_data("drawee", "drawee@example.com", None, None);
-        let payee = get_identity_public_data("payee", "payee@example.com", None, None);
+        let payer = get_identity_public_data("drawee", "drawee@example.com", None);
+        let payee = get_identity_public_data("payee", "payee@example.com", None);
         let bill = get_test_bitcredit_bill("bill", &payer, &payee, None, None);
 
         let mut mock = MockNotificationJsonTransportApi::new();
@@ -462,18 +462,16 @@ mod tests {
     fn get_test_bill() -> BitcreditBill {
         get_test_bitcredit_bill(
             "bill",
-            &get_identity_public_data("drawee", "drawee@example.com", None, None),
-            &get_identity_public_data("payee", "payee@example.com", None, None),
+            &get_identity_public_data("drawee", "drawee@example.com", None),
+            &get_identity_public_data("payee", "payee@example.com", None),
             Some(&get_identity_public_data(
                 "drawer",
                 "drawer@example.com",
-                None,
                 None,
             )),
             Some(&get_identity_public_data(
                 "endorsee",
                 "endorsee@example.com",
-                None,
                 None,
             )),
         )

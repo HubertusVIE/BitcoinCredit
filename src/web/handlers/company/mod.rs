@@ -139,8 +139,15 @@ pub async fn create(
 pub async fn edit(
     state: &State<ServiceContext>,
     edit_company_payload: Json<EditCompanyPayload>,
-) -> Result<()> {
+) -> Result<Status> {
     let payload = edit_company_payload.0;
+    if payload.name.is_none()
+        && payload.email.is_none()
+        && payload.postal_address.is_none()
+        && payload.logo_file_upload_id.is_none()
+    {
+        return Ok(Status::Ok);
+    }
     let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
     state
         .company_service
@@ -160,7 +167,7 @@ pub async fn edit(
         .put_company_public_data_in_dht(CompanyPublicData::from(updated))
         .await?;
 
-    Ok(())
+    Ok(Status::Ok)
 }
 
 #[put("/add_signatory", format = "json", data = "<add_signatory_payload>")]

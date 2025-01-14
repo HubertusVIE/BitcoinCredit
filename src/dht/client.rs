@@ -10,9 +10,7 @@ use super::{GossipsubEvent, GossipsubEventId, Result};
 use crate::blockchain::bill::BillBlockchain;
 use crate::blockchain::company::CompanyBlockchain;
 use crate::blockchain::Blockchain;
-use crate::constants::{
-    BILLS_PREFIX, BILL_PREFIX, COMPANIES_PREFIX, COMPANY_PREFIX, IDENTITY_PREFIX,
-};
+use crate::constants::{BILLS_PREFIX, BILL_PREFIX, COMPANIES_PREFIX, COMPANY_PREFIX};
 use crate::persistence::bill::{bill_chain_from_bytes, bill_keys_from_bytes, BillStoreApi};
 use crate::persistence::company::{
     company_chain_from_bytes, company_chain_to_bytes, company_from_bytes, company_keys_from_bytes,
@@ -22,7 +20,6 @@ use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::service::bill_service::BillKeys;
 use crate::service::company_service::{Company, CompanyKeys, CompanyPublicData};
-use crate::service::contact_service::IdentityPublicData;
 use crate::{blockchain, util};
 use borsh::{from_slice, to_vec};
 use future::{try_join_all, BoxFuture};
@@ -647,60 +644,6 @@ impl Client {
                 Ok(Some(company_public_data))
             }
         }
-    }
-
-    // --------------------------------------------------------------
-    // Identity-related logic ---------------------------------------
-    // --------------------------------------------------------------
-
-    fn identity_key(&self, node_id: &str) -> String {
-        format!("{IDENTITY_PREFIX}{node_id}")
-    }
-
-    /// Adds the local identity's public data into the DHT
-    pub async fn put_identity_public_data_in_dht(&mut self) -> Result<()> {
-        if self.identity_store.exists().await {
-            let identity = self.identity_store.get_full().await?;
-            let identity_data = IdentityPublicData::new(identity.identity.clone());
-
-            let key = self.identity_key(&identity_data.node_id);
-            match self.get_record(key.clone()).await {
-                Err(_) => {
-                    let value = serde_json::to_string(&identity_data)?;
-                    self.put_record(key, value.into_bytes()).await?;
-                }
-                Ok(identity_record) => {
-                    let current_info = identity_record.value;
-                    let mut current_info_string = String::new();
-                    if !current_info.is_empty() {
-                        current_info_string = std::str::from_utf8(&current_info)?.to_string();
-                    }
-                    let value = serde_json::to_string(&identity_data)?;
-                    if !current_info_string.eq(&value) {
-                        self.put_record(key, value.into_bytes()).await?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Queries the DHT for the public identity data for the given node id
-    pub async fn get_identity_public_data_from_dht(
-        &mut self,
-        node_id: String,
-    ) -> Result<IdentityPublicData> {
-        let key = self.identity_key(&node_id);
-        let mut identity_public_data: IdentityPublicData = IdentityPublicData::new_empty();
-        if let Ok(public_data) = self.get_record(key.clone()).await {
-            let current_info = public_data.value;
-            if !current_info.is_empty() {
-                let current_info_string = std::str::from_utf8(&current_info)?.to_string();
-                identity_public_data = serde_json::from_str(&current_info_string)?;
-            }
-        }
-
-        Ok(identity_public_data)
     }
 
     // ---------------------------------------------------------
@@ -1646,7 +1589,8 @@ mod test {
         service::{
             bill_service::test::{get_baseline_bill, get_genesis_chain},
             company_service::CompanyToReturn,
-            identity_service::{Identity, IdentityWithAll},
+            contact_service::IdentityPublicData,
+            identity_service::Identity,
         },
         tests::test::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         web::data::File,
@@ -1754,11 +1698,6 @@ mod test {
     #[test]
     fn company_key() {
         assert_eq!(get_client().company_key("id"), "COMPANYid".to_string());
-    }
-
-    #[test]
-    fn identity_key() {
-        assert_eq!(get_client().identity_key("id"), "IDENTITYid".to_string());
     }
 
     #[test]
@@ -3081,38 +3020,6 @@ mod test {
     }
 
     #[tokio::test]
-    async fn get_identity_public_data_from_dht() {
-        let (sender, mut receiver) = mpsc::channel(10);
-
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "IDENTITYsome_node_id".to_string());
-                        let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = "some_node_id".to_string();
-                        identity.name = "Minka".to_string();
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&"IDENTITYsome_node_id".to_string()),
-                                serde_json::to_string(&identity).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
-        let result = get_client_chan(sender)
-            .get_identity_public_data_from_dht("some_node_id".to_string())
-            .await;
-        assert!(result.is_ok());
-        assert!(result.as_ref().unwrap().node_id == *"some_node_id");
-        assert!(result.as_ref().unwrap().name == *"Minka");
-    }
-
-    #[tokio::test]
     async fn check_companies_baseline() {
         let (sender, mut receiver) = mpsc::channel(10);
         let (
@@ -3433,66 +3340,6 @@ mod test {
         let result = get_client_chan(sender)
             .add_bill_to_dht_for_node("bill_1", "my_node_id")
             .await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn put_identity_public_data_in_dht() {
-        let (sender, mut receiver) = mpsc::channel(10);
-        let (
-            bill_store,
-            company_store,
-            company_blockchain_store,
-            mut identity_store,
-            file_upload_store,
-        ) = get_storages();
-        let keys = BcrKeys::new();
-        let node_id = keys.get_public_key();
-        identity_store.expect_exists().returning(|| true);
-        let node_id_clone = node_id.clone();
-        identity_store.expect_get_full().returning(move || {
-            let mut identity = Identity::new_empty();
-            identity.name = "myself".to_owned();
-            identity.node_id = node_id_clone.clone();
-            Ok(IdentityWithAll {
-                identity,
-                key_pair: keys.clone(),
-            })
-        });
-
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::PutRecord { key, value } => {
-                        assert_eq!(key, format!("IDENTITY{node_id}"));
-                        let parsed: IdentityPublicData = serde_json::from_slice(&value).unwrap();
-                        assert_eq!(parsed.name, String::from("myself"));
-                    }
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, format!("IDENTITY{node_id}"));
-                        let result: Vec<u8> = vec![];
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&format!("IDENTITY{node_id}")),
-                                result,
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
-        let result = get_client_chan_stores(
-            bill_store,
-            company_store,
-            company_blockchain_store,
-            identity_store,
-            file_upload_store,
-            sender,
-        )
-        .put_identity_public_data_in_dht()
-        .await;
         assert!(result.is_ok());
     }
 }

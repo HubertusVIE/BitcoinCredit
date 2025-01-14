@@ -101,6 +101,11 @@ impl BcrKeys {
         nostr_sdk::Keys::new(self.inner.secret_key().into())
     }
 
+    /// Returns the nostr public key as an XOnlyPublicKey hex string
+    pub fn get_nostr_npub_as_hex(&self) -> String {
+        self.get_nostr_keys().public_key().to_hex()
+    }
+
     /// Returns the nostr public key as a bech32 string
     pub fn get_nostr_npub(&self) -> Result<String> {
         Ok(self.get_nostr_keys().public_key().to_bech32()?)
@@ -125,6 +130,29 @@ impl BcrKeys {
         peer_id
             .is_public_key(&libp2p_keypair.public())
             .unwrap_or(false)
+    }
+}
+
+/// Calculates the XOnlyPublicKey as hex from the given node_id to be used as the npub as hex for
+/// nostr
+pub fn get_nostr_npub_as_hex_from_node_id(node_id: &str) -> Result<String> {
+    Ok(PublicKey::from_str(node_id)?
+        .x_only_public_key()
+        .0
+        .to_string())
+}
+
+/// Checks if the given node_id and the given npub (as hex) are the same public key.
+/// This converts the node_id to an XOnlyPublicKey (which is the way nostr saves it's public key)
+/// and compares it to the given npub
+pub fn is_node_id_nostr_hex_npub(node_id: &str, npub: &str) -> bool {
+    let x_only_pub_key = match get_nostr_npub_as_hex_from_node_id(node_id) {
+        Ok(pub_key) => pub_key,
+        Err(_) => return false,
+    };
+    match nostr_sdk::PublicKey::from_hex(x_only_pub_key) {
+        Ok(npub_from_node_id) => npub == npub_from_node_id.to_hex(),
+        Err(_) => false,
     }
 }
 
@@ -264,7 +292,11 @@ pub fn decrypt_ecies(bytes: &[u8], private_key: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{service::company_service::test::get_baseline_company_data, util};
+    use crate::{
+        service::company_service::test::get_baseline_company_data,
+        tests::test::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
+        util,
+    };
     use borsh::to_vec;
 
     const PKEY: &str = "926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3";
@@ -678,6 +710,72 @@ mod tests {
         assert!(decrypted.is_ok());
 
         assert_eq!(&companies_bytes, decrypted.as_ref().unwrap());
+    }
+
+    #[test]
+    fn get_nostr_npub_as_hex_from_node_id_base() {
+        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+        let npub_as_hex = "39a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+
+        assert_eq!(
+            get_nostr_npub_as_hex_from_node_id(node_id).unwrap(),
+            npub_as_hex.to_string()
+        );
+        let npub =
+            nostr_sdk::PublicKey::from_hex(get_nostr_npub_as_hex_from_node_id(node_id).unwrap())
+                .unwrap();
+        assert_eq!(npub.to_hex(), npub_as_hex);
+        assert_eq!(
+            get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
+            TEST_NODE_ID_SECP_AS_NPUB_HEX.to_string()
+        );
+        let npub = nostr_sdk::PublicKey::from_hex(
+            get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(npub.to_hex(), TEST_NODE_ID_SECP_AS_NPUB_HEX);
+    }
+
+    #[test]
+    fn get_nostr_npub_as_hex_from_node_id_invalid() {
+        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+        let npub_as_hex = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+
+        assert_ne!(
+            get_nostr_npub_as_hex_from_node_id(node_id).unwrap(),
+            npub_as_hex.to_string()
+        );
+        assert_ne!(
+            get_nostr_npub_as_hex_from_node_id(node_id).unwrap(),
+            TEST_NODE_ID_SECP_AS_NPUB_HEX.to_string()
+        );
+    }
+
+    #[test]
+    fn is_node_id_nostr_hex_npub_base() {
+        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+        let npub_as_hex = "39a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+
+        assert!(is_node_id_nostr_hex_npub(node_id, npub_as_hex));
+        assert!(is_node_id_nostr_hex_npub(
+            TEST_NODE_ID_SECP,
+            TEST_NODE_ID_SECP_AS_NPUB_HEX
+        ));
+    }
+
+    #[test]
+    fn is_node_id_nostr_hex_npub_neg() {
+        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+        let npub_as_hex = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+
+        assert!(!is_node_id_nostr_hex_npub(node_id, npub_as_hex));
+
+        let node_id = "0239a02d7aa976f4ef69173c271926d15fbff71e5b7d9e1adbb37fac2f3a370a70";
+
+        assert!(!is_node_id_nostr_hex_npub(
+            node_id,
+            TEST_NODE_ID_SECP_AS_NPUB_HEX
+        ));
     }
 
     /// reverses the conversion of a libp2p keypair to a secp256k1 keypair for testing

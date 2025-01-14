@@ -11,7 +11,6 @@ pub const COMPANY_KEY_PREFIX: &str = "COMPANYKEY";
 pub const COMPANY_CHAIN_PREFIX: &str = "COMPANYCHAIN";
 pub const COMPANY_LOGO_PREFIX: &str = "COMPANYLOGO";
 pub const COMPANY_PROOF_PREFIX: &str = "COMPANYPROOF";
-pub const IDENTITY_PREFIX: &str = "IDENTITY";
 pub const SHUTDOWN_GRACE_PERIOD_MS: u64 = 1500;
 
 // Validation
@@ -59,6 +58,3 @@ pub const DB_DATA: &str = "data";
 pub const DB_OP_CODE: &str = "op_code";
 
 pub const DB_COMPANY_ID: &str = "company_id";
-pub const DB_NAME: &str = "name";
-pub const DB_NPUB: &str = "npub";
-pub const DB_NEW_NAME: &str = "new_name";

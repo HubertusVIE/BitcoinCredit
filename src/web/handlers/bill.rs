@@ -183,13 +183,18 @@ pub async fn issue_bill(
             }
             // Drawer is payee
             (true, false) => {
-                let public_data_drawee = state
+                let public_data_drawee = match state
                     .contact_service
-                    .get_identity_by_name(&bill_payload.drawee_name)
+                    .get_identity_by_node_id(&bill_payload.drawee)
                     .await
-                    .map_err(|_| {
-                        service::Error::Validation(String::from("Can not get drawee identity."))
-                    })?;
+                {
+                    Ok(Some(drawee)) => drawee,
+                    Ok(None) | Err(_) => {
+                        return Err(service::Error::Validation(String::from(
+                            "Can not get drawee identity.",
+                        )));
+                    }
+                };
 
                 let public_data_payee = IdentityPublicData::new(drawer.identity.clone());
 
@@ -199,48 +204,54 @@ pub async fn issue_bill(
             (false, true) => {
                 let public_data_drawee = IdentityPublicData::new(drawer.identity.clone());
 
-                let public_data_payee = state
+                let public_data_payee = match state
                     .contact_service
-                    .get_identity_by_name(&bill_payload.payee_name)
+                    .get_identity_by_node_id(&bill_payload.payee)
                     .await
-                    .map_err(|_| {
-                        service::Error::Validation(String::from("Can not get payee identity."))
-                    })?;
+                {
+                    Ok(Some(drawee)) => drawee,
+                    Ok(None) | Err(_) => {
+                        return Err(service::Error::Validation(String::from(
+                            "Can not get payee identity.",
+                        )));
+                    }
+                };
 
                 (public_data_drawee, public_data_payee)
             }
             // Drawer is neither drawee nor payee
             (false, false) => {
-                let public_data_drawee = state
+                let public_data_drawee = match state
                     .contact_service
-                    .get_identity_by_name(&bill_payload.drawee_name)
+                    .get_identity_by_node_id(&bill_payload.drawee)
                     .await
-                    .map_err(|_| {
-                        service::Error::Validation(String::from("Can not get drawee identity."))
-                    })?;
+                {
+                    Ok(Some(drawee)) => drawee,
+                    Ok(None) | Err(_) => {
+                        return Err(service::Error::Validation(String::from(
+                            "Can not get drawee identity.",
+                        )));
+                    }
+                };
 
-                let public_data_payee = state
+                let public_data_payee = match state
                     .contact_service
-                    .get_identity_by_name(&bill_payload.payee_name)
+                    .get_identity_by_node_id(&bill_payload.payee)
                     .await
-                    .map_err(|_| {
-                        service::Error::Validation(String::from("Can not get payee identity."))
-                    })?;
+                {
+                    Ok(Some(drawee)) => drawee,
+                    Ok(None) | Err(_) => {
+                        return Err(service::Error::Validation(String::from(
+                            "Can not get payee identity.",
+                        )));
+                    }
+                };
+
                 (public_data_drawee, public_data_payee)
             }
         };
 
-    if public_data_drawee.name.is_empty() {
-        return Err(service::Error::Validation(String::from(
-            "Drawee not found.",
-        )));
-    }
-
-    if public_data_payee.name.is_empty() {
-        return Err(service::Error::Validation(String::from("Payee not found.")));
-    }
-
-    if public_data_drawee.name == public_data_payee.name {
+    if public_data_drawee.node_id == public_data_payee.node_id {
         return Err(service::Error::Validation(String::from(
             "Drawee and payee can't be the same.",
         )));
@@ -296,14 +307,19 @@ pub async fn sell_bill(
         return Err(service::Error::PreconditionFailed);
     }
 
-    let public_data_buyer = state
+    let public_data_buyer = match state
         .contact_service
-        .get_identity_by_name(&sell_bill_payload.buyer)
-        .await?;
+        .get_identity_by_node_id(&sell_bill_payload.buyer)
+        .await
+    {
+        Ok(Some(buyer)) => buyer,
+        Ok(None) | Err(_) => {
+            return Err(service::Error::Validation(String::from(
+                "Can not get buyer identity.",
+            )));
+        }
+    };
 
-    if public_data_buyer.name.is_empty() {
-        return Err(service::Error::PreconditionFailed);
-    }
     let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
 
     let chain = state
@@ -340,14 +356,19 @@ pub async fn endorse_bill(
         return Err(service::Error::PreconditionFailed);
     }
 
-    let public_data_endorsee = state
+    let public_data_endorsee = match state
         .contact_service
-        .get_identity_by_name(&endorse_bill_payload.endorsee)
-        .await?;
+        .get_identity_by_node_id(&endorse_bill_payload.endorsee)
+        .await
+    {
+        Ok(Some(endorsee)) => endorsee,
+        Ok(None) | Err(_) => {
+            return Err(service::Error::Validation(String::from(
+                "Can not get endorsee identity.",
+            )));
+        }
+    };
 
-    if public_data_endorsee.name.is_empty() {
-        return Err(service::Error::PreconditionFailed);
-    }
     let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
 
     let chain = state
@@ -498,15 +519,12 @@ pub async fn request_to_mint_bill(
     }
     let public_mint_node = state
         .contact_service
-        .get_identity_by_name(&request_to_mint_bill_payload.mint_node)
+        .get_identity_by_node_id(&request_to_mint_bill_payload.mint_node)
         .await?;
-    if !public_mint_node.name.is_empty() {
+    if let Some(public_mint) = public_mint_node {
         state
             .bill_service
-            .propagate_bill_for_node(
-                &request_to_mint_bill_payload.bill_id,
-                &public_mint_node.node_id.to_string(),
-            )
+            .propagate_bill_for_node(&request_to_mint_bill_payload.bill_id, &public_mint.node_id)
             .await?;
     }
     let bill_keys = state
@@ -567,14 +585,19 @@ pub async fn mint_bill(
     }
     let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
 
-    let public_mint_node = state
+    let public_mint_node = match state
         .contact_service
-        .get_identity_by_name(&mint_bill_payload.mint_node)
-        .await?;
+        .get_identity_by_node_id(&mint_bill_payload.mint_node)
+        .await
+    {
+        Ok(Some(drawee)) => drawee,
+        Ok(None) | Err(_) => {
+            return Err(service::Error::Validation(String::from(
+                "Can not get public mint node identity.",
+            )));
+        }
+    };
 
-    if public_mint_node.name.is_empty() {
-        return Err(service::Error::PreconditionFailed);
-    }
     let chain = state
         .bill_service
         .mint_bitcredit_bill(

@@ -187,6 +187,8 @@ async fn new(
     let local_peer_id = local_public_key.public().to_peer_id();
     info!("Local peer id: {local_peer_id:?}");
     info!("Local node id: {local_node_id:?}");
+    info!("Local npub: {:?}", keys.get_nostr_npub()?);
+    info!("Local npub as hex: {:?}", keys.get_nostr_npub_as_hex());
 
     let (relay_transport, client) = relay::client::new(local_peer_id);
 

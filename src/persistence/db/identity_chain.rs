@@ -208,7 +208,6 @@ mod tests {
             &block,
             &IdentityUpdateBlockData {
                 name: None,
-                company: None,
                 email: None,
                 postal_address: None,
             },

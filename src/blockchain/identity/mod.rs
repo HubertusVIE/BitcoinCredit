@@ -42,7 +42,6 @@ pub struct IdentityBlock {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateBlockData {
     pub name: String,
-    pub company: String,
     pub date_of_birth: String,
     pub city_of_birth: String,
     pub country_of_birth: String,
@@ -55,7 +54,6 @@ impl From<Identity> for IdentityCreateBlockData {
     fn from(value: Identity) -> Self {
         Self {
             name: value.name,
-            company: value.company,
             date_of_birth: value.date_of_birth,
             city_of_birth: value.city_of_birth,
             country_of_birth: value.country_of_birth,
@@ -69,7 +67,6 @@ impl From<Identity> for IdentityCreateBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityUpdateBlockData {
     pub name: Option<String>,
-    pub company: Option<String>,
     pub email: Option<String>,
     pub postal_address: Option<String>,
 }
@@ -376,7 +373,6 @@ mod test {
             chain.get_latest_block(),
             &IdentityUpdateBlockData {
                 name: Some("newname".to_string()),
-                company: None,
                 email: None,
                 postal_address: None,
             },

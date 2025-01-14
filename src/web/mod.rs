@@ -61,8 +61,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             routes![
                 handlers::identity::create_identity,
                 handlers::identity::change_identity,
-                handlers::identity::return_identity,
-                handlers::identity::return_node_id
+                handlers::identity::return_identity
             ],
         )
         .mount("/bitcredit", FileServer::from("frontend_build"))
@@ -72,7 +71,10 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::contacts::new_contact,
                 handlers::contacts::edit_contact,
                 handlers::contacts::remove_contact,
-                handlers::contacts::return_contacts
+                handlers::contacts::return_contacts,
+                handlers::contacts::return_contact,
+                handlers::contacts::get_file,
+                handlers::contacts::upload_file,
             ],
         )
         .mount(

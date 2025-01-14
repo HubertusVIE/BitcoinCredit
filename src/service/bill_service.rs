@@ -365,10 +365,9 @@ impl BillServiceApi for BillService {
             let requested_to_accept =
                 chain.block_with_operation_code_exists(BillOpCode::RequestToAccept);
 
-            let holder_public_key = if !bill.endorsee.name.is_empty() {
-                &bill.endorsee.bitcoin_public_key
-            } else {
-                &bill.payee.bitcoin_public_key
+            let holder_public_key = match bill.endorsee {
+                None => &bill.payee.node_id,
+                Some(ref endorsee) => &endorsee.node_id,
             };
             let address_to_pay = self
                 .bitcoin_client
@@ -413,8 +412,8 @@ impl BillServiceApi for BillService {
                 waited_for_payment: false,
                 address_for_selling: "".to_string(),
                 amount_for_selling: 0,
-                buyer: IdentityPublicData::new_empty(),
-                seller: IdentityPublicData::new_empty(),
+                buyer: None,
+                seller: None,
                 requested_to_pay,
                 requested_to_accept,
                 paid,
@@ -452,14 +451,15 @@ impl BillServiceApi for BillService {
         let waiting_for_payment =
             chain.is_last_sell_block_waiting_for_payment(&bill_keys, current_timestamp)?;
         let mut waited_for_payment = false;
-        let mut buyer = IdentityPublicData::new_empty();
-        let mut seller = IdentityPublicData::new_empty();
+        let mut buyer = None;
+        let mut seller = None;
         if let WaitingForPayment::Yes(payment_info) = waiting_for_payment {
-            buyer = payment_info.buyer;
-            seller = payment_info.seller;
+            buyer = Some(payment_info.buyer.clone());
+            seller = Some(payment_info.seller.clone());
+
             let address_to_pay = self
                 .bitcoin_client
-                .get_address_to_pay(&bill.public_key, &seller.bitcoin_public_key)?;
+                .get_address_to_pay(&bill.public_key, &payment_info.seller.node_id)?;
             waited_for_payment = self
                 .bitcoin_client
                 .check_if_paid(&address_to_pay, payment_info.amount)
@@ -467,8 +467,16 @@ impl BillServiceApi for BillService {
                 .0;
 
             if waited_for_payment
-                && (identity.identity.node_id.to_string().eq(&buyer.node_id)
-                    || identity.identity.node_id.to_string().eq(&seller.node_id))
+                && (identity
+                    .identity
+                    .node_id
+                    .to_string()
+                    .eq(&payment_info.buyer.node_id)
+                    || identity
+                        .identity
+                        .node_id
+                        .to_string()
+                        .eq(&payment_info.seller.node_id))
             {
                 let message: String = format!("Payment in relation to a bill {}", &bill.name);
                 link_for_buy = self.bitcoin_client.generate_link_to_pay(
@@ -481,10 +489,9 @@ impl BillServiceApi for BillService {
         let requested_to_pay = chain.block_with_operation_code_exists(BillOpCode::RequestToPay);
         let requested_to_accept =
             chain.block_with_operation_code_exists(BillOpCode::RequestToAccept);
-        let holder_public_key = if !bill.endorsee.name.is_empty() {
-            &bill.endorsee.bitcoin_public_key
-        } else {
-            &bill.payee.bitcoin_public_key
+        let holder_public_key = match bill.endorsee {
+            None => &bill.payee.node_id,
+            Some(ref endorsee) => &endorsee.node_id,
         };
         let address_to_pay = self
             .bitcoin_client
@@ -518,17 +525,8 @@ impl BillServiceApi for BillService {
             &message,
         );
         let mut pr_key_bill = String::new();
-        if (!endorsed
-            && bill
-                .payee
-                .bitcoin_public_key
-                .clone()
-                .eq(&identity.identity.bitcoin_public_key))
-            || (endorsed
-                && bill
-                    .endorsee
-                    .bitcoin_public_key
-                    .eq(&identity.identity.bitcoin_public_key))
+        if (!endorsed && bill.payee.node_id.clone().eq(&identity.identity.node_id))
+            || (endorsed && holder_public_key.eq(&identity.identity.node_id))
         {
             pr_key_bill = self.bitcoin_client.get_combined_private_key(
                 &identity
@@ -723,7 +721,7 @@ impl BillServiceApi for BillService {
             drawee: public_data_drawee,
             drawer: public_data_drawer.clone(),
             payee: public_data_payee,
-            endorsee: IdentityPublicData::new_empty(),
+            endorsee: None,
             files: bill_files,
         };
 
@@ -862,7 +860,7 @@ impl BillServiceApi for BillService {
         let bill = blockchain.get_last_version_bill(&bill_keys)?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
-            || (my_node_id.eq(&bill.endorsee.node_id))
+            || (Some(my_node_id).eq(&bill.endorsee.map(|e| e.node_id)))
         {
             let data_for_new_block =
                 self.get_data_for_new_block(&identity, REQ_TO_PAY_BY, None, "")?;
@@ -902,7 +900,7 @@ impl BillServiceApi for BillService {
         let bill = blockchain.get_last_version_bill(&bill_keys)?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
-            || (my_node_id.eq(&bill.endorsee.node_id))
+            || (Some(my_node_id).eq(&bill.endorsee.map(|e| e.node_id)))
         {
             let data_for_new_block =
                 self.get_data_for_new_block(&identity, REQ_TO_ACCEPT_BY, None, "")?;
@@ -947,7 +945,7 @@ impl BillServiceApi for BillService {
         let bill = blockchain.get_last_version_bill(&bill_keys)?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
-            || (my_node_id.eq(&bill.endorsee.node_id))
+            || (Some(my_node_id).eq(&bill.endorsee.map(|e| e.node_id)))
         {
             let data_for_new_block = self.get_data_for_new_block(
                 &identity,
@@ -998,7 +996,7 @@ impl BillServiceApi for BillService {
         let bill = blockchain.get_last_version_bill(&bill_keys)?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_or_sold())
-            || (my_node_id.eq(&bill.endorsee.node_id))
+            || (Some(my_node_id).eq(&bill.endorsee.map(|e| e.node_id)))
         {
             let data_for_new_block = self.get_data_for_new_block(
                 &identity,
@@ -1047,7 +1045,7 @@ impl BillServiceApi for BillService {
         let bill = blockchain.get_last_version_bill(&bill_keys)?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
-            || (my_node_id.eq(&bill.endorsee.node_id))
+            || (Some(my_node_id).eq(&bill.endorsee.map(|e| e.node_id)))
         {
             let data_for_new_block = self.get_data_for_new_block(
                 &identity,
@@ -1097,7 +1095,7 @@ pub struct BitcreditBillToReturn {
     pub drawer: IdentityPublicData,
     pub payee: IdentityPublicData,
     /// The person to whom the Payee or an Endorsee endorses a bill
-    pub endorsee: IdentityPublicData,
+    pub endorsee: Option<IdentityPublicData>,
     pub place_of_drawing: String,
     pub currency_code: String,
     pub amount_numbers: u64,
@@ -1119,8 +1117,8 @@ pub struct BitcreditBillToReturn {
     pub waited_for_payment: bool,
     pub address_for_selling: String,
     pub amount_for_selling: u64,
-    pub buyer: IdentityPublicData,
-    pub seller: IdentityPublicData,
+    pub buyer: Option<IdentityPublicData>,
+    pub seller: Option<IdentityPublicData>,
     pub link_for_buy: String,
     pub link_to_pay: String,
     pub pr_key_bill: String,
@@ -1143,20 +1141,6 @@ pub struct BitcreditEbillQuote {
     pub token: String,
 }
 
-impl BitcreditEbillQuote {
-    pub fn new_empty() -> Self {
-        Self {
-            bill_id: "".to_string(),
-            quote_id: "".to_string(),
-            amount: 0,
-            mint_node_id: "".to_string(),
-            mint_url: "".to_string(),
-            accepted: false,
-            token: "".to_string(),
-        }
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
 pub struct BitcreditBill {
     pub name: String,
@@ -1169,7 +1153,7 @@ pub struct BitcreditBill {
     pub drawer: IdentityPublicData,
     pub payee: IdentityPublicData,
     // The person to whom the Payee or an Endorsee endorses a bill
-    pub endorsee: IdentityPublicData,
+    pub endorsee: Option<IdentityPublicData>,
     pub place_of_drawing: String,
     pub currency_code: String,
     //TODO: f64
@@ -1189,6 +1173,7 @@ pub struct BitcreditBill {
 
 #[cfg(test)]
 impl BitcreditBill {
+    #[cfg(test)]
     pub fn new_empty() -> Self {
         Self {
             name: "".to_string(),
@@ -1198,7 +1183,7 @@ impl BitcreditBill {
             drawee: IdentityPublicData::new_empty(),
             drawer: IdentityPublicData::new_empty(),
             payee: IdentityPublicData::new_empty(),
-            endorsee: IdentityPublicData::new_empty(),
+            endorsee: None,
             place_of_drawing: "".to_string(),
             currency_code: "".to_string(),
             amount_numbers: 0,
@@ -1256,16 +1241,12 @@ pub mod test {
 
     pub fn get_baseline_bill(bill_id: &str) -> BitcreditBill {
         let mut bill = BitcreditBill::new_empty();
-        let s = bitcoin::secp256k1::Secp256k1::new();
-        let private_key = bitcoin::PrivateKey::new(
-            s.generate_keypair(&mut bitcoin::secp256k1::rand::thread_rng())
-                .0,
-            CONFIG.bitcoin_network(),
-        );
-        let public_key = private_key.public_key(&s);
+        let keys = BcrKeys::new();
+        let (private_key, public_key) = keys.get_bitcoin_keys(CONFIG.bitcoin_network());
+
         bill.payee = IdentityPublicData::new_empty();
         bill.payee.name = "payee".to_owned();
-        bill.payee.bitcoin_public_key = public_key.to_string();
+        bill.payee.node_id = keys.get_public_key();
         bill.name = bill_id.to_owned();
         bill.public_key = public_key.to_string();
         bill.private_key = private_key.to_string();

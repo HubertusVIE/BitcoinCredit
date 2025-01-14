@@ -101,12 +101,10 @@ pub fn get_test_email_message() -> EmailMessage {
 pub fn get_identity_public_data(
     node_id: &str,
     email: &str,
-    npub: Option<&str>,
     nostr_relay: Option<&str>,
 ) -> IdentityPublicData {
     let mut identity = IdentityPublicData::new_only_node_id(node_id.to_owned());
     identity.email = email.to_owned();
-    identity.nostr_npub = npub.map(|npub| npub.to_owned());
     identity.nostr_relay = nostr_relay.map(|nostr_relay| nostr_relay.to_owned());
     identity
 }
@@ -125,9 +123,7 @@ pub fn get_test_bitcredit_bill(
     if let Some(drawer) = drawer {
         bill.drawer = drawer.clone();
     }
-    if let Some(endorsee) = endorsee {
-        bill.endorsee = endorsee.clone();
-    }
+    bill.endorsee = endorsee.cloned();
     bill
 }
 pub async fn get_mock_relay() -> MockRelay {

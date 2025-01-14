@@ -10,8 +10,8 @@ pub struct BitcreditBillPayload {
     pub currency_code: String,
     pub amount_numbers: u64,
     pub language: String,
-    pub drawee_name: String,
-    pub payee_name: String,
+    pub drawee: String,
+    pub payee: String,
     pub place_of_payment: String,
     pub maturity_date: String,
     pub drawer_is_payee: bool,
@@ -79,7 +79,6 @@ pub struct AcceptBitcreditBillPayload {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChangeIdentityPayload {
     pub name: Option<String>,
-    pub company: Option<String>,
     pub email: Option<String>,
     pub postal_address: Option<String>,
 }
@@ -87,7 +86,6 @@ pub struct ChangeIdentityPayload {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IdentityPayload {
     pub name: String,
-    pub company: String,
     pub date_of_birth: String,
     pub city_of_birth: String,
     pub country_of_birth: String,
@@ -97,14 +95,27 @@ pub struct IdentityPayload {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NewContactPayload {
-    pub name: String,
+    #[serde(rename = "type")]
+    pub t: u64,
     pub node_id: String,
+    pub name: String,
+    pub email: String,
+    pub postal_address: String,
+    pub date_of_birth_or_registration: Option<String>,
+    pub country_of_birth_or_registration: Option<String>,
+    pub city_of_birth_or_registration: Option<String>,
+    pub identification_number: Option<String>,
+    pub avatar_file_upload_id: Option<String>,
+    pub proof_document_file_upload_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EditContactPayload {
-    pub old_name: String,
-    pub name: String,
+    pub node_id: String,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub postal_address: Option<String>,
+    pub avatar_file_upload_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

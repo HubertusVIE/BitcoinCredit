@@ -1,27 +1,20 @@
 use crate::external;
-use crate::service::identity_service::NodeId;
 use crate::service::Result;
 use crate::web::data::{ChangeIdentityPayload, IdentityPayload};
-use crate::{service::identity_service::Identity, service::ServiceContext};
+use crate::{service::identity_service::IdentityToReturn, service::ServiceContext};
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
 
 #[get("/return")]
-pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<Identity>> {
+pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<IdentityToReturn>> {
     let my_identity = if !state.identity_service.identity_exists().await {
-        Identity::new_empty()
+        return Err(crate::service::Error::NotFound);
     } else {
-        state.identity_service.get_identity().await?
+        let full_identity = state.identity_service.get_full_identity().await?;
+        IdentityToReturn::from(full_identity.identity, full_identity.key_pair)?
     };
     Ok(Json(my_identity))
-}
-
-#[get("/node_id/return")]
-pub async fn return_node_id(state: &State<ServiceContext>) -> Result<Json<NodeId>> {
-    Ok(Json(NodeId::new(
-        state.identity_service.get_identity().await?.node_id,
-    )))
 }
 
 #[post("/create", format = "json", data = "<identity_payload>")]
@@ -35,7 +28,6 @@ pub async fn create_identity(
         .identity_service
         .create_identity(
             identity.name,
-            identity.company,
             identity.date_of_birth,
             identity.city_of_birth,
             identity.country_of_birth,
@@ -54,7 +46,6 @@ pub async fn change_identity(
 ) -> Result<Status> {
     let identity_payload = identity_payload.into_inner();
     if identity_payload.name.is_none()
-        && identity_payload.company.is_none()
         && identity_payload.email.is_none()
         && identity_payload.postal_address.is_none()
     {
@@ -65,7 +56,6 @@ pub async fn change_identity(
         .identity_service
         .update_identity(
             identity_payload.name,
-            identity_payload.company,
             identity_payload.email,
             identity_payload.postal_address,
             timestamp,
