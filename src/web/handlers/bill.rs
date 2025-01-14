@@ -562,7 +562,7 @@ pub async fn accept_mint_bill(
     // thread, but this logic will be replaced soon
     thread::spawn(move || {
         accept_mint_bitcredit(
-            accept_mint_bill_payload.amount.clone(),
+            accept_mint_bill_payload.amount,
             accept_mint_bill_payload.bill_id.clone(),
             holder_node_id,
         )
