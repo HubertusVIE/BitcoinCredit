@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use super::{base58_decode, base58_encode};
+use bip39::Mnemonic;
 use bitcoin::{
     secp256k1::{self, schnorr::Signature, Keypair, Scalar, SecretKey},
     Network,
@@ -45,6 +46,9 @@ pub enum Error {
     /// Errors stemming from parsing the recovery id
     #[error("Parse recovery id error: {0}")]
     ParseRecoveryId(#[from] std::num::ParseIntError),
+
+    #[error("Mnemonic seed phrase error {0}")]
+    Mnemonic(#[from] bip39::Error),
 }
 
 // -------------------- Keypair --------------------------
@@ -132,6 +136,9 @@ impl BcrKeys {
             .unwrap_or(false)
     }
 }
+
+/// Number of words to use when generating BIP39 seed phrases
+const BIP39_WORD_COUNT: usize = 12;
 
 /// Calculates the XOnlyPublicKey as hex from the given node_id to be used as the npub as hex for
 /// nostr
@@ -289,6 +296,32 @@ pub fn decrypt_ecies(bytes: &[u8], private_key: &str) -> Result<Vec<u8>> {
     Ok(decrypted)
 }
 
+// ------------------------ BIP39 ---------------------------
+
+/// Generata a new secp256k1 keypair using a 12 word seed phrase.
+/// Returns both the keypair and the Mnemonic with the seed phrase.
+fn generate_keypair_and_seed_phrase() -> Result<(Mnemonic, Keypair)> {
+    let mnemonic = Mnemonic::generate(BIP39_WORD_COUNT)?;
+    let keypair = keypair_from_mnemonic(&mnemonic)?;
+    Ok((mnemonic, keypair))
+}
+
+/// Recover a key pair from a BIP39 seed phrase. Word count
+/// and language are detected automatically.
+fn keypair_from_seed_phrase(words: &str) -> Result<Keypair> {
+    let mnemonic = Mnemonic::from_str(words)?;
+    keypair_from_mnemonic(&mnemonic)
+}
+
+/// Recover a key pair from a BIP39 mnemonic.
+fn keypair_from_mnemonic(mnemonic: &Mnemonic) -> Result<Keypair> {
+    let seed = mnemonic.to_seed("");
+    let (key, _) = seed.split_at(32);
+    let secp = Secp256k1::new();
+    let secret = SecretKey::from_slice(key)?;
+    Ok(Keypair::from_secret_key(&secp, &secret))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +333,26 @@ mod tests {
     use borsh::to_vec;
 
     const PKEY: &str = "926a7ce0fdacad199307bcbbcda4869bca84d54b939011bafe6a83cb194130d3";
+
+    #[test]
+    fn test_generate_keypair_and_seed_phrase_round_trip() {
+        let (mnemonic, keypair) =
+            generate_keypair_and_seed_phrase().expect("Could not generate keypair and seed phrase");
+        let recovered_keys = keypair_from_seed_phrase(&mnemonic.to_string())
+            .expect("Could not recover private key from seed phrase");
+        assert_eq!(keypair.secret_key(), recovered_keys.secret_key());
+    }
+
+    #[test]
+    fn test_recover_keypair_from_seed_phrase() {
+        // a valid pair of words to priv key
+        let words = "oblige repair kind park dust act name myth cheap treat hammer arrive";
+        let priv_key = "92f920d8e183cab62723c3a7eee9cb0b3edb3c4aad459f4062cfb7960b570662";
+        let keypair =
+            keypair_from_seed_phrase(words).expect("Could not create keypair from seed phrase");
+        let returned_priv_key = keypair.secret_key().display_secret().to_string();
+        assert_eq!(priv_key, returned_priv_key);
+    }
 
     #[test]
     fn test_sign_verify() {

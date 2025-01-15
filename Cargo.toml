@@ -68,7 +68,7 @@ bs58 = "0.5.1"
 utoipa = { version = "5", features = ["rocket_extras", "chrono"] }
 utoipa-swagger-ui = { version = "8", features = ["rocket", "vendored"] }
 ecies = { version = "0.2", features = ["std"] }
-bip39 = "2.1.0"
+bip39 = { version = "2.1.0", features = ["rand"] }
 
 [dev-dependencies]
 mockall = "0.13.0"
