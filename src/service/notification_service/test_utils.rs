@@ -110,14 +110,14 @@ pub fn get_identity_public_data(
 }
 
 pub fn get_test_bitcredit_bill(
-    name: &str,
+    id: &str,
     payer: &IdentityPublicData,
     payee: &IdentityPublicData,
     drawer: Option<&IdentityPublicData>,
     endorsee: Option<&IdentityPublicData>,
 ) -> BitcreditBill {
     let mut bill = BitcreditBill::new_empty();
-    bill.name = name.to_owned();
+    bill.id = id.to_owned();
     bill.payee = payee.clone();
     bill.drawee = payer.clone();
     if let Some(drawer) = drawer {

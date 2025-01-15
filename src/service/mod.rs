@@ -227,6 +227,8 @@ pub async fn create_service_context(
         bitcoin_client,
         notification_service.clone(),
         db.identity_chain_store.clone(),
+        db.company_chain_store.clone(),
+        db.contact_store.clone(),
     );
     let identity_service =
         IdentityService::new(db.identity_store.clone(), db.identity_chain_store.clone());

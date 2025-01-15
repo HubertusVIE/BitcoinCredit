@@ -37,7 +37,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             event_type.to_owned(),
             &bill.drawee.node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::ApproveBill,
             },
         );
@@ -45,7 +45,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             event_type,
             &bill.payee.node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
@@ -66,7 +66,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillAccepted,
             &bill.payee.node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
@@ -82,7 +82,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillAcceptanceRequested,
             &bill.drawee.node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::ApproveBill,
             },
         );
@@ -97,7 +97,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillPaymentRequested,
             &bill.drawee.node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::PayBill,
             },
         );
@@ -112,7 +112,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillPaid,
             &bill.payee.node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
@@ -128,7 +128,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillEndorsed,
             &bill.endorsee.as_ref().unwrap().node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
@@ -144,7 +144,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillSellRequested,
             &bill.endorsee.as_ref().unwrap().node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
@@ -159,7 +159,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillSold,
             &bill.drawee.node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::CheckBill,
             },
         );
@@ -174,7 +174,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             EventType::BillMintingRequested,
             &bill.endorsee.as_ref().unwrap().node_id,
             BillActionEventPayload {
-                bill_id: bill.name.clone(),
+                bill_id: bill.id.clone(),
                 action_type: ActionType::CheckBill,
             },
         );

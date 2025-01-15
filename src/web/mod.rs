@@ -113,6 +113,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::accept_mint_bill,
                 handlers::bill::find_bill_in_dht,
                 handlers::bill::request_to_mint_bill,
+                handlers::bill::bitcoin_key,
             ],
         )
         .mount("/bills", routes![handlers::bill::return_bills_list,])

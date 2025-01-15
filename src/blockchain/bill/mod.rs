@@ -4,12 +4,12 @@ use utoipa::ToSchema;
 
 use super::{Blockchain, Result};
 use crate::service::bill_service::BillKeys;
-use crate::service::contact_service::IdentityPublicData;
 
-mod block;
-mod chain;
+pub mod block;
+pub mod chain;
 
 pub use block::BillBlock;
+use block::BillIdentityBlockData;
 pub use chain::BillBlockchain;
 
 #[derive(
@@ -33,9 +33,10 @@ pub enum WaitingForPayment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaymentInfo {
-    pub buyer: IdentityPublicData,
-    pub seller: IdentityPublicData,
+    pub buyer: BillIdentityBlockData,
+    pub seller: BillIdentityBlockData,
     pub amount: u64,
+    pub currency_code: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
@@ -94,34 +95,21 @@ impl BillBlockToReturn {
     }
 }
 
-fn extract_after_phrase(input: &str, phrase: &str) -> Option<String> {
-    if let Some(start) = input.find(phrase) {
-        let start_idx = start + phrase.len();
-        if let Some(remaining) = input.get(start_idx..) {
-            if let Some(end_idx) = remaining.find(' ') {
-                return Some(remaining[..end_idx].to_string());
-            } else {
-                return Some(remaining.to_string());
-            }
-        }
-    }
-    None
-}
-
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use crate::{
         service::{
             bill_service::BitcreditBill,
             identity_service::{Identity, IdentityWithAll},
         },
-        tests::test::TEST_PUB_KEY_SECP,
+        tests::test::TEST_PRIVATE_KEY_SECP,
         util::BcrKeys,
     };
+    use block::BillIssueBlockData;
 
     pub fn get_baseline_identity() -> IdentityWithAll {
-        let keys = BcrKeys::new();
+        let keys = BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap();
         let mut identity = Identity::new_empty();
         identity.node_id = keys.get_public_key();
         identity.name = "drawer".to_owned();
@@ -137,43 +125,14 @@ mod test {
         let identity = get_baseline_identity();
 
         let result = BillBlockchain::new(
-            &bill,
-            IdentityPublicData::new(identity.identity.clone()),
+            &BillIssueBlockData::from(bill, None),
             identity.key_pair,
-            TEST_PUB_KEY_SECP.to_owned(),
+            None,
+            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             1731593928,
         );
 
         assert!(result.is_ok());
         assert_eq!(result.as_ref().unwrap().blocks().len(), 1);
-    }
-
-    #[test]
-    fn extract_after_phrase_basic() {
-        assert_eq!(
-            extract_after_phrase(
-                "Endorsed by 123 endorsed to 456 amount: 5000",
-                "Endorsed by "
-            ),
-            Some(String::from("123"))
-        );
-        assert_eq!(
-            extract_after_phrase(
-                "Endorsed by 123 endorsed to 456 amount: 5000",
-                " endorsed to "
-            ),
-            Some(String::from("456"))
-        );
-        assert_eq!(
-            extract_after_phrase("Endorsed by 123 endorsed to 456 amount: 5000", " amount: "),
-            Some(String::from("5000"))
-        );
-        assert_eq!(
-            extract_after_phrase(
-                "Endorsed by 123 endorsed to 456 amount: 5000",
-                " weird stuff "
-            ),
-            None
-        );
     }
 }

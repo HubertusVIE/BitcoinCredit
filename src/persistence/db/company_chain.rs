@@ -238,7 +238,6 @@ mod tests {
         let store = get_store().await;
         let block = CompanyBlock::create_block_for_create(
             "some_id".to_string(),
-            1,
             "genesis hash".to_string(),
             &CompanyToReturn {
                 id: "some_id".to_string(),
@@ -290,7 +289,6 @@ mod tests {
         let store = get_store().await;
         let block = CompanyBlock::create_block_for_create(
             "some_id".to_string(),
-            1,
             "genesis hash".to_string(),
             &CompanyToReturn {
                 id: "some_id".to_string(),

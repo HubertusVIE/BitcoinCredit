@@ -692,7 +692,7 @@ pub mod test {
         )
     }
 
-    fn get_valid_company_block() -> CompanyBlock {
+    pub fn get_valid_company_block() -> CompanyBlock {
         let (id, (company, company_keys)) = get_baseline_company_data();
         let to_return = CompanyToReturn::from(id, company, company_keys.clone());
 

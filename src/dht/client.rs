@@ -941,17 +941,14 @@ impl Client {
 
     /// Puts all participants of every local bill to the record of the respective bill in the DHT
     pub async fn put_bills_for_parties(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bills().await?;
+        let bill_ids = self.bill_store.get_bill_ids().await?;
 
-        for bill in bills {
-            let bill_keys = self.bill_store.read_bill_keys_from_file(&bill.name).await?;
-            let chain = self
-                .bill_store
-                .read_bill_chain_from_file(&bill.name)
-                .await?;
+        for bill in bill_ids {
+            let bill_keys = self.bill_store.read_bill_keys_from_file(&bill).await?;
+            let chain = self.bill_store.read_bill_chain_from_file(&bill).await?;
             let nodes = chain.get_all_nodes_from_bill(&bill_keys)?;
             for node in nodes {
-                self.add_bill_to_dht_for_node(&bill.name, &node).await?;
+                self.add_bill_to_dht_for_node(&bill, &node).await?;
             }
         }
         Ok(())
@@ -959,24 +956,24 @@ impl Client {
 
     /// Subscribes to all locally available bills
     pub async fn subscribe_to_all_bills_topics(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bills().await?;
+        let bill_ids = self.bill_store.get_bill_ids().await?;
 
-        for bill in bills {
-            self.subscribe_to_bill_topic(&bill.name).await?;
+        for bill in bill_ids {
+            self.subscribe_to_bill_topic(&bill).await?;
         }
         Ok(())
     }
 
     /// Asks on the topic to receive the current chain of all local bills
     pub async fn receive_updates_for_all_bills_topics(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bills().await?;
+        let bill_ids = self.bill_store.get_bill_ids().await?;
 
-        for bill in bills {
+        for bill in bill_ids {
             let event =
                 GossipsubEvent::new(GossipsubEventId::CommandGetBillBlockchain, vec![0; 24]);
             let message = event.to_byte_array()?;
 
-            self.add_message_to_bill_topic(message, &bill.name).await?;
+            self.add_message_to_bill_topic(message, &bill).await?;
         }
         Ok(())
     }

@@ -39,6 +39,8 @@ pub struct EndorseBitcreditBillPayload {
 pub struct MintBitcreditBillPayload {
     pub mint_node: String,
     pub bill_id: String,
+    pub amount_numbers: u64,
+    pub currency_code: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,6 +69,11 @@ pub struct RequestToAcceptBitcreditBillPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct BillCombinedBitcoinKey {
+    pub private_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SwitchIdentity {
     pub node_id: String,
 }
@@ -74,6 +81,7 @@ pub struct SwitchIdentity {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestToPayBitcreditBillPayload {
     pub bill_id: String,
+    pub currency_code: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
