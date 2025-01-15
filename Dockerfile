@@ -1,5 +1,5 @@
 ##############################
-## Build Rust backend
+## Build old frontend
 ##############################
 FROM node:16-alpine AS frontend-builder
 
@@ -18,20 +18,6 @@ RUN update-ca-certificates
 
 RUN apt-get update && apt-get install -y protobuf-compiler libclang-dev
 
-# Create appuser
-ENV USER=ebills
-ENV UID=10001
-
-RUN adduser \
-  --disabled-password \
-  --gecos "" \
-  --home "/nonexistent" \
-  --shell "/sbin/nologin" \
-  --no-create-home \
-  --uid "${UID}" \
-  "${USER}"
-
-
 WORKDIR /ebills
 
 COPY ./ .
@@ -47,10 +33,6 @@ RUN apt-get update && \
   apt-get install -y ca-certificates && \
   apt-get clean
 
-# Import user and group files from builder.
-COPY --from=rust-builder /etc/passwd /etc/passwd
-COPY --from=rust-builder /etc/group /etc/group
-
 WORKDIR /ebills
 
 # Copy essential build files
@@ -59,10 +41,7 @@ COPY --from=frontend-builder /frontend_build ./frontend_build
 COPY --from=rust-builder /ebills/bootstrap ./bootstrap
 
 # Create additional directories and set user permissions
-RUN mkdir identity bills bills_keys contacts quotes && chown -R ebills:ebills /ebills
-
-# Use unprivileged user.
-USER ebills:ebills
+RUN mkdir data
 
 ENV ROCKET_ADDRESS=0.0.0.0
 
