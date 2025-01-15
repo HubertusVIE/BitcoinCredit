@@ -150,7 +150,7 @@ pub fn is_node_id_nostr_hex_npub(node_id: &str, npub: &str) -> bool {
         Ok(pub_key) => pub_key,
         Err(_) => return false,
     };
-    match nostr_sdk::PublicKey::from_hex(x_only_pub_key) {
+    match nostr_sdk::PublicKey::from_hex(&x_only_pub_key) {
         Ok(npub_from_node_id) => npub == npub_from_node_id.to_hex(),
         Err(_) => false,
     }
@@ -722,7 +722,7 @@ mod tests {
             npub_as_hex.to_string()
         );
         let npub =
-            nostr_sdk::PublicKey::from_hex(get_nostr_npub_as_hex_from_node_id(node_id).unwrap())
+            nostr_sdk::PublicKey::from_hex(&get_nostr_npub_as_hex_from_node_id(node_id).unwrap())
                 .unwrap();
         assert_eq!(npub.to_hex(), npub_as_hex);
         assert_eq!(
@@ -730,7 +730,7 @@ mod tests {
             TEST_NODE_ID_SECP_AS_NPUB_HEX.to_string()
         );
         let npub = nostr_sdk::PublicKey::from_hex(
-            get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
+            &get_nostr_npub_as_hex_from_node_id(TEST_NODE_ID_SECP).unwrap(),
         )
         .unwrap();
         assert_eq!(npub.to_hex(), TEST_NODE_ID_SECP_AS_NPUB_HEX);
