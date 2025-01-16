@@ -17,16 +17,16 @@ impl TimeApi {
             .json()
             .await
             .map_err(super::Error::ExternalTimeApi) {
-            Err(e) => {
-                // if there is an error with the API, fall back to local timestamp
-                error!("Error while fetching atomic time from API: {e}");
-                let utc_now = Utc::now();
-                let timestamp = utc_now.timestamp() as u64;
-                Ok(TimeApi {
-                    timestamp
-                })
-            },
-            Ok(result) => Ok(result),
+                Err(e) => {
+                    // if there is an error with the API, fall back to local timestamp
+                    error!("Error while fetching atomic time from API: {e}");
+                    let utc_now = Utc::now();
+                    let timestamp = utc_now.timestamp() as u64;
+                    Ok(TimeApi {
+                        timestamp
+                    })
+                },
+                Ok(result) => Ok(result),
         }
     }
 }
