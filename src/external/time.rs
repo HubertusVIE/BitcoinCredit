@@ -27,6 +27,6 @@ impl TimeApi {
                     })
                 },
                 Ok(result) => Ok(result),
-        }
+            }
     }
 }
