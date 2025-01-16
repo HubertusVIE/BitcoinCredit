@@ -1,4 +1,5 @@
 use crate::constants::QUOTE_MAP_FILE_PATH;
+use crate::CONFIG;
 use crate::service::bill_service::BillKeys as LocalBillKeys;
 use crate::service::bill_service::BitcreditEbillQuote;
 use crate::web::data::RequestToMintBitcreditBillPayload;
@@ -30,7 +31,7 @@ pub async fn accept_mint_bitcredit(
         .await
         .expect("Cannot parse local store");
 
-    let mint_url = Url::parse("http://127.0.0.1:3338").expect("Invalid url");
+    let mint_url = Url::parse(CONFIG.mint_url.as_str()).expect("Invalid url");
 
     let wallet: Wallet<_, CrossPlatformHttpClient> = Wallet::builder()
         .with_localstore(localstore)
@@ -53,7 +54,7 @@ pub async fn check_bitcredit_quote(bill_id: &str, node_id: &str) {
         .await
         .expect("Cannot parse local store");
 
-    let mint_url = Url::parse("http://127.0.0.1:3338").expect("Invalid url");
+    let mint_url = Url::parse(CONFIG.mint_url.as_str()).expect("Invalid url");
 
     let wallet: Wallet<_, CrossPlatformHttpClient> = Wallet::builder()
         .with_localstore(localstore)
@@ -85,7 +86,7 @@ pub async fn client_accept_bitcredit_quote(bill_id: &String) -> String {
         .await
         .expect("Cannot parse local store");
 
-    let mint_url = Url::parse("http://127.0.0.1:3338").expect("Invalid url");
+    let mint_url = Url::parse(CONFIG.mint_url.as_str()).expect("Invalid url");
 
     let wallet: Wallet<_, CrossPlatformHttpClient> = Wallet::builder()
         .with_localstore(localstore)
@@ -141,7 +142,7 @@ pub async fn request_to_mint_bitcredit(
         .await
         .expect("Cannot parse local store");
 
-    let mint_url = Url::parse("http://127.0.0.1:3338").expect("Invalid url");
+    let mint_url = Url::parse(CONFIG.mint_url.as_str()).expect("Invalid url");
 
     let wallet: Wallet<_, CrossPlatformHttpClient> = Wallet::builder()
         .with_localstore(localstore)
@@ -189,7 +190,7 @@ pub async fn init_wallet() {
         .expect("Cannot parse local store");
 
     // //TODO: take from params
-    // let mint_url = Url::parse("http://127.0.0.1:3338").expect("Invalid url");
+    // let mint_url = Url::parse(CONFIG.mint_url.as_str()).expect("Invalid url");
     //
     // let identity: Identity = read_identity_from_file();
     // let bitcoin_key = identity.node_id.clone();
