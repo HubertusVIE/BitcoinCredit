@@ -139,8 +139,13 @@ impl Client {
             if self.company_store.exists(&company).await {
                 continue;
             }
-            self.get_company_data_from_the_network(&company, &local_node_id)
-                .await?;
+            if let Err(e) = self
+                .get_company_data_from_the_network(&company, &local_node_id)
+                .await
+            {
+                error!("Could not get company data from network for {company}: {e}");
+                continue;
+            }
             self.start_providing_company(&company).await?;
             self.subscribe_to_company_topic(&company).await?;
         }
@@ -771,8 +776,13 @@ impl Client {
                 if self.bill_store.bill_exists(&bill_id).await {
                     continue;
                 }
-                self.get_bill_data_from_the_network(&bill_id, &local_node_id)
-                    .await?;
+                if let Err(e) = self
+                    .get_bill_data_from_the_network(&bill_id, &local_node_id)
+                    .await
+                {
+                    error!("Could not get bill data from network for {bill_id}: {e}");
+                    continue;
+                };
                 self.start_providing_bill(&bill_id).await?;
                 self.subscribe_to_bill_topic(&bill_id).await?;
             }

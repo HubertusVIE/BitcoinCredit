@@ -164,7 +164,7 @@ pub struct ServiceContext {
 
 /// A structure describing the currently selected identity between the personal and multiple
 /// possible company identities
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SwitchIdentityState {
     pub personal: String,
     pub company: Option<String>,

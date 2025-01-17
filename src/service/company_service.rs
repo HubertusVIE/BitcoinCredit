@@ -160,19 +160,18 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_company_and_keys_by_id(&self, id: &str) -> Result<(Company, CompanyKeys)> {
-        let (company, keys) = self.get_company_and_keys_by_id(id).await?;
-        Ok((company, keys))
-    }
-
-    async fn get_company_by_id(&self, id: &str) -> Result<CompanyToReturn> {
         if !self.store.exists(id).await {
             return Err(super::Error::Validation(format!(
                 "No company with id: {id} found",
             )));
         }
-
         let company = self.store.get(id).await?;
         let keys = self.store.get_key_pair(id).await?;
+        Ok((company, keys))
+    }
+
+    async fn get_company_by_id(&self, id: &str) -> Result<CompanyToReturn> {
+        let (company, keys) = self.get_company_and_keys_by_id(id).await?;
         Ok(CompanyToReturn::from(id.to_owned(), company, keys))
     }
 
