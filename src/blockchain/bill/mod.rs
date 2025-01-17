@@ -21,7 +21,8 @@ pub enum BillOpCode {
     Endorse,
     RequestToAccept,
     RequestToPay,
-    Sell,
+    OfferToSell,
+    Sold,
     Mint,
 }
 
@@ -37,6 +38,7 @@ pub struct PaymentInfo {
     pub seller: BillIdentityBlockData,
     pub amount: u64,
     pub currency_code: String,
+    pub payment_address: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]

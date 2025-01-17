@@ -1,5 +1,4 @@
-use super::Result;
-use chrono::Utc;
+use crate::util;
 use log::error;
 use serde::Deserialize;
 
@@ -10,23 +9,27 @@ pub struct TimeApi {
 }
 
 impl TimeApi {
-    pub async fn get_atomic_time() -> Result<Self> {
+    pub async fn get_atomic_time() -> Self {
         match reqwest::get("https://api.timezonedb.com/v2.1/get-time-zone?key=RQ6ZFDOXPVLR&format=json&by=zone&zone=Europe/Vienna")
             .await
-            .map_err(super::Error::ExternalTimeApi)?
-            .json()
-            .await
-            .map_err(super::Error::ExternalTimeApi) {
+            {
                 Err(e) => {
-                    // if there is an error with the API, fall back to local timestamp
-                    error!("Error while fetching atomic time from API: {e}");
-                    let utc_now = Utc::now();
-                    let timestamp = utc_now.timestamp() as u64;
-                    Ok(TimeApi {
-                        timestamp
-                    })
+                    handle_error(e)
                 },
-                Ok(result) => Ok(result),
+                Ok(result) => match result.json().await {
+                    Err(e) => {
+                        handle_error(e)
+                    },
+                    Ok(res) => res,
+                },
             }
     }
+}
+
+fn handle_error(e: reqwest::Error) -> TimeApi {
+    // if there is an error with the API, fall back to local timestamp
+    error!("Error while fetching atomic time from API: {e}");
+    let utc_now = util::date::now();
+    let timestamp = utc_now.timestamp() as u64;
+    TimeApi { timestamp }
 }

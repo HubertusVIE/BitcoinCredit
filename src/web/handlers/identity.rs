@@ -41,7 +41,7 @@ pub async fn create_identity(
     identity_payload: Json<IdentityPayload>,
 ) -> Result<Status> {
     let identity = identity_payload.into_inner();
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     state
         .identity_service
         .create_identity(
@@ -79,7 +79,7 @@ pub async fn change_identity(
     {
         return Ok(Status::Ok);
     }
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     state
         .identity_service
         .update_identity(

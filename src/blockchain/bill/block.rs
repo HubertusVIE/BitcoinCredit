@@ -1,6 +1,8 @@
 use super::super::{Error, Result};
 use super::BillOpCode;
-use super::BillOpCode::{Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell};
+use super::BillOpCode::{
+    Accept, Endorse, Issue, Mint, OfferToSell, RequestToAccept, RequestToPay, Sold,
+};
 
 use crate::blockchain::{Block, FIRST_BLOCK_ID};
 use crate::service::bill_service::BillKeys;
@@ -43,9 +45,9 @@ pub struct BillBlockDataToHash {
 pub struct BillIssueBlockData {
     pub id: String,
     pub bill_jurisdiction: String,
-    pub drawee: IdentityPublicData,
-    pub drawer: IdentityPublicData,
-    pub payee: IdentityPublicData,
+    pub drawee: BillIdentityBlockData,
+    pub drawer: BillIdentityBlockData,
+    pub payee: BillIdentityBlockData,
     pub place_of_drawing: String,
     pub currency_code: String,
     pub amount_numbers: u64,
@@ -70,9 +72,9 @@ impl BillIssueBlockData {
         Self {
             id: value.id,
             bill_jurisdiction: value.bill_jurisdiction,
-            drawee: value.drawee,
-            drawer: value.drawer,
-            payee: value.payee,
+            drawee: value.drawee.into(),
+            drawer: value.drawer.into(),
+            payee: value.payee.into(),
             place_of_drawing: value.place_of_drawing,
             currency_code: value.currency_code,
             amount_numbers: value.amount_numbers,
@@ -84,29 +86,7 @@ impl BillIssueBlockData {
             files: value.files,
             signatory,
             signing_timestamp: timestamp,
-            signing_address,
-        }
-    }
-}
-
-impl From<BillIssueBlockData> for BitcreditBill {
-    fn from(value: BillIssueBlockData) -> Self {
-        Self {
-            id: value.id,
-            bill_jurisdiction: value.bill_jurisdiction,
-            drawee: value.drawee,
-            drawer: value.drawer,
-            payee: value.payee,
-            place_of_drawing: value.place_of_drawing,
-            currency_code: value.currency_code,
-            amount_numbers: value.amount_numbers,
-            amounts_letters: value.amounts_letters,
-            maturity_date: value.maturity_date,
-            date_of_issue: value.date_of_issue,
-            endorsee: None,
-            place_of_payment: value.place_of_payment,
-            language: value.language,
-            files: value.files,
+            signing_address, // address of the issuer
         }
     }
 }
@@ -116,7 +96,7 @@ pub struct BillAcceptBlockData {
     pub accepter: BillIdentityBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String,
+    pub signing_address: String, // address of the accepter
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -125,7 +105,7 @@ pub struct BillRequestToPayBlockData {
     pub currency_code: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String,
+    pub signing_address: String, // address of the requester
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -133,7 +113,7 @@ pub struct BillRequestToAcceptBlockData {
     pub requester: BillIdentityBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String,
+    pub signing_address: String, // address of the requester
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -144,18 +124,31 @@ pub struct BillMintBlockData {
     pub amount: u64,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String,
+    pub signing_address: String, // address of the endorser
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
-pub struct BillSellBlockData {
+pub struct BillOfferToSellBlockData {
     pub seller: BillIdentityBlockData,
     pub buyer: BillIdentityBlockData,
     pub currency_code: String,
     pub amount: u64,
+    pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String,
+    pub signing_address: String, // address of the seller
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct BillSoldBlockData {
+    pub seller: BillIdentityBlockData,
+    pub buyer: BillIdentityBlockData,
+    pub currency_code: String,
+    pub amount: u64,
+    pub payment_address: String,
+    pub signatory: Option<BillSignatoryBlockData>,
+    pub signing_timestamp: u64,
+    pub signing_address: String, // address of the seller
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -164,7 +157,7 @@ pub struct BillEndorseBlockData {
     pub endorsee: BillIdentityBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String,
+    pub signing_address: String, // address of the endorser
 }
 
 /// Legal data for parties within a bill transaction
@@ -433,10 +426,33 @@ impl BillBlock {
         Ok(block)
     }
 
-    pub fn create_block_for_sell(
+    pub fn create_block_for_offer_to_sell(
         bill_id: String,
         previous_block: &Self,
-        data: &BillSellBlockData,
+        data: &BillOfferToSellBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: Option<&BcrKeys>,
+        bill_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            bill_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            bill_keys,
+            None,
+            timestamp,
+            BillOpCode::OfferToSell,
+        )?;
+        Ok(block)
+    }
+
+    pub fn create_block_for_sold(
+        bill_id: String,
+        previous_block: &Self,
+        data: &BillSoldBlockData,
         identity_keys: &BcrKeys,
         company_keys: Option<&BcrKeys>,
         bill_keys: &BcrKeys,
@@ -451,7 +467,7 @@ impl BillBlock {
             bill_keys,
             Some(data.buyer.node_id.as_str()),
             timestamp,
-            BillOpCode::Sell,
+            BillOpCode::Sold,
         )?;
         Ok(block)
     }
@@ -501,7 +517,7 @@ impl BillBlock {
 
         // in case there are keys to encrypt, encrypt them using the receiver's identity pub key
         if op_code == BillOpCode::Endorse
-            || op_code == BillOpCode::Sell
+            || op_code == BillOpCode::Sold
             || op_code == BillOpCode::Mint
         {
             if let Some(new_holder_public_key) = public_key_for_keys {
@@ -597,8 +613,14 @@ impl BillBlock {
                     self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.requester.node_id);
             }
-            Sell => {
-                let block_data_decrypted: BillSellBlockData =
+            OfferToSell => {
+                let block_data_decrypted: BillOfferToSellBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                nodes.insert(block_data_decrypted.buyer.node_id);
+                nodes.insert(block_data_decrypted.seller.node_id);
+            }
+            Sold => {
+                let block_data_decrypted: BillSoldBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.buyer.node_id);
                 nodes.insert(block_data_decrypted.seller.node_id);
@@ -671,8 +693,18 @@ impl BillBlock {
                     requester.name, time_of_request_to_pay, requester.postal_address
                 ))
             }
-            Sell => {
-                let block_data_decrypted: BillSellBlockData =
+            OfferToSell => {
+                let block_data_decrypted: BillOfferToSellBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                let seller = block_data_decrypted.seller;
+
+                Ok(format!(
+                    "Bill offered to sell by {}, {}",
+                    seller.name, seller.postal_address
+                ))
+            }
+            Sold => {
+                let block_data_decrypted: BillSoldBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
                 let seller = block_data_decrypted.seller;
 
@@ -1084,20 +1116,21 @@ mod tests {
     }
 
     #[test]
-    fn get_nodes_from_block_sell() {
+    fn get_nodes_from_block_offer_to_sell() {
         let mut buyer = IdentityPublicData::new_empty();
         let node_id = BcrKeys::new().get_public_key();
         buyer.node_id = node_id.clone();
         let seller =
             IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
-        let block = BillBlock::create_block_for_sell(
+        let block = BillBlock::create_block_for_offer_to_sell(
             "some id".to_string(),
             &get_first_block(),
-            &BillSellBlockData {
+            &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 amount: 5000,
                 currency_code: "sat".to_string(),
+                payment_address: "1234".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: seller.postal_address,
@@ -1116,7 +1149,7 @@ mod tests {
     }
 
     #[test]
-    fn get_history_label_sell() {
+    fn get_history_label_offer_to_sell() {
         let mut seller =
             IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
         seller.name = "bill".to_string();
@@ -1125,15 +1158,93 @@ mod tests {
         let node_id = BcrKeys::new().get_public_key();
         buyer.node_id = node_id.clone();
 
-        let block = BillBlock::create_block_for_sell(
+        let block = BillBlock::create_block_for_offer_to_sell(
             "some id".to_string(),
             &get_first_block(),
-            &BillSellBlockData {
+            &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 amount: 5000,
                 currency_code: "sat".to_string(),
+                payment_address: "1234".to_string(),
                 signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: seller.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+
+        let res = block.get_history_label(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "Bill offered to sell by bill, some street 1"
+        );
+    }
+
+    #[test]
+    fn get_nodes_from_block_sold() {
+        let mut buyer = IdentityPublicData::new_empty();
+        let node_id = BcrKeys::new().get_public_key();
+        buyer.node_id = node_id.clone();
+        let seller =
+            IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
+        let block = BillBlock::create_block_for_sold(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillSoldBlockData {
+                buyer: buyer.clone().into(),
+                seller: seller.clone().into(),
+                amount: 5000,
+                currency_code: "sat".to_string(),
+                payment_address: "1234".to_string(),
+                signatory: Some(BillSignatoryBlockData {
+                    node_id: buyer.node_id.clone(),
+                    name: buyer.name.clone(),
+                }),
+                signing_timestamp: 1731593928,
+                signing_address: seller.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let res = block.get_nodes_from_block(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 2);
+        assert!(res.as_ref().unwrap().contains(&node_id));
+        assert!(res.as_ref().unwrap().contains(&seller.node_id));
+    }
+
+    #[test]
+    fn get_history_label_sold() {
+        let mut seller =
+            IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
+        seller.name = "bill".to_string();
+        seller.postal_address = "some street 1".to_string();
+        let mut buyer = IdentityPublicData::new_empty();
+        let node_id = BcrKeys::new().get_public_key();
+        buyer.node_id = node_id.clone();
+
+        let block = BillBlock::create_block_for_sold(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillSoldBlockData {
+                buyer: buyer.clone().into(),
+                seller: seller.clone().into(),
+                amount: 5000,
+                currency_code: "sat".to_string(),
+                payment_address: "1234".to_string(),
+                signatory: Some(BillSignatoryBlockData {
+                    node_id: buyer.node_id.clone(),
+                    name: buyer.name.clone(),
+                }),
                 signing_timestamp: 1731593928,
                 signing_address: seller.postal_address,
             },

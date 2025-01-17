@@ -36,10 +36,13 @@ use mockall::automock;
 pub trait BitcoinClientApi: Send + Sync {
     async fn get_address_info(&self, address: &str) -> Result<AddressInfo>;
 
+    #[allow(dead_code)]
     async fn get_transactions(&self, address: &str) -> Result<Transactions>;
 
+    #[allow(dead_code)]
     async fn get_last_block_height(&self) -> Result<u64>;
 
+    #[allow(dead_code)]
     fn get_first_transaction(&self, transactions: &Transactions) -> Option<Txid>;
 
     async fn check_if_paid(&self, address: &str, amount: u64) -> Result<(bool, u64)>;
@@ -114,14 +117,20 @@ impl BitcoinClientApi for BitcoinClient {
     }
 
     async fn check_if_paid(&self, address: &str, amount: u64) -> Result<(bool, u64)> {
-        //todo check what net we used
         let info_about_address = self.get_address_info(address).await?;
-        let received_summ = info_about_address.chain_stats.funded_txo_sum;
-        let spent_summ = info_about_address.chain_stats.spent_txo_sum;
-        let received_summ_mempool = info_about_address.mempool_stats.funded_txo_sum;
-        let spent_summ_mempool = info_about_address.mempool_stats.spent_txo_sum;
-        if amount.eq(&(received_summ + spent_summ + received_summ_mempool + spent_summ_mempool)) {
-            Ok((true, received_summ))
+
+        // the received and spent sum need to add up to the amount
+        let received_sum = info_about_address.chain_stats.funded_txo_sum; // balance on address
+        let spent_sum = info_about_address.chain_stats.spent_txo_sum; // money already spent
+
+        // Tx is still in mem_pool (0 if it's already on the chain)
+        let received_sum_mempool = info_about_address.mempool_stats.funded_txo_sum;
+        let spent_sum_mempool = info_about_address.mempool_stats.spent_txo_sum;
+
+        let sum: u64 = received_sum + spent_sum + received_sum_mempool + spent_sum_mempool;
+        if amount >= sum {
+            Ok((true, received_sum + spent_sum)) // only return sum received on chain, so we don't
+                                                 // return a sum if it's in mempool
         } else {
             Ok((false, 0))
         }
@@ -142,7 +151,6 @@ impl BitcoinClientApi for BitcoinClient {
     }
 
     fn generate_link_to_pay(&self, address: &str, amount: u64, message: &str) -> String {
-        //todo check what net we used
         let link = format!("bitcoin:{}?amount={}&message={}", address, amount, message);
         link
     }
@@ -177,10 +185,12 @@ pub type Transactions = Vec<Txid>;
 
 /// Available fields documented at https://github.com/Blockstream/esplora/blob/master/API.md#transactions
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct Txid {
     pub status: Status,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug, Clone)]
 pub struct Status {
     pub block_height: u64,

@@ -35,7 +35,7 @@ impl BillActionEventHandler {
             EventType::BillAccepted => "Bill has been accepted".to_string(),
             EventType::BillAcceptanceRequested => "Bill should be accepted".to_string(),
             EventType::BillPaymentRequested => "Bill should be paid".to_string(),
-            EventType::BillSellRequested => "Bill should be sold".to_string(),
+            EventType::BillSellOffered => "Bill should be sold".to_string(),
             EventType::BillPaid => "Bill has been paid".to_string(),
             EventType::BillEndorsed => "Bill has been endorsed".to_string(),
             EventType::BillSold => "Bill has been sold".to_string(),

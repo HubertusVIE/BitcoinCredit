@@ -8,8 +8,8 @@ use crate::util::{base58_encode, BcrKeys};
 use crate::web::data::{
     AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey,
     BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
-    RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
-    RequestToPayBitcreditBillPayload, SellBitcreditBillPayload, UploadBillFilesForm,
+    OfferToSellBitcreditBillPayload, RequestToAcceptBitcreditBillPayload,
+    RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, UploadBillFilesForm,
     UploadFilesResponse,
 };
 use crate::{external, service};
@@ -17,6 +17,7 @@ use crate::{
     service::bill_service::{BitcreditBill, BitcreditBillToReturn},
     service::ServiceContext,
 };
+use log::error;
 use rocket::form::Form;
 use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
@@ -140,12 +141,29 @@ pub async fn return_bill(
     state: &State<ServiceContext>,
     id: String,
 ) -> Result<Json<BitcreditBillToReturn>> {
-    let current_timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let full_bill = state
         .bill_service
         .get_full_bill(&id, current_timestamp)
         .await?;
     Ok(Json(full_bill))
+}
+
+#[get("/check_payment")]
+pub async fn check_payment(state: &State<ServiceContext>) -> Result<Status> {
+    if !state.identity_service.identity_exists().await {
+        return Err(service::Error::PreconditionFailed);
+    }
+
+    if let Err(e) = state.bill_service.check_bills_payment().await {
+        error!("Error while checking bills payment: {e}");
+    }
+
+    if let Err(e) = state.bill_service.check_bills_offer_to_sell_payment().await {
+        error!("Error while checking bills offer to sell payment: {e}");
+    }
+
+    Ok(Status::Ok)
 }
 
 #[get("/dht")]
@@ -302,7 +320,7 @@ pub async fn issue_bill(
         )));
     }
 
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let bill = state
         .bill_service
         .issue_new_bill(
@@ -334,7 +352,7 @@ pub async fn issue_bill(
 
     // If we're the drawee, we immediately accept the bill
     if bill.drawer == bill.drawee {
-        let timestamp_accept = external::time::TimeApi::get_atomic_time().await?.timestamp;
+        let timestamp_accept = external::time::TimeApi::get_atomic_time().await.timestamp;
         state
             .bill_service
             .accept_bill(&bill.id, timestamp_accept)
@@ -344,15 +362,15 @@ pub async fn issue_bill(
     Ok(Status::Ok)
 }
 
-#[put("/sell", format = "json", data = "<sell_bill_payload>")]
-pub async fn sell_bill(
+#[put("/offer_to_sell", format = "json", data = "<offer_to_sell_payload>")]
+pub async fn offer_to_sell_bill(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
-    sell_bill_payload: Json<SellBitcreditBillPayload>,
+    offer_to_sell_payload: Json<OfferToSellBitcreditBillPayload>,
 ) -> Result<Status> {
     let public_data_buyer = match state
         .contact_service
-        .get_identity_by_node_id(&sell_bill_payload.buyer)
+        .get_identity_by_node_id(&offer_to_sell_payload.buyer)
         .await
     {
         Ok(Some(buyer)) => buyer,
@@ -363,28 +381,28 @@ pub async fn sell_bill(
         }
     };
 
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
     let chain = state
         .bill_service
-        .sell_bitcredit_bill(
-            &sell_bill_payload.bill_id,
+        .offer_to_sell_bitcredit_bill(
+            &offer_to_sell_payload.bill_id,
             public_data_buyer.clone(),
-            sell_bill_payload.amount_numbers,
-            &sell_bill_payload.currency_code,
+            offer_to_sell_payload.amount_numbers,
+            &offer_to_sell_payload.currency_code,
             timestamp,
         )
         .await?;
 
     state
         .bill_service
-        .propagate_block(&sell_bill_payload.bill_id, chain.get_latest_block())
+        .propagate_block(&offer_to_sell_payload.bill_id, chain.get_latest_block())
         .await?;
 
     state
         .bill_service
         .propagate_bill_for_node(
-            &sell_bill_payload.bill_id,
+            &offer_to_sell_payload.bill_id,
             &public_data_buyer.node_id.to_string(),
         )
         .await?;
@@ -410,7 +428,7 @@ pub async fn endorse_bill(
         }
     };
 
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
     let chain = state
         .bill_service
@@ -446,7 +464,7 @@ pub async fn request_to_pay_bill(
     state: &State<ServiceContext>,
     request_to_pay_bill_payload: Json<RequestToPayBitcreditBillPayload>,
 ) -> Result<Status> {
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
     let chain = state
         .bill_service
@@ -477,7 +495,7 @@ pub async fn request_to_accept_bill(
     state: &State<ServiceContext>,
     request_to_accept_bill_payload: Json<RequestToAcceptBitcreditBillPayload>,
 ) -> Result<Status> {
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
     let chain = state
         .bill_service
@@ -499,7 +517,7 @@ pub async fn accept_bill(
     state: &State<ServiceContext>,
     accept_bill_payload: Json<AcceptBitcreditBillPayload>,
 ) -> Result<Status> {
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let chain = state
         .bill_service
         .accept_bill(&accept_bill_payload.bill_id, timestamp)
@@ -584,7 +602,7 @@ pub async fn mint_bill(
     state: &State<ServiceContext>,
     mint_bill_payload: Json<MintBitcreditBillPayload>,
 ) -> Result<Status> {
-    let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
     let public_mint_node = match state
         .contact_service

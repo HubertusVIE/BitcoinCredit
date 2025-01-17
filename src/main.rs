@@ -15,6 +15,7 @@ mod constants;
 mod dht;
 mod error;
 mod external;
+mod job;
 mod persistence;
 mod service;
 #[cfg(test)]
@@ -93,6 +94,7 @@ async fn main() -> Result<()> {
         dht_client.subscribe_to_all_companies_topics().await?;
     }
 
+    let job_shutdown_receiver = dht.shutdown_sender.clone().subscribe();
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
     let service_context = create_service_context(
         &local_node_id,
@@ -102,6 +104,9 @@ async fn main() -> Result<()> {
         db,
     )
     .await?;
+
+    let service_context_clone = service_context.clone();
+    spawn(async move { job::run(service_context_clone, job_shutdown_receiver).await });
 
     let nostr_handle = service_context.nostr_consumer.start().await?;
 

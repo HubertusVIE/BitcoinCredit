@@ -13,6 +13,8 @@ pub const COMPANY_LOGO_PREFIX: &str = "COMPANYLOGO";
 pub const COMPANY_PROOF_PREFIX: &str = "COMPANYPROOF";
 pub const SHUTDOWN_GRACE_PERIOD_MS: u64 = 1500;
 pub const DEFAULT_DATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+pub const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
+pub const PAYMENT_DEADLINE_SECONDS: u64 = 86400 * 2; // 2 days
 
 // Validation
 pub const MAX_FILE_SIZE_BYTES: usize = 1_000_000; // ~1 MB

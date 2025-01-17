@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::persistence::notification::NotificationStoreApi;
 use crate::persistence::NostrEventOffsetStoreApi;
 use crate::persistence::{self, identity::IdentityStoreApi};
+use crate::service::contact_service::IdentityPublicData;
 use crate::util::date::{now, DateTimeUtc};
 use crate::util::{self};
 use crate::{config::Config, service::bill_service::BitcreditBill};
@@ -162,9 +163,13 @@ pub trait NotificationServiceApi: Send + Sync {
     /// Receiver: NewHolder, Action: CheckBill
     async fn send_bill_is_endorsed_event(&self, bill: &BitcreditBill) -> Result<()>;
 
-    /// Sent when: A bill is requested to be sold, Sent by: Holder
+    /// Sent when: A bill is offered to be sold, Sent by: Holder
     /// Receiver: Buyer, Action: CheckBill (with buy page)
-    async fn send_request_to_sell_event(&self, bill: &BitcreditBill) -> Result<()>;
+    async fn send_offer_to_sell_event(
+        &self,
+        bill_id: &str,
+        buyer: &IdentityPublicData,
+    ) -> Result<()>;
 
     /// Sent when: A bill is sold by: Buyer (new holder)
     /// Receiver: Seller (old holder), Action: CheckBill (with pr key to take money)

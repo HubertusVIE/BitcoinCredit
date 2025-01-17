@@ -1117,6 +1117,7 @@ dependencies = [
  "ecies",
  "env_logger",
  "futures",
+ "hex",
  "hf",
  "infer",
  "lazy_static",

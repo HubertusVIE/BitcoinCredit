@@ -31,6 +31,10 @@ pub struct Config {
     pub nostr_relay: String,
     #[arg(default_value_t = String::from("http://127.0.0.1:3338"), long, env = "MINT_URL")]
     pub mint_url: String,
+    #[arg(default_value_t = 1, long, env = "JOB_RUNNER_INITIAL_DELAY_SECONDS")]
+    pub job_runner_initial_delay_seconds: u64,
+    #[arg(default_value_t = 600, long, env = "JOB_RUNNER_CHECK_INTERVAL_SECONDS")]
+    pub job_runner_check_interval_seconds: u64,
 }
 
 impl Config {

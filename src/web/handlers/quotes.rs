@@ -49,7 +49,7 @@ pub async fn accept_quote(
         .await?;
 
     if let Some(endorsee) = public_data_endorsee {
-        let timestamp = external::time::TimeApi::get_atomic_time().await?.timestamp;
+        let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
         state
             .bill_service
             .endorse_bitcredit_bill(&quote.bill_id, endorsee.clone(), timestamp)

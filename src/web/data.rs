@@ -57,7 +57,7 @@ pub struct RequestToMintBitcreditBillPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SellBitcreditBillPayload {
+pub struct OfferToSellBitcreditBillPayload {
     pub buyer: String,
     pub bill_id: String,
     pub amount_numbers: u64,

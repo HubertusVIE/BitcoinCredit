@@ -7,6 +7,7 @@ use super::transport::NotificationJsonTransportApi;
 use super::{Notification, NotificationServiceApi, NotificationType, Result};
 use crate::persistence::notification::NotificationStoreApi;
 use crate::service::bill_service::BitcreditBill;
+use crate::service::contact_service::IdentityPublicData;
 
 /// A default implementation of the NotificationServiceApi that can
 /// send events via json and email transports.
@@ -139,17 +140,21 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
-    async fn send_request_to_sell_event(&self, bill: &BitcreditBill) -> Result<()> {
+    async fn send_offer_to_sell_event(
+        &self,
+        bill_id: &str,
+        buyer: &IdentityPublicData,
+    ) -> Result<()> {
         let event = Event::new(
-            EventType::BillSellRequested,
-            &bill.endorsee.as_ref().unwrap().node_id,
+            EventType::BillSellOffered,
+            &buyer.node_id,
             BillActionEventPayload {
-                bill_id: bill.id.clone(),
+                bill_id: bill_id.to_owned(),
                 action_type: ActionType::CheckBill,
             },
         );
         self.notification_transport
-            .send(bill.endorsee.as_ref().unwrap(), event.try_into()?)
+            .send(buyer, event.try_into()?)
             .await?;
         Ok(())
     }
@@ -350,18 +355,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_send_request_to_sell_event() {
+    async fn test_send_offer_to_sell_event() {
         let bill = get_test_bill();
 
-        // should send request to sell to endorsee
-        let service = setup_service_expectation(
-            "endorsee",
-            EventType::BillSellRequested,
-            ActionType::CheckBill,
-        );
+        // should send offer to sell to endorsee
+        let service =
+            setup_service_expectation("buyer", EventType::BillSellOffered, ActionType::CheckBill);
 
         service
-            .send_request_to_sell_event(&bill)
+            .send_offer_to_sell_event(
+                &bill.id,
+                &get_identity_public_data("buyer", "buyer@example.com", None),
+            )
             .await
             .expect("failed to send event");
     }

@@ -138,6 +138,7 @@ fn build_validation_response<'o>(msg: String) -> rocket::response::Result<'o> {
 }
 
 /// A dependency container for all services that are used by the application
+#[derive(Clone)]
 pub struct ServiceContext {
     pub config: Config,
     dht_client: Client,
@@ -150,7 +151,7 @@ pub struct ServiceContext {
     pub shutdown_sender: broadcast::Sender<bool>,
     pub notification_service: Arc<dyn NotificationServiceApi>,
     pub push_service: Arc<dyn PushApi>,
-    pub current_identity: RwLock<SwitchIdentityState>,
+    pub current_identity: Arc<RwLock<SwitchIdentityState>>,
 }
 
 /// A structure describing the currently selected identity between the personal and multiple
@@ -258,9 +259,9 @@ pub async fn create_service_context(
         shutdown_sender,
         notification_service,
         push_service,
-        current_identity: RwLock::new(SwitchIdentityState {
+        current_identity: Arc::new(RwLock::new(SwitchIdentityState {
             personal: local_node_id.to_owned(),
             company: None,
-        }),
+        })),
     })
 }

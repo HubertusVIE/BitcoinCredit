@@ -20,6 +20,14 @@ pub trait BillStoreApi: Send + Sync {
     async fn save_keys(&self, id: &str, keys: &BillKeys) -> Result<()>;
     /// Get bill keys
     async fn get_keys(&self, id: &str) -> Result<BillKeys>;
+    /// Check if the given bill was paid
+    async fn is_paid(&self, id: &str) -> Result<bool>;
+    /// Set the given bill to paid on the given payment address
+    async fn set_to_paid(&self, id: &str, payment_address: &str) -> Result<()>;
+    /// Gets all bills with a RequestToPay block, which are not paid already
+    async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<String>>;
+    /// Gets all bills where the latest block is OfferToSell, which are still waiting for payment
+    async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<String>>;
 }
 
 #[cfg_attr(test, automock)]
