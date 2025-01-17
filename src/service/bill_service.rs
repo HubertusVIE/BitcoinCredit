@@ -45,7 +45,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     /// error returned if the combined bitcoin private key for a bill can't be returned to the
     /// caller
-    #[error("Caller can not request combind bitcoin key for bill")]
+    #[error("Caller can not request combined bitcoin key for bill")]
     CannotReturnCombinedBitcoinKeyForBill,
 
     /// error returned if a bill was already accepted and is attempted to be accepted again
