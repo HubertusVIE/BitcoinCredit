@@ -1,5 +1,6 @@
 use super::company_service::CompanyKeys;
 use super::contact_service::{ContactType, IdentityPublicData};
+use super::identity_service::Identity;
 use super::notification_service::{self, Notification, NotificationServiceApi};
 use crate::blockchain::bill::block::{
     BillAcceptBlockData, BillEndorseBlockData, BillIdentityBlockData, BillIssueBlockData,
@@ -42,9 +43,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Generic error type
 #[derive(Debug, Error)]
 pub enum Error {
-    /// error returned if we can't find contact data for a node id within a bill
-    #[error("Could not find a contact for the bill identity with node id {0}")]
-    NoContactForBillIdentityFound(String),
     /// error returned if the combined bitcoin private key for a bill can't be returned to the
     /// caller
     #[error("Caller can not request combind bitcoin key for bill")]
@@ -95,10 +93,6 @@ pub enum Error {
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &rocket::Request) -> rocket::response::Result<'o> {
         match self {
-            Error::NoContactForBillIdentityFound(node_id) => {
-                error!("No contact found for bill identity: {node_id}");
-                Status::InternalServerError.respond_to(req)
-            }
             Error::BillAlreadyAccepted => Status::BadRequest.respond_to(req),
             Error::CannotReturnCombinedBitcoinKeyForBill => Status::BadRequest.respond_to(req),
             Error::CallerIsNotDrawee => Status::BadRequest.respond_to(req),
@@ -370,45 +364,68 @@ impl BillService {
         Ok(())
     }
 
-    async fn extend_bill_chain_identity_data_from_contacts(
+    /// If it's our identity, we take the fields from there, otherwise we check contacts, or leave
+    /// them empty
+    async fn extend_bill_chain_identity_data_from_contacts_or_identity(
         &self,
         chain_identity: BillIdentityBlockData,
-    ) -> Result<IdentityPublicData> {
-        let contact = self
-            .contact_store
-            .get(&chain_identity.node_id)
-            .await?
-            .ok_or(Error::NoContactForBillIdentityFound(
-                chain_identity.node_id.clone(),
-            ))?;
-        Ok(IdentityPublicData {
+        identity: &Identity,
+    ) -> IdentityPublicData {
+        let (email, nostr_relay) = match chain_identity.node_id {
+            ref v if *v == identity.node_id => {
+                (Some(identity.email.clone()), identity.nostr_relay.clone())
+            }
+            ref other_node_id => {
+                if let Ok(Some(contact)) = self.contact_store.get(other_node_id).await {
+                    (
+                        Some(contact.email.clone()),
+                        contact.nostr_relays.first().cloned(),
+                    )
+                } else {
+                    (None, None)
+                }
+            }
+        };
+        IdentityPublicData {
             t: chain_identity.t,
             node_id: chain_identity.node_id,
             name: chain_identity.name,
             postal_address: chain_identity.postal_address,
-            email: contact.email,
-            nostr_relay: contact.nostr_relays.first().cloned(),
-        })
+            email,
+            nostr_relay,
+        }
     }
 
+    /// We try to get the additional contact fields from the identity or contacts for each identity
+    /// on the bill
     async fn last_version_bill_to_bitcredit_bill(
         &self,
         last_version_bill: LastVersionBill,
+        identity: &Identity,
     ) -> Result<BitcreditBill> {
         let drawee_contact = self
-            .extend_bill_chain_identity_data_from_contacts(last_version_bill.drawee)
-            .await?;
+            .extend_bill_chain_identity_data_from_contacts_or_identity(
+                last_version_bill.drawee,
+                identity,
+            )
+            .await;
         let drawer_contact = self
-            .extend_bill_chain_identity_data_from_contacts(last_version_bill.drawer)
-            .await?;
+            .extend_bill_chain_identity_data_from_contacts_or_identity(
+                last_version_bill.drawer,
+                identity,
+            )
+            .await;
         let payee_contact = self
-            .extend_bill_chain_identity_data_from_contacts(last_version_bill.payee)
-            .await?;
+            .extend_bill_chain_identity_data_from_contacts_or_identity(
+                last_version_bill.payee,
+                identity,
+            )
+            .await;
         let endorsee_contact = match last_version_bill.endorsee {
             Some(endorsee) => {
                 let endorsee_contact = self
-                    .extend_bill_chain_identity_data_from_contacts(endorsee)
-                    .await?;
+                    .extend_bill_chain_identity_data_from_contacts_or_identity(endorsee, identity)
+                    .await;
                 Some(endorsee_contact)
             }
             None => None,
@@ -440,12 +457,16 @@ impl BillServiceApi for BillService {
     async fn get_bills(&self) -> Result<Vec<BitcreditBillToReturn>> {
         let mut res = vec![];
         let bill_ids = self.store.get_bill_ids().await?;
+        let identity = self.identity_store.get().await?;
 
         for bill_id in bill_ids {
             let chain = self.store.read_bill_chain_from_file(&bill_id).await?;
             let bill_keys = self.store.read_bill_keys_from_file(&bill_id).await?;
             let bill = self
-                .last_version_bill_to_bitcredit_bill(chain.get_last_version_bill(&bill_keys)?)
+                .last_version_bill_to_bitcredit_bill(
+                    chain.get_last_version_bill(&bill_keys)?,
+                    &identity,
+                )
                 .await?;
             let drawer = chain.get_drawer(&bill_keys)?;
             let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
@@ -524,7 +545,10 @@ impl BillServiceApi for BillService {
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
 
         let bill = self
-            .last_version_bill_to_bitcredit_bill(chain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                chain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
         let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
 
@@ -557,7 +581,10 @@ impl BillServiceApi for BillService {
         let chain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(chain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                chain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
 
         let drawer = chain.get_drawer(&bill_keys)?;
@@ -574,12 +601,18 @@ impl BillServiceApi for BillService {
         let mut seller = None;
         if let WaitingForPayment::Yes(payment_info) = waiting_for_payment {
             buyer = Some(
-                self.extend_bill_chain_identity_data_from_contacts(payment_info.buyer.clone())
-                    .await?,
+                self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                    payment_info.buyer.clone(),
+                    &identity.identity,
+                )
+                .await,
             );
             seller = Some(
-                self.extend_bill_chain_identity_data_from_contacts(payment_info.seller.clone())
-                    .await?,
+                self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                    payment_info.seller.clone(),
+                    &identity.identity,
+                )
+                .await,
             );
 
             let address_to_pay = self
@@ -694,8 +727,12 @@ impl BillServiceApi for BillService {
     async fn get_bill(&self, bill_id: &str) -> Result<BitcreditBill> {
         let chain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let identity = self.identity_store.get().await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(chain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                chain.get_last_version_bill(&bill_keys)?,
+                &identity,
+            )
             .await?;
         Ok(bill)
     }
@@ -947,7 +984,10 @@ impl BillServiceApi for BillService {
 
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                blockchain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
 
         let accepted = blockchain.block_with_operation_code_exists(BillOpCode::Accept);
@@ -987,7 +1027,10 @@ impl BillServiceApi for BillService {
         .await?;
 
         let last_version_bill = self
-            .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                blockchain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
         self.notification_service
             .send_bill_is_accepted_event(&last_version_bill)
@@ -1007,7 +1050,10 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                blockchain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
@@ -1041,7 +1087,10 @@ impl BillServiceApi for BillService {
             .await?;
 
             let last_version_bill = self
-                .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+                .last_version_bill_to_bitcredit_bill(
+                    blockchain.get_last_version_bill(&bill_keys)?,
+                    &identity.identity,
+                )
                 .await?;
             self.notification_service
                 .send_request_to_pay_event(&last_version_bill)
@@ -1058,7 +1107,10 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                blockchain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
@@ -1091,7 +1143,10 @@ impl BillServiceApi for BillService {
             .await?;
 
             let last_version_bill = self
-                .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+                .last_version_bill_to_bitcredit_bill(
+                    blockchain.get_last_version_bill(&bill_keys)?,
+                    &identity.identity,
+                )
                 .await?;
             self.notification_service
                 .send_request_to_accept_event(&last_version_bill)
@@ -1115,7 +1170,10 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                blockchain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
@@ -1151,7 +1209,10 @@ impl BillServiceApi for BillService {
             .await?;
 
             let new_bill = self
-                .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+                .last_version_bill_to_bitcredit_bill(
+                    blockchain.get_last_version_bill(&bill_keys)?,
+                    &identity.identity,
+                )
                 .await?;
             self.notification_service
                 .send_request_to_mint_event(&new_bill)
@@ -1175,7 +1236,10 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                blockchain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_or_sold())
@@ -1211,7 +1275,10 @@ impl BillServiceApi for BillService {
             .await?;
 
             let last_version_bill = self
-                .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+                .last_version_bill_to_bitcredit_bill(
+                    blockchain.get_last_version_bill(&bill_keys)?,
+                    &identity.identity,
+                )
                 .await?;
             self.notification_service
                 .send_request_to_sell_event(&last_version_bill)
@@ -1233,7 +1300,10 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
         let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
         let bill = self
-            .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+            .last_version_bill_to_bitcredit_bill(
+                blockchain.get_last_version_bill(&bill_keys)?,
+                &identity.identity,
+            )
             .await?;
 
         if (my_node_id.eq(&bill.payee.node_id) && !blockchain.has_been_endorsed_sold_or_minted())
@@ -1267,7 +1337,10 @@ impl BillServiceApi for BillService {
             .await?;
 
             let last_version_bill = self
-                .last_version_bill_to_bitcredit_bill(blockchain.get_last_version_bill(&bill_keys)?)
+                .last_version_bill_to_bitcredit_bill(
+                    blockchain.get_last_version_bill(&bill_keys)?,
+                    &identity.identity,
+                )
                 .await?;
             self.notification_service
                 .send_bill_is_endorsed_event(&last_version_bill)
@@ -1811,7 +1884,7 @@ pub mod test {
     async fn get_bills_baseline() {
         let (
             mut storage,
-            identity_storage,
+            mut identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
@@ -1820,6 +1893,9 @@ pub mod test {
 
         let mut notification_service = MockNotificationServiceApi::new();
 
+        identity_storage
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity));
         storage.expect_read_bill_keys_from_file().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
@@ -1859,13 +1935,16 @@ pub mod test {
     async fn get_bills_empty_for_no_bills() {
         let (
             mut storage,
-            identity_storage,
+            mut identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
             contact_storage,
         ) = get_storages();
         storage.expect_get_bill_ids().returning(|| Ok(vec![]));
+        identity_storage
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity));
         let service = get_service(
             storage,
             identity_storage,
