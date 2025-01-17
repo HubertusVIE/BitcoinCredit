@@ -463,11 +463,11 @@ impl CompanyBlockchain {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use crate::{
-        service::company_service::{test::get_baseline_company_data, CompanyToReturn},
-        tests::test::TEST_PUB_KEY_SECP,
+        service::company_service::{tests::get_baseline_company_data, CompanyToReturn},
+        tests::tests::TEST_PUB_KEY_SECP,
     };
 
     #[test]

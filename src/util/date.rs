@@ -33,7 +33,7 @@ pub fn date_time_string_to_i64_timestamp(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use chrono::Utc;
 

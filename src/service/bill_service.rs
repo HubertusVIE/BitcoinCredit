@@ -1461,15 +1461,15 @@ pub struct BillKeys {
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod tests {
     use super::*;
     use crate::{
         service::{
-            company_service::test::get_valid_company_block,
+            company_service::tests::get_valid_company_block,
             identity_service::{Identity, IdentityWithAll},
             notification_service::MockNotificationServiceApi,
         },
-        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
     };
     use blockchain::{bill::block::BillIssueBlockData, identity::IdentityBlockchain};
     use core::str;

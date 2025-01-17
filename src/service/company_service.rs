@@ -611,7 +611,7 @@ pub struct CompanyKeys {
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod tests {
     use super::*;
     use crate::{
         blockchain::{identity::IdentityBlockchain, Blockchain},
@@ -624,7 +624,7 @@ pub mod test {
             identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
         },
         service::identity_service::{Identity, IdentityWithAll},
-        tests::test::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
     };
     use mockall::predicate::{always, eq};
     use std::collections::HashMap;

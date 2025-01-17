@@ -476,7 +476,7 @@ impl request_response::Codec for FileExchangeCodec {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use util::BcrKeys;
 

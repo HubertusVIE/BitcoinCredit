@@ -96,14 +96,14 @@ impl BillBlockToReturn {
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod tests {
     use super::*;
     use crate::{
         service::{
             bill_service::BitcreditBill,
             identity_service::{Identity, IdentityWithAll},
         },
-        tests::test::TEST_PRIVATE_KEY_SECP,
+        tests::tests::TEST_PRIVATE_KEY_SECP,
         util::BcrKeys,
     };
     use block::BillIssueBlockData;

@@ -1580,7 +1580,7 @@ impl Client {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use crate::{
         constants::{
@@ -1594,12 +1594,12 @@ mod test {
             identity::MockIdentityStoreApi,
         },
         service::{
-            bill_service::test::{get_baseline_bill, get_genesis_chain},
+            bill_service::tests::{get_baseline_bill, get_genesis_chain},
             company_service::CompanyToReturn,
             contact_service::IdentityPublicData,
             identity_service::Identity,
         },
-        tests::test::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         web::data::File,
     };
     use blockchain::company::CompanyCreateBlockData;

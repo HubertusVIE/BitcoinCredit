@@ -293,8 +293,8 @@ pub fn decrypt_ecies(bytes: &[u8], private_key: &str) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use crate::{
-        service::company_service::test::get_baseline_company_data,
-        tests::test::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
+        service::company_service::tests::get_baseline_company_data,
+        tests::tests::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
         util,
     };
     use borsh::to_vec;

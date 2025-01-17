@@ -284,11 +284,11 @@ impl BillBlockchain {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use crate::{
-        blockchain::bill::test::get_baseline_identity,
-        tests::test::{get_bill_keys, TEST_PRIVATE_KEY_SECP},
+        blockchain::bill::tests::get_baseline_identity,
+        tests::tests::{get_bill_keys, TEST_PRIVATE_KEY_SECP},
     };
 
     fn get_sell_block(

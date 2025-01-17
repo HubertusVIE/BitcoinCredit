@@ -104,7 +104,7 @@ impl FileUploadServiceApi for FileUploadService {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use persistence::file_upload::MockFileUploadStoreApi;
     use std::sync::Arc;

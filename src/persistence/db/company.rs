@@ -216,7 +216,7 @@ mod tests {
     use super::*;
     use crate::{
         persistence::db::get_memory_db,
-        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         util::BcrKeys,
     };
 

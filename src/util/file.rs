@@ -99,7 +99,7 @@ pub async fn is_not_hidden_or_directory_async(entry: &tokio::fs::DirEntry) -> bo
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]

@@ -400,14 +400,14 @@ impl IdentityPublicData {
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod tests {
     use super::*;
     use crate::{
         persistence::{
             contact::MockContactStoreApi, db::contact::tests::get_baseline_contact,
             file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
         },
-        tests::test::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
+        tests::tests::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
     };
     use std::collections::HashMap;
     use util::BcrKeys;

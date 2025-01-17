@@ -215,7 +215,7 @@ mod tests {
         blockchain::company::CompanyUpdateBlockData,
         persistence::db::get_memory_db,
         service::company_service::{CompanyKeys, CompanyToReturn},
-        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         util::BcrKeys,
     };
 
