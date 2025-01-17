@@ -12,7 +12,6 @@ use crate::service::bill_service::{BillKeys, BitcreditBill};
 use crate::service::contact_service::IdentityPublicData;
 use crate::util::{self, BcrKeys};
 use crate::web::data::File;
-use borsh::from_slice;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -114,8 +113,8 @@ impl BillBlockchain {
     ///
     pub fn get_last_version_bill(&self, bill_keys: &BillKeys) -> Result<LastVersionBill> {
         let first_block = self.get_first_block();
-        let decrypted_bytes = first_block.get_decrypted_block_bytes(bill_keys)?;
-        let bill_first_version: BillIssueBlockData = from_slice(&decrypted_bytes)?;
+        let bill_first_version: BillIssueBlockData =
+            first_block.get_decrypted_block_bytes(bill_keys)?;
 
         let mut last_endorsee = None;
 
@@ -135,7 +134,7 @@ impl BillBlockchain {
                 && ((last_block.id > last_version_block_sell.id) || last_sell_block_is_paid)
             {
                 let block_data_decrypted: BillSellBlockData =
-                    from_slice(&last_version_block_sell.get_decrypted_block_bytes(bill_keys)?)?;
+                    last_version_block_sell.get_decrypted_block_bytes(bill_keys)?;
                 let buyer = block_data_decrypted.buyer;
 
                 last_endorsee = Some(buyer);
@@ -143,7 +142,7 @@ impl BillBlockchain {
                 && (last_version_block_endorse.id > last_version_block_mint.id)
             {
                 let block_data_decrypted: BillEndorseBlockData =
-                    from_slice(&last_version_block_endorse.get_decrypted_block_bytes(bill_keys)?)?;
+                    last_version_block_endorse.get_decrypted_block_bytes(bill_keys)?;
                 let endorsee = block_data_decrypted.endorsee;
 
                 last_endorsee = Some(endorsee);
@@ -151,7 +150,7 @@ impl BillBlockchain {
                 && (last_version_block_mint.id > last_version_block_endorse.id)
             {
                 let block_data_decrypted: BillMintBlockData =
-                    from_slice(&last_version_block_mint.get_decrypted_block_bytes(bill_keys)?)?;
+                    last_version_block_mint.get_decrypted_block_bytes(bill_keys)?;
                 let mint = block_data_decrypted.endorsee;
 
                 last_endorsee = Some(mint);
@@ -203,7 +202,7 @@ impl BillBlockchain {
             }
 
             let block_data_decrypted: BillSellBlockData =
-                from_slice(&last_version_block_sell.get_decrypted_block_bytes(bill_keys)?)?;
+                last_version_block_sell.get_decrypted_block_bytes(bill_keys)?;
             Ok(WaitingForPayment::Yes(Box::new(PaymentInfo {
                 buyer: block_data_decrypted.buyer,
                 seller: block_data_decrypted.seller,
@@ -248,8 +247,8 @@ impl BillBlockchain {
     ///
     pub fn get_first_version_bill(&self, bill_keys: &BillKeys) -> Result<BitcreditBill> {
         let first_block_data = &self.get_first_block();
-        let decrypted_bytes = first_block_data.get_decrypted_block_bytes(bill_keys)?;
-        let bill_first_version: BillIssueBlockData = from_slice(&decrypted_bytes)?;
+        let bill_first_version: BillIssueBlockData =
+            first_block_data.get_decrypted_block_bytes(bill_keys)?;
         Ok(bill_first_version.into())
     }
 

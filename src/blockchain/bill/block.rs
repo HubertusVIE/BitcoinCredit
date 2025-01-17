@@ -538,13 +538,17 @@ impl BillBlock {
     }
 
     /// Decrypts the block data using the bill's private key, returning the raw bytes
-    pub fn get_decrypted_block_bytes(&self, bill_keys: &BillKeys) -> Result<Vec<u8>> {
+    pub fn get_decrypted_block_bytes<T: borsh::BorshDeserialize>(
+        &self,
+        bill_keys: &BillKeys,
+    ) -> Result<T> {
         let bytes = util::base58_decode(&self.data)?;
         let block_data: BillBlockData = from_slice(&bytes)?;
         let decoded_data_bytes = util::base58_decode(&block_data.data)?;
         let decrypted_bytes =
             util::crypto::decrypt_ecies(&decoded_data_bytes, &bill_keys.private_key)?;
-        Ok(decrypted_bytes)
+        let deserialized = from_slice::<T>(&decrypted_bytes)?;
+        Ok(deserialized)
     }
 
     /// Extracts a list of unique node IDs involved in a block operation.
@@ -560,42 +564,41 @@ impl BillBlock {
         let mut nodes = HashSet::new();
         match self.operation_code {
             Issue => {
-                let bill: BillIssueBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(bill.drawer.node_id);
                 nodes.insert(bill.payee.node_id);
                 nodes.insert(bill.drawee.node_id);
             }
             Endorse => {
                 let block_data_decrypted: BillEndorseBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.endorsee.node_id);
                 nodes.insert(block_data_decrypted.endorser.node_id);
             }
             Mint => {
                 let block_data_decrypted: BillMintBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.endorsee.node_id);
                 nodes.insert(block_data_decrypted.endorser.node_id);
             }
             RequestToAccept => {
                 let block_data_decrypted: BillRequestToAcceptBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.requester.node_id);
             }
             Accept => {
                 let block_data_decrypted: BillAcceptBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.accepter.node_id);
             }
             RequestToPay => {
                 let block_data_decrypted: BillRequestToPayBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.requester.node_id);
             }
             Sell => {
                 let block_data_decrypted: BillSellBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.buyer.node_id);
                 nodes.insert(block_data_decrypted.seller.node_id);
             }
@@ -615,8 +618,7 @@ impl BillBlock {
         match self.operation_code {
             Issue => {
                 let time_of_issue = util::date::seconds(self.timestamp);
-                let bill: BillIssueBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 Ok(format!(
                     "Bill issued by {} at {} in {}",
                     bill.drawer.name, time_of_issue, bill.place_of_drawing
@@ -624,14 +626,14 @@ impl BillBlock {
             }
             Endorse => {
                 let block_data_decrypted: BillEndorseBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 let endorser = block_data_decrypted.endorser;
 
                 Ok(format!("{}, {}", endorser.name, endorser.postal_address))
             }
             Mint => {
                 let block_data_decrypted: BillMintBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 let minter = block_data_decrypted.endorser;
 
                 Ok(format!("{}, {}", minter.name, minter.postal_address))
@@ -639,7 +641,7 @@ impl BillBlock {
             RequestToAccept => {
                 let time_of_request_to_accept = util::date::seconds(self.timestamp);
                 let block_data_decrypted: BillRequestToAcceptBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 let requester = block_data_decrypted.requester;
                 Ok(format!(
                     "Bill requested to accept by {} at {} in {}",
@@ -649,7 +651,7 @@ impl BillBlock {
             Accept => {
                 let time_of_accept = util::date::seconds(self.timestamp);
                 let block_data_decrypted: BillAcceptBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
 
                 let accepter = block_data_decrypted.accepter;
 
@@ -661,7 +663,7 @@ impl BillBlock {
             RequestToPay => {
                 let time_of_request_to_pay = util::date::seconds(self.timestamp);
                 let block_data_decrypted: BillRequestToPayBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 let requester = block_data_decrypted.requester;
                 Ok(format!(
                     "Bill requested to pay by {} at {} in {}",
@@ -670,7 +672,7 @@ impl BillBlock {
             }
             Sell => {
                 let block_data_decrypted: BillSellBlockData =
-                    from_slice(&self.get_decrypted_block_bytes(bill_keys)?)?;
+                    self.get_decrypted_block_bytes(bill_keys)?;
                 let seller = block_data_decrypted.seller;
 
                 Ok(format!("{}, {}", seller.name, seller.postal_address))
