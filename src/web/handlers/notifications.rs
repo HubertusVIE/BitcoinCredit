@@ -8,7 +8,7 @@ use rocket_ws::{Message, Stream, WebSocket};
 use serde_json::Value;
 
 #[utoipa::path(
-    tag = "notifications",
+    tag = "Notifications",
     description = "Get all active notifications",
     responses(
         (status = 200, description = "List of notifications", body = Vec<Notification>)
@@ -24,7 +24,7 @@ pub async fn list_notifications(state: &State<ServiceContext>) -> Result<Json<Ve
 }
 
 #[utoipa::path(
-    tag = "notifications",
+    tag = "Notifications",
     description = "Marks a notification as done",
     params(
         ("notification_id" = String, description = "Id of the notification to marks as done")
@@ -46,7 +46,7 @@ pub async fn mark_notification_done(
 }
 
 #[utoipa::path(
-    tag = "push notifications",
+    tag = "Push notifications",
     description = "Subscribe to push notifications via websocket",
     responses(
         (status = 101, description = "Switching protocols. Instructs the browser to open the WS connection")
@@ -65,7 +65,7 @@ pub fn websocket(state: &State<ServiceContext>, _ws: WebSocket) -> Stream!['_] {
 }
 
 #[utoipa::path(
-    tag = "push notifications",
+    tag = "Push notifications",
     description = "subscribe to push notifications via server sent events (SSE)",
     responses(
         (status = 200, description = "Effectively there will never be a real response as this will open an infinite stream of events.")

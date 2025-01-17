@@ -2,6 +2,7 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rocket::fs::TempFile;
 use rocket::FromForm;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BitcreditBillPayload {
@@ -76,14 +77,14 @@ pub struct AcceptBitcreditBillPayload {
     pub bill_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ChangeIdentityPayload {
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IdentityPayload {
     pub name: String,
     pub date_of_birth: String,
@@ -127,4 +128,11 @@ pub struct UploadFilesResponse {
 pub struct File {
     pub name: String,
     pub hash: String,
+}
+
+/// Response for a private key seeed backup
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SeedPhrase {
+    /// The seed phrase of the current private key
+    pub seed_phrase: String,
 }

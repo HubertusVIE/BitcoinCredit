@@ -23,6 +23,12 @@ impl SurrealIdentityStore {
     }
 }
 
+impl SurrealIdentityStore {
+    async fn get_db_keys(&self) -> Result<Option<KeyDb>> {
+        Ok(self.db.select((Self::KEY_TABLE, Self::UNIQUE_ID)).await?)
+    }
+}
+
 #[async_trait]
 impl IdentityStoreApi for SurrealIdentityStore {
     async fn exists(&self) -> bool {
@@ -70,8 +76,8 @@ impl IdentityStoreApi for SurrealIdentityStore {
         }
     }
 
-    async fn save_key_pair(&self, key_pair: &BcrKeys) -> Result<()> {
-        let entity: KeyDb = key_pair.try_into()?;
+    async fn save_key_pair(&self, key_pair: &BcrKeys, seed: &str) -> Result<()> {
+        let entity: KeyDb = KeyDb::from_generated_keys(key_pair, seed);
         let _: Option<KeyDb> = self
             .db
             .upsert((Self::KEY_TABLE, Self::UNIQUE_ID))
@@ -81,7 +87,7 @@ impl IdentityStoreApi for SurrealIdentityStore {
     }
 
     async fn get_key_pair(&self) -> Result<BcrKeys> {
-        let result: Option<KeyDb> = self.db.select((Self::KEY_TABLE, Self::UNIQUE_ID)).await?;
+        let result: Option<KeyDb> = self.get_db_keys().await?;
         match result {
             None => Err(Error::NoIdentityKey),
             Some(value) => value.try_into(),
@@ -92,12 +98,20 @@ impl IdentityStoreApi for SurrealIdentityStore {
         let keys = match self.get_key_pair().await {
             Ok(keys) => keys,
             _ => {
-                let new_keys = BcrKeys::new();
-                self.save_key_pair(&new_keys).await?;
+                let (new_keys, seed) = BcrKeys::new_with_seed_phrase()?;
+                self.save_key_pair(&new_keys, &seed).await?;
                 new_keys
             }
         };
         Ok(keys)
+    }
+
+    async fn get_seedphrase(&self) -> Result<String> {
+        let result = self.get_db_keys().await?;
+        match result {
+            Some(key_db) => Ok(key_db.seed_phrase),
+            None => Err(Error::NoSeedPhrase),
+        }
     }
 }
 
@@ -146,13 +160,15 @@ impl From<&Identity> for IdentityDb {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyDb {
     pub key: String,
+    pub seed_phrase: String,
 }
 
-impl TryFrom<&BcrKeys> for KeyDb {
-    type Error = crate::persistence::Error;
-    fn try_from(value: &BcrKeys) -> Result<Self> {
-        let data = value.get_private_key_string();
-        Ok(KeyDb { key: data })
+impl KeyDb {
+    fn from_generated_keys(key_pair: &BcrKeys, seed: &str) -> Self {
+        Self {
+            key: key_pair.get_private_key_string(),
+            seed_phrase: seed.to_string(),
+        }
     }
 }
 
@@ -188,7 +204,8 @@ mod tests {
     async fn test_libp2p_credentials_exist() {
         let store = get_store().await;
         assert!(!store.libp2p_credentials_exist().await);
-        store.save_key_pair(&BcrKeys::new()).await.unwrap();
+        let (keys, seed) = BcrKeys::new_with_seed_phrase().expect("key could not be generated");
+        store.save_key_pair(&keys, &seed).await.unwrap();
         assert!(store.libp2p_credentials_exist().await)
     }
 
@@ -207,23 +224,23 @@ mod tests {
         let store = get_store().await;
         let mut identity = Identity::new_empty();
         identity.name = "Minka".to_string();
-        let key_pair = BcrKeys::new();
+        let (keys, seed) = BcrKeys::new_with_seed_phrase().expect("key could not be generated");
         store.save(&identity).await.unwrap();
-        store.save_key_pair(&key_pair).await.unwrap();
+        store.save_key_pair(&keys, &seed).await.unwrap();
         let fetched_full_identity = store.get_full().await.unwrap();
         assert_eq!(identity.name, fetched_full_identity.identity.name);
         assert_eq!(
-            key_pair.get_public_key(),
+            keys.get_public_key(),
             fetched_full_identity.key_pair.get_public_key()
         );
     }
 
     #[tokio::test]
     async fn test_key_pair() {
-        let key_pair = BcrKeys::new();
         let store = get_store().await;
-        store.save_key_pair(&key_pair).await.unwrap();
+        let (keys, seed) = BcrKeys::new_with_seed_phrase().expect("key could not be generated");
+        store.save_key_pair(&keys, &seed).await.unwrap();
         let fetched_key_pair = store.get_key_pair().await.unwrap();
-        assert_eq!(key_pair.get_public_key(), fetched_key_pair.get_public_key());
+        assert_eq!(keys.get_public_key(), fetched_key_pair.get_public_key());
     }
 }

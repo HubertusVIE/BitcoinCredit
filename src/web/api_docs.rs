@@ -15,6 +15,11 @@ use utoipa::OpenApi;
         handlers::notifications::sse,
         handlers::bill::return_bills_list,
         handlers::bill::return_bill,
+        handlers::identity::return_identity,
+        handlers::identity::create_identity,
+        handlers::identity::change_identity,
+        handlers::identity::get_seed_phrase,
+        handlers::identity::recover_from_seed_phrase,
     )
 )]
 pub struct ApiDocs;

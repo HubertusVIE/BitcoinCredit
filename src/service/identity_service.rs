@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::ToSchema;
 
 #[async_trait]
 pub trait IdentityServiceApi: Send + Sync {
@@ -37,6 +38,9 @@ pub trait IdentityServiceApi: Send + Sync {
         postal_address: String,
         timestamp: u64,
     ) -> Result<()>;
+    async fn get_seedphrase(&self) -> Result<String>;
+    /// Rcovers the private keys in the identity from a seed pharse
+    async fn recover_from_seedphrase(&self, seed: &str) -> Result<()>;
 }
 
 /// The identity service is responsible for managing the local identity and syncing it
@@ -162,6 +166,18 @@ impl IdentityServiceApi for IdentityService {
         self.store.save(&identity).await?;
         Ok(())
     }
+
+    /// Recovers keys from a seed phrase and stores them into the identity
+    async fn recover_from_seedphrase(&self, seed: &str) -> Result<()> {
+        let key_pair = BcrKeys::from_seedphrase(seed)?;
+        self.store.save_key_pair(&key_pair, seed).await?;
+        Ok(())
+    }
+
+    async fn get_seedphrase(&self) -> Result<String> {
+        let res = self.store.get_seedphrase().await?;
+        Ok(res)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -203,7 +219,7 @@ impl Identity {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IdentityToReturn {
     pub name: String,
     pub node_id: String,
@@ -236,6 +252,8 @@ impl IdentityToReturn {
 
 #[cfg(test)]
 mod test {
+    use mockall::predicate::eq;
+
     use super::*;
     use crate::persistence::{
         self,
@@ -449,5 +467,24 @@ mod test {
         let res = service.get_full_identity().await;
 
         assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn recover_from_seedphrase_stores_key_and_seed() {
+        let seed = "forward paper connect economy twelve debate cart isolate accident creek bind predict captain rifle glory cradle hip whisper wealth save buddy place develop dolphin";
+        let expected_key = BcrKeys::from_private_key(
+            "f31e0373f6fa9f4835d49a278cd48f47ea115af7480edf435275a3c2dbb1f982",
+        )
+        .expect("valid seed phrase");
+        let mut storage = MockIdentityStoreApi::new();
+        storage
+            .expect_save_key_pair()
+            .with(eq(expected_key), eq(seed))
+            .returning(|_, _| Ok(()));
+        let service = get_service(storage);
+        service
+            .recover_from_seedphrase(seed)
+            .await
+            .expect("could not recover from seedphrase")
     }
 }

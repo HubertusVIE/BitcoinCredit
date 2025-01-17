@@ -83,6 +83,9 @@ pub enum Error {
 
     #[error("parse bytes to string error: {0}")]
     Utf8(#[from] std::str::Utf8Error),
+
+    #[error("No seed phrase available")]
+    NoSeedPhrase,
 }
 
 pub use contact::ContactStoreApi;

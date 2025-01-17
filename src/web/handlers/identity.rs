@@ -1,11 +1,19 @@
 use crate::external;
 use crate::service::Result;
-use crate::web::data::{ChangeIdentityPayload, IdentityPayload};
+use crate::web::data::{ChangeIdentityPayload, IdentityPayload, SeedPhrase};
 use crate::{service::identity_service::IdentityToReturn, service::ServiceContext};
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
 
+#[utoipa::path(
+    tag = "Identity",
+    path = "/identity/return",
+    description = "Returns the current identity",
+    responses(
+        (status = 200, description = "The current identity data", body = IdentityToReturn)
+    ),
+)]
 #[get("/return")]
 pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<IdentityToReturn>> {
     let my_identity = if !state.identity_service.identity_exists().await {
@@ -17,6 +25,15 @@ pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<Ident
     Ok(Json(my_identity))
 }
 
+#[utoipa::path(
+    tag = "Identity",
+    path = "/identity/create",
+    description = "Creates a new identity with given data",
+    responses(
+        (status = 200, description = "The identity has been created")
+    ),
+    request_body(description = "The data to create an identity with", content((IdentityPayload)))
+)]
 #[post("/create", format = "json", data = "<identity_payload>")]
 pub async fn create_identity(
     state: &State<ServiceContext>,
@@ -39,6 +56,15 @@ pub async fn create_identity(
     Ok(Status::Ok)
 }
 
+#[utoipa::path(
+    tag = "Identity",
+    path = "/identity/change",
+    description = "Updates the identity with given data",
+    responses(
+        (status = 200, description = "The identity has been updated")
+    ),
+    request_body(description = "The data to update identity with", content((ChangeIdentityPayload)))
+)]
 #[put("/change", format = "json", data = "<identity_payload>")]
 pub async fn change_identity(
     state: &State<ServiceContext>,
@@ -60,6 +86,41 @@ pub async fn change_identity(
             identity_payload.postal_address,
             timestamp,
         )
+        .await?;
+    Ok(Status::Ok)
+}
+
+#[utoipa::path(
+    tag = "Identity",
+    path = "/identity/seed/backup",
+    description = "Returns the seed phrase key backup of current private key",
+    responses(
+        (status = 200, description = "The seed phrase of the current private key", body = SeedPhrase)
+    )
+)]
+#[get("/seed/backup")]
+pub async fn get_seed_phrase(state: &State<ServiceContext>) -> Result<Json<SeedPhrase>> {
+    let seed_phrase = state.identity_service.get_seedphrase().await?;
+    Ok(Json(SeedPhrase { seed_phrase }))
+}
+
+#[utoipa::path(
+    tag = "Identity",
+    path = "/identity/seed/recover",
+    description = "Restores a private key from the given seed phrase backup",
+    responses(
+        (status = 200, description = "Private key has been recovered from seed")
+    ),
+    request_body(description = "The seed phrase to recover the private key from", content((SeedPhrase)))
+)]
+#[put("/seed/recover", format = "json", data = "<payload>")]
+pub async fn recover_from_seed_phrase(
+    state: &State<ServiceContext>,
+    payload: Json<SeedPhrase>,
+) -> Result<Status> {
+    state
+        .identity_service
+        .recover_from_seedphrase(&payload.into_inner().seed_phrase)
         .await?;
     Ok(Status::Ok)
 }

@@ -24,12 +24,14 @@ pub trait IdentityStoreApi: Send + Sync {
     /// Gets the local identity with it's node id and key pair
     async fn get_full(&self) -> Result<IdentityWithAll>;
     /// Saves the given key pair
-    async fn save_key_pair(&self, key_pair: &BcrKeys) -> Result<()>;
+    async fn save_key_pair(&self, key_pair: &BcrKeys, seed: &str) -> Result<()>;
     /// Gets the local key pair
     async fn get_key_pair(&self) -> Result<BcrKeys>;
     /// Gets the local key pair or creates a new one if it doesn't exist.
     /// The new key pair is saved to the store together with the node id.
     async fn get_or_create_key_pair(&self) -> Result<BcrKeys>;
+    /// Returns the seed phrase that generated the private keys.
+    async fn get_seedphrase(&self) -> Result<String>;
 }
 
 #[cfg_attr(test, automock)]

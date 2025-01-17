@@ -55,7 +55,7 @@ pub enum Error {
 
 /// A wrapper around the secp256k1 keypair that can be used for
 /// Bitcoin and Nostr keys.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BcrKeys {
     inner: Keypair,
 }
@@ -68,6 +68,22 @@ impl BcrKeys {
         Self {
             inner: generate_keypair(),
         }
+    }
+
+    /// Generates a fresh random keypair including a seed phrase that
+    /// can be used to recover the private_key
+    pub fn new_with_seed_phrase() -> Result<(Self, String)> {
+        let (seed_phrase, keypair) = generate_keypair_from_seed_phrase()?;
+        let keys = Self { inner: keypair };
+        Ok((keys, seed_phrase.to_string()))
+    }
+
+    /// Recovers keys from a given seedphrase
+    pub fn from_seedphrase(seed: &str) -> Result<Self> {
+        let recovered_keys = keypair_from_seed_phrase(seed)?;
+        Ok(Self {
+            inner: recovered_keys,
+        })
     }
 
     /// Loads a keypair from a given private key string
