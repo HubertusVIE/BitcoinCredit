@@ -29,6 +29,8 @@ pub struct Config {
     pub environment: String,
     #[arg(default_value_t = String::from("ws://localhost:8080"), long, env = "NOSTR_RELAY")]
     pub nostr_relay: String,
+    #[arg(default_value_t = String::from("http://127.0.0.1:3338"), long, env = "MINT_URL")]
+    pub mint_url: String,
 }
 
 impl Config {

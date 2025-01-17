@@ -62,6 +62,8 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::identity::create_identity,
                 handlers::identity::change_identity,
                 handlers::identity::return_identity,
+                handlers::identity::active,
+                handlers::identity::switch,
                 handlers::identity::get_seed_phrase,
                 handlers::identity::recover_from_seed_phrase,
             ],

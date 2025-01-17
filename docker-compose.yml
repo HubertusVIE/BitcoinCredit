@@ -13,7 +13,9 @@ services:
       - "8001:8001"
       - "1909:1909"
     depends_on:
-      - surrealdb
+      surrealdb:
+        condition: service_healthy
+
   surrealdb:
     image: surrealdb/surrealdb:latest
     volumes:
@@ -25,3 +27,7 @@ services:
     user: ${UID}:${GID}
     ports:
       - "8800:8000"
+    healthcheck:
+      test: [ "CMD", "/surreal", "is-ready" ]
+      interval: 5s
+      retries: 5

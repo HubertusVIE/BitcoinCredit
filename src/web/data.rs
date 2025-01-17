@@ -67,6 +67,11 @@ pub struct RequestToAcceptBitcreditBillPayload {
     pub bill_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct SwitchIdentity {
+    pub node_id: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestToPayBitcreditBillPayload {
     pub bill_id: String,
