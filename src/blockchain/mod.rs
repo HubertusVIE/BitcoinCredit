@@ -10,6 +10,8 @@ pub mod bill;
 pub mod company;
 pub mod identity;
 
+const FIRST_BLOCK_ID: u64 = 1;
+
 /// Generic result type
 pub type Result<T> = std::result::Result<T, Error>;
 

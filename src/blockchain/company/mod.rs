@@ -1,6 +1,6 @@
 use super::bill::BillOpCode;
 use super::Result;
-use super::{Block, Blockchain};
+use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::service::company_service::{CompanyKeys, CompanyToReturn};
 use crate::util::{self, crypto, BcrKeys};
 use crate::web::data::File;
@@ -248,7 +248,7 @@ impl CompanyBlock {
 
         Self::new(
             company_id.to_owned(),
-            1,
+            FIRST_BLOCK_ID,
             genesis_hash,
             serialized_and_hashed_data,
             CompanyOpCode::Create,

@@ -1,6 +1,6 @@
 use super::bill::BillOpCode;
 use super::Result;
-use super::{Block, Blockchain};
+use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::service::identity_service::Identity;
 use crate::util::{self, crypto, BcrKeys};
 use borsh::to_vec;
@@ -182,7 +182,6 @@ impl IdentityBlock {
     }
 
     pub fn create_block_for_create(
-        id: u64,
         genesis_hash: String,
         identity: &IdentityCreateBlockData,
         keys: &BcrKeys,
@@ -196,7 +195,7 @@ impl IdentityBlock {
         )?);
 
         Self::new(
-            id,
+            FIRST_BLOCK_ID,
             genesis_hash,
             encrypted_data,
             IdentityOpCode::Create,
@@ -338,7 +337,7 @@ impl IdentityBlockchain {
         let genesis_hash = util::base58_encode(keys.get_public_key().as_bytes());
 
         let first_block =
-            IdentityBlock::create_block_for_create(1, genesis_hash, identity, keys, timestamp)?;
+            IdentityBlock::create_block_for_create(genesis_hash, identity, keys, timestamp)?;
 
         Ok(Self {
             blocks: vec![first_block],

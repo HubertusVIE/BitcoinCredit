@@ -2,7 +2,7 @@ use super::super::{Error, Result};
 use super::BillOpCode;
 use super::BillOpCode::{Accept, Endorse, Issue, Mint, RequestToAccept, RequestToPay, Sell};
 
-use crate::blockchain::Block;
+use crate::blockchain::{Block, FIRST_BLOCK_ID};
 use crate::service::bill_service::BillKeys;
 use crate::service::bill_service::BitcreditBill;
 use crate::service::contact_service::{ContactType, IdentityPublicData};
@@ -148,8 +148,8 @@ pub struct BillMintBlockData {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillSellBlockData {
-    pub buyer: BillIdentityBlockData,
     pub seller: BillIdentityBlockData,
+    pub buyer: BillIdentityBlockData,
     pub currency_code: String,
     pub amount: u64,
     pub signatory: Option<BillSignatoryBlockData>,
@@ -329,7 +329,7 @@ impl BillBlock {
 
         Self::new(
             bill_id,
-            1,
+            FIRST_BLOCK_ID,
             genesis_hash,
             serialized_and_hashed_data,
             BillOpCode::Issue,

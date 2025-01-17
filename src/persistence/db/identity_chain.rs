@@ -192,7 +192,6 @@ mod tests {
     async fn test_add_block() {
         let store = get_store().await;
         let block = IdentityBlock::create_block_for_create(
-            1,
             "genesis hash".to_string(),
             &Identity::new_empty().into(),
             &BcrKeys::new(),
