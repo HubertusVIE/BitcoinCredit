@@ -138,7 +138,7 @@ impl BcrKeys {
 }
 
 /// Number of words to use when generating BIP39 seed phrases
-const BIP39_WORD_COUNT: usize = 12;
+const BIP39_WORD_COUNT: usize = 24;
 
 /// Calculates the XOnlyPublicKey as hex from the given node_id to be used as the npub as hex for
 /// nostr
@@ -300,7 +300,7 @@ pub fn decrypt_ecies(bytes: &[u8], private_key: &str) -> Result<Vec<u8>> {
 
 /// Generata a new secp256k1 keypair using a 12 word seed phrase.
 /// Returns both the keypair and the Mnemonic with the seed phrase.
-fn generate_keypair_and_seed_phrase() -> Result<(Mnemonic, Keypair)> {
+fn generate_keypair_from_seed_phrase() -> Result<(Mnemonic, Keypair)> {
     let mnemonic = Mnemonic::generate(BIP39_WORD_COUNT)?;
     let keypair = keypair_from_mnemonic(&mnemonic)?;
     Ok((mnemonic, keypair))
@@ -336,16 +336,27 @@ mod tests {
 
     #[test]
     fn test_generate_keypair_and_seed_phrase_round_trip() {
-        let (mnemonic, keypair) =
-            generate_keypair_and_seed_phrase().expect("Could not generate keypair and seed phrase");
+        let (mnemonic, keypair) = generate_keypair_from_seed_phrase()
+            .expect("Could not generate keypair and seed phrase");
         let recovered_keys = keypair_from_seed_phrase(&mnemonic.to_string())
             .expect("Could not recover private key from seed phrase");
         assert_eq!(keypair.secret_key(), recovered_keys.secret_key());
     }
 
     #[test]
-    fn test_recover_keypair_from_seed_phrase() {
-        // a valid pair of words to priv key
+    fn test_recover_keypair_from_seed_phrase_24_words() {
+        // a valid pair of 24 words to priv key
+        let words = "forward paper connect economy twelve debate cart isolate accident creek bind predict captain rifle glory cradle hip whisper wealth save buddy place develop dolphin";
+        let priv_key = "f31e0373f6fa9f4835d49a278cd48f47ea115af7480edf435275a3c2dbb1f982";
+        let keypair =
+            keypair_from_seed_phrase(words).expect("Could not create keypair from seed phrase");
+        let returned_priv_key = keypair.secret_key().display_secret().to_string();
+        assert_eq!(priv_key, returned_priv_key);
+    }
+
+    #[test]
+    fn test_recover_keypair_from_seed_phrase_12_words() {
+        // a valid pair of 12 words to priv key
         let words = "oblige repair kind park dust act name myth cheap treat hammer arrive";
         let priv_key = "92f920d8e183cab62723c3a7eee9cb0b3edb3c4aad459f4062cfb7960b570662";
         let keypair =
