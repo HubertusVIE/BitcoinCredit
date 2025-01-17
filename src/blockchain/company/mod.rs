@@ -8,7 +8,7 @@ use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-#[derive(BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum CompanyOpCode {
     Create,
     Update,
@@ -26,7 +26,7 @@ pub struct CompanyBlockDataToHash {
     timestamp: u64,
     public_key: String,
     signatory_node_id: String,
-    operation_code: CompanyOpCode,
+    op_code: CompanyOpCode,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -45,7 +45,7 @@ pub struct CompanyBlockData {
     key: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CompanyBlock {
     pub company_id: String,
     pub id: u64,
@@ -166,7 +166,7 @@ impl Block for CompanyBlock {
             timestamp: self.timestamp(),
             public_key: self.public_key().to_owned(),
             signatory_node_id: self.signatory_node_id.clone(),
-            operation_code: self.op_code().to_owned(),
+            op_code: self.op_code().to_owned(),
         };
         data
     }
@@ -200,7 +200,7 @@ impl CompanyBlock {
             timestamp,
             public_key: aggregated_public_key.clone(),
             signatory_node_id: signatory_node_id.clone(),
-            operation_code: op_code.clone(),
+            op_code: op_code.clone(),
         })?;
         let signature = crypto::aggregated_signature(&hash, &keys)?;
 
@@ -398,7 +398,7 @@ impl CompanyBlock {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone)]
 pub struct CompanyBlockchain {
     blocks: Vec<CompanyBlock>,
 }

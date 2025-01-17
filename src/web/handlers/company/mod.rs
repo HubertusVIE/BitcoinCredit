@@ -1,11 +1,7 @@
 use crate::{
     dht::{GossipsubEvent, GossipsubEventId},
     external,
-    service::{
-        self,
-        company_service::{CompanyPublicData, CompanyToReturn},
-        Error, Result, ServiceContext,
-    },
+    service::{self, company_service::CompanyToReturn, Error, Result, ServiceContext},
     util::file::{detect_content_type_for_bytes, UploadFileHandler},
     web::data::{UploadFileForm, UploadFilesResponse},
 };
@@ -128,9 +124,6 @@ pub async fn create(
         .await?;
     dht_client.subscribe_to_company_topic(id).await?;
     dht_client.start_providing_company(id).await?;
-    dht_client
-        .put_company_public_data_in_dht(CompanyPublicData::from(created_company.clone()))
-        .await?;
 
     Ok(Json(created_company))
 }
@@ -159,12 +152,6 @@ pub async fn edit(
             payload.logo_file_upload_id,
             timestamp,
         )
-        .await?;
-
-    let updated = state.company_service.get_company_by_id(&payload.id).await?;
-    let mut dht_client = state.dht_client();
-    dht_client
-        .put_company_public_data_in_dht(CompanyPublicData::from(updated))
         .await?;
 
     Ok(Status::Ok)

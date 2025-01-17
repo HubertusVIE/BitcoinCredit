@@ -1,10 +1,13 @@
 use super::Result;
 use log::error;
+use serde::{Deserialize, Serialize};
 use surrealdb::{
     engine::any::{connect, Any},
     Surreal,
 };
 
+pub mod bill;
+pub mod bill_chain;
 pub mod company;
 pub mod company_chain;
 pub mod contact;
@@ -61,6 +64,12 @@ pub async fn get_memory_db(namespace: &str, database: &str) -> Result<Surreal<An
     let db = connect("mem://").await?;
     db.use_ns(namespace).use_db(database).await?;
     Ok(db)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileDb {
+    pub name: String,
+    pub hash: String,
 }
 
 #[cfg(test)]

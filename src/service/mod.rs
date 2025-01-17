@@ -48,11 +48,6 @@ pub enum Error {
     #[error("not found")]
     NotFound,
 
-    /// errors stemming from json deserialization. Most of the time this is a
-    /// bad request on the api but can also be caused by deserializing other messages
-    #[error("JSON Serialization/Deserialization error: {0}")]
-    Json(#[from] serde_json::Error),
-
     /// errors stemming from sending or receiving notifications
     #[error("Notification service error: {0}")]
     NotificationService(#[from] notification_service::Error),
@@ -105,10 +100,6 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             Error::Blockchain(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
-            }
-            Error::Json(e) => {
-                error!("{e}");
-                Status::BadRequest.respond_to(req)
             }
             Error::PreconditionFailed => Status::NotAcceptable.respond_to(req),
             Error::NotFound => {
@@ -222,6 +213,7 @@ pub async fn create_service_context(
     let bill_service = BillService::new(
         client.clone(),
         db.bill_store,
+        db.bill_blockchain_store.clone(),
         db.identity_store.clone(),
         db.file_upload_store.clone(),
         bitcoin_client,

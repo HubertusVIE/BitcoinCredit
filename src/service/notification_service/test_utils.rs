@@ -1,6 +1,6 @@
 use crate::{
     persistence::{
-        bill::MockBillStoreApi,
+        bill::{MockBillChainStoreApi, MockBillStoreApi},
         company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
         contact::MockContactStoreApi,
         file_upload::MockFileUploadStoreApi,
@@ -146,6 +146,7 @@ pub fn get_mock_db_context() -> DbContext {
     DbContext {
         contact_store: Arc::new(MockContactStoreApi::new()),
         bill_store: Arc::new(MockBillStoreApi::new()),
+        bill_blockchain_store: Arc::new(MockBillChainStoreApi::new()),
         identity_store: Arc::new(MockIdentityStoreApi::new()),
         identity_chain_store: Arc::new(MockIdentityChainStoreApi::new()),
         company_store: Arc::new(MockCompanyStoreApi::new()),

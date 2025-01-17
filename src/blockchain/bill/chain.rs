@@ -1,4 +1,4 @@
-use super::super::Result;
+use super::super::{Error, Result};
 use super::block::{
     BillBlock, BillEndorseBlockData, BillIdentityBlockData, BillIssueBlockData, BillMintBlockData,
     BillSellBlockData,
@@ -7,15 +7,16 @@ use super::BillOpCode;
 use super::BillOpCode::{Endorse, Mint, Sell};
 use super::PaymentInfo;
 use super::WaitingForPayment;
-use crate::blockchain::Blockchain;
+use crate::blockchain::{Block, Blockchain};
 use crate::service::bill_service::{BillKeys, BitcreditBill};
 use crate::service::contact_service::IdentityPublicData;
 use crate::util::{self, BcrKeys};
 use crate::web::data::File;
+use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct BillBlockchain {
     blocks: Vec<BillBlock>,
 }
@@ -36,7 +37,6 @@ impl Blockchain for BillBlockchain {
 pub struct LastVersionBill {
     pub id: String,
     pub bill_jurisdiction: String,
-    pub timestamp_at_drawing: u64,
     pub drawee: BillIdentityBlockData,
     pub drawer: BillIdentityBlockData,
     pub payee: BillIdentityBlockData,
@@ -79,17 +79,33 @@ impl BillBlockchain {
         })
     }
 
-    /// Transforms the whole chain to pretty-printed JSON
-    pub fn to_pretty_printed_json(&self) -> Result<String> {
-        let res = serde_json::to_string_pretty(&self)?;
-        Ok(res)
+    /// Creates a bill chain from a vec of blocks
+    pub fn new_from_blocks(blocks_to_add: Vec<BillBlock>) -> Result<Self> {
+        match blocks_to_add.first() {
+            None => Err(Error::BlockchainInvalid),
+            Some(first) => {
+                if !first.verify() || !first.validate_hash() {
+                    return Err(Error::BlockchainInvalid);
+                }
+
+                let chain = Self {
+                    blocks: blocks_to_add,
+                };
+
+                if !chain.is_chain_valid() {
+                    return Err(Error::BlockchainInvalid);
+                }
+
+                Ok(chain)
+            }
+        }
     }
 
     /// Checks if the the chain has Endorse, Mint, or Sell blocks in it
     pub fn has_been_endorsed_sold_or_minted(&self) -> bool {
         self.blocks.iter().any(|block| {
             matches!(
-                block.operation_code,
+                block.op_code,
                 BillOpCode::Mint | BillOpCode::Sell | BillOpCode::Endorse
             )
         })
@@ -99,7 +115,7 @@ impl BillBlockchain {
     pub fn has_been_endorsed_or_sold(&self) -> bool {
         self.blocks
             .iter()
-            .any(|block| matches!(block.operation_code, BillOpCode::Sell | BillOpCode::Endorse))
+            .any(|block| matches!(block.op_code, BillOpCode::Sell | BillOpCode::Endorse))
     }
 
     /// Retrieves the last version of the Bitcredit bill by decrypting and processing the relevant blocks.
@@ -166,7 +182,6 @@ impl BillBlockchain {
         Ok(LastVersionBill {
             id: bill_first_version.id,
             bill_jurisdiction: bill_first_version.bill_jurisdiction,
-            timestamp_at_drawing: bill_first_version.timestamp_at_drawing,
             drawee: bill_first_version.drawee.into(),
             drawer: bill_first_version.drawer.into(),
             payee: payee.clone(),
@@ -325,7 +340,7 @@ mod tests {
         let identity = get_baseline_identity();
 
         let chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -342,7 +357,7 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -363,7 +378,7 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -392,7 +407,7 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -419,7 +434,7 @@ mod tests {
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -454,7 +469,7 @@ mod tests {
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -476,12 +491,12 @@ mod tests {
     }
 
     #[test]
-    fn compare_chain_no_changes() {
+    fn get_blocks_to_add_from_other_chain_no_changes() {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -496,18 +511,18 @@ mod tests {
             chain.get_first_block()
         ),));
 
-        let result = chain.compare_chain(&chain2);
+        let result = chain.get_blocks_to_add_from_other_chain(&chain2);
 
-        assert!(!result);
+        assert!(result.is_empty());
     }
 
     #[test]
-    fn compare_chain_changes() {
+    fn _get_blocks_to_add_from_other_chain_changes() {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 
         let mut chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -522,9 +537,10 @@ mod tests {
             chain.get_first_block()
         ),));
 
-        let result = chain2.compare_chain(&chain);
+        let result = chain2.get_blocks_to_add_from_other_chain(&chain);
 
-        assert!(result);
-        assert_eq!(chain.blocks.len(), chain2.blocks.len());
+        assert!(!result.is_empty());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 2);
     }
 }

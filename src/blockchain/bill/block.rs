@@ -15,7 +15,7 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BillBlock {
     pub bill_id: String,
     pub id: u64,
@@ -25,7 +25,7 @@ pub struct BillBlock {
     pub data: String,
     pub public_key: String,
     pub signature: String,
-    pub operation_code: BillOpCode,
+    pub op_code: BillOpCode,
 }
 
 #[derive(BorshSerialize)]
@@ -36,14 +36,13 @@ pub struct BillBlockDataToHash {
     data: String,
     timestamp: u64,
     public_key: String,
-    operation_code: BillOpCode,
+    op_code: BillOpCode,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillIssueBlockData {
     pub id: String,
     pub bill_jurisdiction: String,
-    pub timestamp_at_drawing: u64,
     pub drawee: IdentityPublicData,
     pub drawer: IdentityPublicData,
     pub payee: IdentityPublicData,
@@ -62,12 +61,15 @@ pub struct BillIssueBlockData {
 }
 
 impl BillIssueBlockData {
-    pub fn from(value: BitcreditBill, signatory: Option<BillSignatoryBlockData>) -> Self {
+    pub fn from(
+        value: BitcreditBill,
+        signatory: Option<BillSignatoryBlockData>,
+        timestamp: u64,
+    ) -> Self {
         let signing_address = value.drawer.postal_address.clone();
         Self {
             id: value.id,
             bill_jurisdiction: value.bill_jurisdiction,
-            timestamp_at_drawing: value.timestamp_at_drawing,
             drawee: value.drawee,
             drawer: value.drawer,
             payee: value.payee,
@@ -81,7 +83,7 @@ impl BillIssueBlockData {
             language: value.language,
             files: value.files,
             signatory,
-            signing_timestamp: value.timestamp_at_drawing,
+            signing_timestamp: timestamp,
             signing_address,
         }
     }
@@ -92,7 +94,6 @@ impl From<BillIssueBlockData> for BitcreditBill {
         Self {
             id: value.id,
             bill_jurisdiction: value.bill_jurisdiction,
-            timestamp_at_drawing: value.timestamp_at_drawing,
             drawee: value.drawee,
             drawer: value.drawer,
             payee: value.payee,
@@ -206,7 +207,7 @@ impl Block for BillBlock {
     }
 
     fn op_code(&self) -> &Self::OpCode {
-        &self.operation_code
+        &self.op_code
     }
 
     fn hash(&self) -> &str {
@@ -237,7 +238,7 @@ impl Block for BillBlock {
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
             public_key: self.public_key().to_owned(),
-            operation_code: self.op_code().to_owned(),
+            op_code: self.op_code().to_owned(),
         };
         data
     }
@@ -262,7 +263,7 @@ impl BillBlock {
         id: u64,
         previous_hash: String,
         data: String,
-        operation_code: BillOpCode,
+        op_code: BillOpCode,
         identity_keys: &BcrKeys,
         company_keys: Option<&BcrKeys>,
         bill_keys: &BcrKeys,
@@ -284,7 +285,7 @@ impl BillBlock {
             data: data.clone(),
             timestamp,
             public_key: aggregated_public_key.clone(),
-            operation_code: operation_code.clone(),
+            op_code: op_code.clone(),
         })?;
         let signature = crypto::aggregated_signature(&hash, &keys)?;
 
@@ -297,7 +298,7 @@ impl BillBlock {
             signature,
             public_key: aggregated_public_key,
             data,
-            operation_code,
+            op_code,
         })
     }
 
@@ -562,7 +563,7 @@ impl BillBlock {
     ///
     pub fn get_nodes_from_block(&self, bill_keys: &BillKeys) -> Result<Vec<String>> {
         let mut nodes = HashSet::new();
-        match self.operation_code {
+        match self.op_code {
             Issue => {
                 let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(bill.drawer.node_id);
@@ -615,7 +616,7 @@ impl BillBlock {
     /// A `String` representing the history label for the given bill.
     ///
     pub fn get_history_label(&self, bill_keys: &BillKeys) -> Result<String> {
-        match self.operation_code {
+        match self.op_code {
             Issue => {
                 let time_of_issue = util::date::seconds(self.timestamp);
                 let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
@@ -706,7 +707,7 @@ mod tests {
         BillBlock::create_block_for_issue(
             "some id".to_string(),
             String::from("prevhash"),
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             &get_baseline_identity().key_pair,
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
@@ -748,7 +749,7 @@ mod tests {
         let block = BillBlock::create_block_for_issue(
             "some id".to_string(),
             String::from("prevhash"),
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             &BcrKeys::new(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
@@ -773,7 +774,7 @@ mod tests {
         let block = BillBlock::create_block_for_issue(
             "some id".to_string(),
             String::from("prevhash"),
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             &BcrKeys::new(),
             None,
             &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),

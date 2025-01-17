@@ -8,12 +8,12 @@ pub mod nostr;
 pub mod notification;
 
 use crate::util;
-use bill::FileBasedBillStore;
 use db::{
-    company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
-    contact::SurrealContactStore, get_surreal_db, identity::SurrealIdentityStore,
-    identity_chain::SurrealIdentityChainStore, nostr_event_offset::SurrealNostrEventOffsetStore,
-    notification::SurrealNotificationStore, SurrealDbConfig,
+    bill::SurrealBillStore, bill_chain::SurrealBillChainStore, company::SurrealCompanyStore,
+    company_chain::SurrealCompanyChainStore, contact::SurrealContactStore, get_surreal_db,
+    identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
+    nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
+    SurrealDbConfig,
 };
 use log::error;
 use notification::NotificationStoreApi;
@@ -35,9 +35,6 @@ pub enum Error {
     #[error("Failed to insert into database: {0}")]
     InsertFailed(String),
 
-    #[error("unable to serialize/deserialize to/from JSON {0}")]
-    Json(#[from] serde_json::Error),
-
     #[error("unable to serialize/deserialize Keypair {0}")]
     Keypair(#[from] libp2p::identity::DecodingError),
 
@@ -47,11 +44,17 @@ pub enum Error {
     #[error("Company Block could not be added: {0}")]
     AddCompanyBlock(String),
 
+    #[error("Bill Block could not be added: {0}")]
+    AddBillBlock(String),
+
     #[error("company chain was invalid: {0}")]
     InvalidCompanyChain(String),
 
     #[error("no company block found")]
     NoCompanyBlock,
+
+    #[error("no bill block found")]
+    NoBillBlock,
 
     #[error("Identity Block could not be added: {0}")]
     AddIdentityBlock(String),
@@ -109,6 +112,7 @@ pub async fn file_storage_path(data_dir: &str, path: &str) -> Result<String> {
 pub struct DbContext {
     pub contact_store: Arc<dyn ContactStoreApi>,
     pub bill_store: Arc<dyn bill::BillStoreApi>,
+    pub bill_blockchain_store: Arc<dyn bill::BillChainStoreApi>,
     pub identity_store: Arc<dyn identity::IdentityStoreApi>,
     pub identity_chain_store: Arc<dyn identity::IdentityChainStoreApi>,
     pub company_chain_store: Arc<dyn company::CompanyChainStoreApi>,
@@ -133,8 +137,8 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
 
     let contact_store = Arc::new(SurrealContactStore::new(db.clone()));
 
-    let bill_store =
-        Arc::new(FileBasedBillStore::new(&conf.data_dir, "bills", "bills_keys").await?);
+    let bill_store = Arc::new(SurrealBillStore::new(db.clone()));
+    let bill_blockchain_store = Arc::new(SurrealBillChainStore::new(db.clone()));
 
     let identity_store = Arc::new(SurrealIdentityStore::new(db.clone()));
     let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(db.clone()));
@@ -146,6 +150,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
     Ok(DbContext {
         contact_store,
         bill_store,
+        bill_blockchain_store,
         identity_store,
         identity_chain_store,
         company_chain_store,

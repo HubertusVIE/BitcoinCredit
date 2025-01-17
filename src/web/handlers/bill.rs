@@ -513,37 +513,6 @@ pub async fn accept_bill(
 
 // Mint
 
-//PUT
-// #[post("/try_mint", format = "json", data = "<mint_bill_payload>")]
-// pub async fn try_mint_bill(
-//     state: &State<ServiceContext>,
-//     mint_bill_payload: Json<MintBitcreditBillPayload>,
-// ) -> Status {
-//     if !state.identity_service.identity_exists().await {
-//         Err(service::Error::PreconditionFailed)
-//     } else {
-//         let mut client = state.inner().clone();
-//
-//         let public_mint_node =
-//             get_identity_public_data(mint_bill_payload.mint_node.clone(), client.clone()).await;
-//
-//         if !public_mint_node.name.is_empty() {
-//             client
-//                 .add_bill_to_dht_for_node(
-//                     &mint_bill_payload.bill_id,
-//                     &public_mint_node.node_id.to_string().clone(),
-//                 )
-//                 .await;
-//
-//             Status::Ok
-//         } else {
-//             Status::NotAcceptable
-//         }
-//     }
-// }
-
-//PUT
-//TODO: add try_mint_bill here?
 #[put(
     "/request_to_mint",
     format = "json",

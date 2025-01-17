@@ -24,7 +24,7 @@ pub struct IdentityBlockDataToHash {
     data: String,
     timestamp: u64,
     public_key: String,
-    operation_code: IdentityOpCode,
+    op_code: IdentityOpCode,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -144,7 +144,7 @@ impl Block for IdentityBlock {
             data: self.data().to_owned(),
             timestamp: self.timestamp(),
             public_key: self.public_key().to_owned(),
-            operation_code: self.op_code().to_owned(),
+            op_code: self.op_code().to_owned(),
         };
         data
     }
@@ -165,7 +165,7 @@ impl IdentityBlock {
             data: data.clone(),
             timestamp,
             public_key: keys.get_public_key(),
-            operation_code: op_code.clone(),
+            op_code: op_code.clone(),
         })?;
         let signature = crypto::signature(&hash, &keys.get_private_key_string())?;
 

@@ -30,10 +30,6 @@ pub enum Error {
     #[error("Block is invalid")]
     BlockInvalid,
 
-    /// Errors stemming from json deserialization. Most of the time this is a
-    #[error("unable to serialize/deserialize to/from JSON {0}")]
-    Json(#[from] serde_json::Error),
-
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Secp256k1Cryptography error: {0}")]
     Secp256k1Cryptography(#[from] crypto::Error),
@@ -176,19 +172,12 @@ pub trait Blockchain {
         self.blocks().first().expect("there is at least one block")
     }
 
-    /// Compares this chain with another one and if the other one is longer, attempts to add new
-    /// blocks from the other chain, as long as the chain remains valid
-    ///
-    /// # Parameters
-    /// - `other_chain: Blockchain` - The chain to compare and synchronize with.
-    ///
-    /// # Returns
-    /// `bool` - whether the local chain changed and needs to be persisted locally after this comparison
-    ///
-    fn compare_chain(&mut self, other_chain: &Self) -> bool {
+    /// Returns the blocks that can be safely added from another chain, checking the consistency of
+    /// the chain after every block
+    fn get_blocks_to_add_from_other_chain(&mut self, other_chain: &Self) -> Vec<Self::Block> {
         let local_chain_last_id = self.get_latest_block().id();
         let other_chain_last_id = other_chain.get_latest_block().id();
-        let mut needs_to_persist = false;
+        let mut blocks_to_add = vec![];
 
         // if it's not the same id, and the local chain is shorter
         if !(local_chain_last_id.eq(&other_chain_last_id)
@@ -197,16 +186,16 @@ pub trait Blockchain {
             let difference_in_id = other_chain_last_id - local_chain_last_id;
             for block_id in 1..difference_in_id + 1 {
                 let block = other_chain.get_block_by_id(local_chain_last_id + block_id);
-                let try_add_block = self.try_add_block(block);
+                let try_add_block = self.try_add_block(block.clone());
                 if try_add_block && self.is_chain_valid() {
-                    needs_to_persist = true;
+                    blocks_to_add.push(block);
                     continue;
                 } else {
-                    return false;
+                    break;
                 }
             }
         }
-        needs_to_persist
+        blocks_to_add
     }
 
     /// Retrieves the last block with the specified op code.

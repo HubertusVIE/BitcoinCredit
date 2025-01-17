@@ -1,13 +1,15 @@
 use super::behaviour::{Command, ComposedEvent, Event, MyBehaviour};
 use super::{GossipsubEvent, GossipsubEventId};
+use crate::blockchain::bill::{BillBlock, BillBlockchain};
 use crate::blockchain::Blockchain;
 use crate::constants::{
     BILL_PREFIX, COMPANY_PREFIX, RELAY_BOOTSTRAP_NODE_ONE_IP, RELAY_BOOTSTRAP_NODE_ONE_PEER_ID,
     RELAY_BOOTSTRAP_NODE_ONE_TCP,
 };
 use crate::dht::behaviour::{CompanyEvent, FileRequest, FileResponse};
-use crate::persistence::bill::BillStoreApi;
+use crate::persistence::bill::{BillChainStoreApi, BillStoreApi};
 use anyhow::{anyhow, Result};
+use borsh::{from_slice, to_vec};
 use futures::channel::mpsc::Receiver;
 use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
@@ -35,7 +37,9 @@ pub struct EventLoop {
     swarm: Swarm<MyBehaviour>,
     command_receiver: Receiver<Command>,
     event_sender: mpsc::Sender<Event>,
+    #[allow(dead_code)]
     bill_store: Arc<dyn BillStoreApi>,
+    bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     pending_dial: PendingDial,
     pending_start_providing: HashMap<QueryId, oneshot::Sender<()>>,
     pending_get_providers: HashMap<QueryId, oneshot::Sender<HashSet<PeerId>>>,
@@ -49,12 +53,14 @@ impl EventLoop {
         command_receiver: Receiver<Command>,
         event_sender: mpsc::Sender<Event>,
         bill_store: Arc<dyn BillStoreApi>,
+        bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     ) -> Self {
         Self {
             swarm,
             command_receiver,
             event_sender,
             bill_store,
+            bill_blockchain_store,
             pending_dial: Default::default(),
             pending_start_providing: Default::default(),
             pending_get_providers: Default::default(),
@@ -314,51 +320,40 @@ impl EventLoop {
                         if let Ok(event) = GossipsubEvent::from_byte_array(&message.data) {
                             match event.id {
                                 GossipsubEventId::BillBlock => {
-                                    if let Ok(block) = serde_json::from_slice(&event.message) {
+                                    if let Ok(block) = from_slice::<BillBlock>(&event.message) {
                                         if let Ok(mut chain) =
-                                            self.bill_store.read_bill_chain_from_file(bill_id).await
+                                            self.bill_blockchain_store.get_chain(bill_id).await
                                         {
-                                            chain.try_add_block(block);
+                                            chain.try_add_block(block.clone());
                                             if chain.is_chain_valid() {
-                                                if let Ok(chain_json) =
-                                                    chain.to_pretty_printed_json()
+                                                if let Err(e) = self
+                                                    .bill_blockchain_store
+                                                    .add_block(bill_id, &block)
+                                                    .await
                                                 {
-                                                    if let Err(e) = self
-                                                        .bill_store
-                                                        .write_blockchain_to_file(
-                                                            bill_id, chain_json,
-                                                        )
-                                                        .await
-                                                    {
-                                                        error!("Could not persist chain for bill {bill_id}: {e}");
-                                                    }
+                                                    error!("Could not add block (id: {}, hash: {}) for bill {bill_id}: {e}", block.id, block.hash);
                                                 }
                                             }
                                         }
                                     }
                                 }
                                 GossipsubEventId::BillBlockchain => {
-                                    if let Ok(receive_chain) =
-                                        serde_json::from_slice(&event.message)
+                                    if let Ok(remote_chain) =
+                                        from_slice::<BillBlockchain>(&event.message)
                                     {
                                         if let Ok(mut local_chain) =
-                                            self.bill_store.read_bill_chain_from_file(bill_id).await
+                                            self.bill_blockchain_store.get_chain(bill_id).await
                                         {
-                                            let should_persist =
-                                                local_chain.compare_chain(&receive_chain);
-                                            if should_persist && local_chain.is_chain_valid() {
-                                                if let Ok(chain_json) =
-                                                    local_chain.to_pretty_printed_json()
+                                            let blocks_to_add = local_chain
+                                                .get_blocks_to_add_from_other_chain(&remote_chain);
+                                            for block in blocks_to_add {
+                                                if let Err(e) = self
+                                                    .bill_blockchain_store
+                                                    .add_block(bill_id, &block)
+                                                    .await
                                                 {
-                                                    if let Err(e) = self
-                                                        .bill_store
-                                                        .write_blockchain_to_file(
-                                                            bill_id, chain_json,
-                                                        )
-                                                        .await
-                                                    {
-                                                        error!("Could not persist chain for bill {bill_id}: {e}");
-                                                    }
+                                                    error!("Could not add block (id: {}, hash: {}) for bill {bill_id}: {e}", block.id, block.hash);
+                                                    break;
                                                 }
                                             }
                                         }
@@ -366,9 +361,9 @@ impl EventLoop {
                                 }
                                 GossipsubEventId::CommandGetBillBlockchain => {
                                     if let Ok(chain) =
-                                        self.bill_store.read_bill_chain_from_file(bill_id).await
+                                        self.bill_blockchain_store.get_chain(bill_id).await
                                     {
-                                        if let Ok(chain_bytes) = serde_json::to_vec(&chain) {
+                                        if let Ok(chain_bytes) = to_vec(&chain) {
                                             let event = GossipsubEvent::new(
                                                 GossipsubEventId::BillBlockchain,
                                                 chain_bytes,

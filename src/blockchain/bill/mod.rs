@@ -72,7 +72,7 @@ pub struct BillBlockToReturn {
     pub data: String,
     pub previous_hash: String,
     pub signature: String,
-    pub operation_code: BillOpCode,
+    pub op_code: BillOpCode,
     pub label: String,
 }
 
@@ -89,7 +89,7 @@ impl BillBlockToReturn {
             data: block.data,
             previous_hash: block.previous_hash,
             signature: block.signature,
-            operation_code: block.operation_code,
+            op_code: block.op_code,
             label,
         })
     }
@@ -125,7 +125,7 @@ pub mod tests {
         let identity = get_baseline_identity();
 
         let result = BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             identity.key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),

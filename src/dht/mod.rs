@@ -23,7 +23,7 @@ pub mod behaviour;
 mod client;
 mod event_loop;
 
-use crate::persistence::bill::BillStoreApi;
+use crate::persistence::bill::{BillChainStoreApi, BillStoreApi};
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
@@ -58,10 +58,6 @@ pub enum Error {
     /// all errors originating from Dial errors
     #[error("Dial error {0}")]
     Dial(#[from] libp2p::swarm::DialError),
-
-    /// all errors originating from serializing, or deserializing json
-    #[error("unable to serialize/deserialize to/from JSON {0}")]
-    Json(#[from] serde_json::Error),
 
     /// all errors originating invalid file requests
     #[error("Invalid File Request: {0}")]
@@ -136,6 +132,7 @@ pub struct Dht {
 pub async fn dht_main(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
+    bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
     company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
@@ -144,6 +141,7 @@ pub async fn dht_main(
     let (network_client, network_events, network_event_loop) = new(
         conf,
         bill_store,
+        bill_blockchain_store,
         company_store,
         company_blockchain_store,
         identity_store,
@@ -176,6 +174,7 @@ pub async fn dht_main(
 async fn new(
     conf: &Config,
     bill_store: Arc<dyn BillStoreApi>,
+    bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
     company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
@@ -320,12 +319,19 @@ async fn new(
 
     let (command_sender, command_receiver) = mpsc::channel(0);
     let (event_sender, event_receiver) = mpsc::channel(0);
-    let event_loop = EventLoop::new(swarm, command_receiver, event_sender, bill_store.clone());
+    let event_loop = EventLoop::new(
+        swarm,
+        command_receiver,
+        event_sender,
+        bill_store.clone(),
+        bill_blockchain_store.clone(),
+    );
 
     Ok((
         Client::new(
             command_sender,
             bill_store,
+            bill_blockchain_store,
             company_store,
             company_blockchain_store,
             identity_store,

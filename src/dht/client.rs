@@ -11,7 +11,10 @@ use crate::blockchain::bill::BillBlockchain;
 use crate::blockchain::company::CompanyBlockchain;
 use crate::blockchain::Blockchain;
 use crate::constants::{BILLS_PREFIX, BILL_PREFIX, COMPANIES_PREFIX, COMPANY_PREFIX};
-use crate::persistence::bill::{bill_chain_from_bytes, bill_keys_from_bytes, BillStoreApi};
+use crate::persistence::bill::{
+    bill_chain_from_bytes, bill_chain_to_bytes, bill_keys_from_bytes, bill_keys_to_bytes,
+    BillChainStoreApi, BillStoreApi,
+};
 use crate::persistence::company::{
     company_chain_from_bytes, company_chain_to_bytes, company_from_bytes, company_keys_from_bytes,
     company_keys_to_bytes, company_to_bytes, CompanyChainStoreApi, CompanyStoreApi,
@@ -19,7 +22,7 @@ use crate::persistence::company::{
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityStoreApi;
 use crate::service::bill_service::BillKeys;
-use crate::service::company_service::{Company, CompanyKeys, CompanyPublicData};
+use crate::service::company_service::{Company, CompanyKeys};
 use crate::{blockchain, util};
 use borsh::{from_slice, to_vec};
 use future::{try_join_all, BoxFuture};
@@ -40,6 +43,7 @@ pub struct Client {
     /// The sender to send events to the event loop
     pub(super) sender: mpsc::Sender<Command>,
     bill_store: Arc<dyn BillStoreApi>,
+    bill_blockchain_store: Arc<dyn BillChainStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
     company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
@@ -50,6 +54,7 @@ impl Client {
     pub fn new(
         sender: mpsc::Sender<Command>,
         bill_store: Arc<dyn BillStoreApi>,
+        bill_blockchain_store: Arc<dyn BillChainStoreApi>,
         company_store: Arc<dyn CompanyStoreApi>,
         company_blockchain_store: Arc<dyn CompanyChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
@@ -58,6 +63,7 @@ impl Client {
         Self {
             sender,
             bill_store,
+            bill_blockchain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -568,89 +574,6 @@ impl Client {
         Ok(())
     }
 
-    /// Puts the public data of all local companies in the DHT
-    pub async fn put_companies_public_data_in_dht(&mut self) -> Result<()> {
-        log::info!("Putting local company public data in the DHT");
-        let companies = self.company_store.get_all().await?;
-
-        if !companies.is_empty() {
-            let tasks = companies.into_iter().map(|(id, (company, company_keys))| {
-                let mut self_clone = self.clone();
-                async move {
-                    self_clone
-                        .put_company_public_data_in_dht(CompanyPublicData::from_all(
-                            id.clone(),
-                            company,
-                            company_keys,
-                        ))
-                        .await
-                }
-            });
-
-            try_join_all(tasks).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Puts the public data of company in the DHT
-    pub async fn put_company_public_data_in_dht(
-        &mut self,
-        local_public_data: CompanyPublicData,
-    ) -> Result<()> {
-        let key = self.company_key(&local_public_data.id);
-        let local_json = serde_json::to_string(&local_public_data)?.into_bytes();
-
-        match self.get_record(key.clone()).await {
-            Err(_) => {
-                self.put_record(key, local_json).await?;
-            }
-            Ok(company_record) => {
-                let dht_record = company_record.value;
-                if dht_record.is_empty() {
-                    self.put_record(key, local_json).await?;
-                } else {
-                    match serde_json::from_slice::<CompanyPublicData>(&dht_record) {
-                        Err(e) => {
-                            error!(
-                                "Could not parse public data in dht for {}: {e}",
-                                &local_public_data.id
-                            );
-                            self.put_record(key.clone(), local_json).await?;
-                        }
-                        Ok(dht_public_data) => {
-                            if !dht_public_data.eq(&local_public_data) {
-                                self.put_record(key.clone(), local_json).await?;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Queries the DHT for the public company data for the given company id
-    #[allow(dead_code)]
-    pub async fn get_company_public_data_from_dht(
-        &mut self,
-        company_id: &str,
-    ) -> Result<Option<CompanyPublicData>> {
-        let key = self.company_key(company_id);
-        match self.get_record(key.clone()).await {
-            Err(_) => Ok(None),
-            Ok(company_record) => {
-                let current_info = company_record.value;
-                if current_info.is_empty() {
-                    return Ok(None);
-                }
-                let company_public_data: CompanyPublicData = serde_json::from_slice(&current_info)?;
-
-                Ok(Some(company_public_data))
-            }
-        }
-    }
-
     // ---------------------------------------------------------
     // Bill-related logic --------------------------------------
     // ---------------------------------------------------------
@@ -667,7 +590,7 @@ impl Client {
     pub async fn update_bills_table(&mut self, node_id: &str) -> Result<()> {
         let node_request = self.node_request_for_bills(node_id);
 
-        let bill_ids = self.bill_store.get_bill_ids().await?;
+        let bill_ids = self.bill_store.get_ids().await?;
         match self.get_record(node_request.clone()).await {
             Err(_) => {
                 let mut new_record = Vec::with_capacity(bill_ids.len());
@@ -714,7 +637,7 @@ impl Client {
 
     /// Starts providing all locally available bills
     pub async fn start_providing_bills(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bill_ids().await?;
+        let bills = self.bill_store.get_ids().await?;
         for bill in bills {
             self.start_providing_bill(&bill).await?;
         }
@@ -773,7 +696,7 @@ impl Client {
 
             let bills: Vec<String> = from_slice(&bills_for_node)?;
             for bill_id in bills {
-                if self.bill_store.bill_exists(&bill_id).await {
+                if self.bill_store.exists(&bill_id).await {
                     continue;
                 }
                 if let Err(e) = self
@@ -833,16 +756,17 @@ impl Client {
             file_map.insert(file_name, file_bytes);
         }
 
-        self.bill_store
-            .write_blockchain_to_file(bill_id, chain.to_pretty_printed_json()?)
-            .await?;
-        self.bill_store
-            .write_bill_keys_to_file(
-                bill_id.to_string(),
-                bill_keys.private_key,
-                bill_keys.public_key,
-            )
-            .await?;
+        if !chain.is_chain_valid() {
+            error!("Fetched chain for {bill_id} was invalid");
+            return Err(crate::dht::Error::Blockchain(
+                blockchain::Error::BlockchainInvalid,
+            ));
+        }
+        for block in chain.blocks() {
+            self.bill_blockchain_store.add_block(bill_id, block).await?;
+        }
+
+        self.bill_store.save_keys(bill_id, &bill_keys).await?;
 
         for (file_name, file_bytes) in file_map.iter() {
             self.file_upload_store
@@ -951,11 +875,11 @@ impl Client {
 
     /// Puts all participants of every local bill to the record of the respective bill in the DHT
     pub async fn put_bills_for_parties(&mut self) -> Result<()> {
-        let bill_ids = self.bill_store.get_bill_ids().await?;
+        let bill_ids = self.bill_store.get_ids().await?;
 
         for bill in bill_ids {
-            let bill_keys = self.bill_store.read_bill_keys_from_file(&bill).await?;
-            let chain = self.bill_store.read_bill_chain_from_file(&bill).await?;
+            let bill_keys = self.bill_store.get_keys(&bill).await?;
+            let chain = self.bill_blockchain_store.get_chain(&bill).await?;
             let nodes = chain.get_all_nodes_from_bill(&bill_keys)?;
             for node in nodes {
                 self.add_bill_to_dht_for_node(&bill, &node).await?;
@@ -966,7 +890,7 @@ impl Client {
 
     /// Subscribes to all locally available bills
     pub async fn subscribe_to_all_bills_topics(&mut self) -> Result<()> {
-        let bill_ids = self.bill_store.get_bill_ids().await?;
+        let bill_ids = self.bill_store.get_ids().await?;
 
         for bill in bill_ids {
             self.subscribe_to_bill_topic(&bill).await?;
@@ -976,7 +900,7 @@ impl Client {
 
     /// Asks on the topic to receive the current chain of all local bills
     pub async fn receive_updates_for_all_bills_topics(&mut self) -> Result<()> {
-        let bill_ids = self.bill_store.get_bill_ids().await?;
+        let bill_ids = self.bill_store.get_ids().await?;
 
         for bill in bill_ids {
             let event =
@@ -1326,29 +1250,30 @@ impl Client {
     }
 
     async fn handle_bill_file_request(&mut self, bill_id: &str) -> Result<Vec<u8>> {
-        let file = self.bill_store.get_bill_as_bytes(bill_id).await?;
-        Ok(file)
+        let local_chain = self.bill_blockchain_store.get_chain(bill_id).await?;
+        let bytes = bill_chain_to_bytes(&local_chain)?;
+        Ok(bytes)
     }
 
     async fn handle_bill_file_request_for_keys(
         &mut self,
-        key_name: &str,
+        bill_id: &str,
         node_id: &str,
     ) -> Result<Vec<u8>> {
-        let chain = self.bill_store.read_bill_chain_from_file(key_name).await?;
-        let bill_keys = self.bill_store.read_bill_keys_from_file(key_name).await?;
+        let chain = self.bill_blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.bill_store.get_keys(bill_id).await?;
         if chain
             .get_all_nodes_from_bill(&bill_keys)?
             .iter()
             .any(|n| n == node_id)
         {
-            let file = self.bill_store.get_bill_keys_as_bytes(key_name).await?;
-            let file_encrypted = util::crypto::encrypt_ecies(&file, node_id)?;
+            let bytes = bill_keys_to_bytes(&bill_keys)?;
+            let file_encrypted = util::crypto::encrypt_ecies(&bytes, node_id)?;
             Ok(file_encrypted)
         } else {
             Err(super::Error::CallerNotPartOfBill(
                 node_id.to_owned(),
-                key_name.to_string(),
+                bill_id.to_string(),
             ))
         }
     }
@@ -1359,8 +1284,8 @@ impl Client {
         node_id: &str,
         file_name: &str,
     ) -> Result<Vec<u8>> {
-        let chain = self.bill_store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.bill_store.read_bill_keys_from_file(bill_id).await?;
+        let chain = self.bill_blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.bill_store.get_keys(bill_id).await?;
         if chain
             .get_all_nodes_from_bill(&bill_keys)?
             .iter()
@@ -1548,10 +1473,10 @@ impl Client {
                             // identity from DHT and encrypt the file with their public key
                             ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
                                 node_id,
-                                key_name,
+                                bill_id,
                             }) => {
                                 let bytes = self
-                                    .handle_bill_file_request_for_keys(&key_name, &node_id)
+                                    .handle_bill_file_request_for_keys(&bill_id, &node_id)
                                     .await?;
                                 self.respond_file(bytes, channel).await?;
                             }
@@ -1588,7 +1513,7 @@ mod tests {
             COMPANY_PROOF_PREFIX, KEY_PREFIX,
         },
         persistence::{
-            bill::MockBillStoreApi,
+            bill::{MockBillChainStoreApi, MockBillStoreApi},
             company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
             file_upload::MockFileUploadStoreApi,
             identity::MockIdentityStoreApi,
@@ -1596,7 +1521,6 @@ mod tests {
         service::{
             bill_service::tests::{get_baseline_bill, get_genesis_chain},
             company_service::CompanyToReturn,
-            contact_service::IdentityPublicData,
             identity_service::Identity,
         },
         tests::tests::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
@@ -1638,6 +1562,7 @@ mod tests {
         Client::new(
             sender,
             Arc::new(MockBillStoreApi::new()),
+            Arc::new(MockBillChainStoreApi::new()),
             Arc::new(MockCompanyStoreApi::new()),
             Arc::new(MockCompanyChainStoreApi::new()),
             Arc::new(MockIdentityStoreApi::new()),
@@ -1649,6 +1574,7 @@ mod tests {
         Client::new(
             sender,
             Arc::new(MockBillStoreApi::new()),
+            Arc::new(MockBillChainStoreApi::new()),
             Arc::new(MockCompanyStoreApi::new()),
             Arc::new(MockCompanyChainStoreApi::new()),
             Arc::new(MockIdentityStoreApi::new()),
@@ -1658,6 +1584,7 @@ mod tests {
 
     fn get_client_chan_stores(
         mock_bill_storage: MockBillStoreApi,
+        mock_bill_blockchain_storage: MockBillChainStoreApi,
         mock_company_storage: MockCompanyStoreApi,
         mock_company_blockchain_storage: MockCompanyChainStoreApi,
         mock_identity_storage: MockIdentityStoreApi,
@@ -1667,6 +1594,7 @@ mod tests {
         Client::new(
             sender,
             Arc::new(mock_bill_storage),
+            Arc::new(mock_bill_blockchain_storage),
             Arc::new(mock_company_storage),
             Arc::new(mock_company_blockchain_storage),
             Arc::new(mock_identity_storage),
@@ -1676,6 +1604,7 @@ mod tests {
 
     fn get_storages() -> (
         MockBillStoreApi,
+        MockBillChainStoreApi,
         MockCompanyStoreApi,
         MockCompanyChainStoreApi,
         MockIdentityStoreApi,
@@ -1683,6 +1612,7 @@ mod tests {
     ) {
         (
             MockBillStoreApi::new(),
+            MockBillChainStoreApi::new(),
             MockCompanyStoreApi::new(),
             MockCompanyChainStoreApi::new(),
             MockIdentityStoreApi::new(),
@@ -1945,6 +1875,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -1960,6 +1891,7 @@ mod tests {
         });
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -1977,6 +1909,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -1987,6 +1920,7 @@ mod tests {
             .returning(|| Ok(HashMap::new()));
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2003,6 +1937,7 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2028,6 +1963,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2044,6 +1980,7 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2083,6 +2020,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2354,95 +2292,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_company_public_data_from_dht() {
-        let (sender, mut receiver) = mpsc::channel(10);
-
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "COMPANYcompany_1".to_string());
-                        let company = get_baseline_company_data("company_1");
-                        let data =
-                            CompanyPublicData::from_all(company.0, company.1 .0, company.1 .1);
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&"COMPANYcompany_1".to_string()),
-                                serde_json::to_string(&data).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
-        let result = get_client_chan(sender)
-            .get_company_public_data_from_dht("company_1")
-            .await;
-        assert!(result.is_ok());
-        assert!(result.as_ref().unwrap().is_some());
-        assert_eq!(result.as_ref().unwrap().as_ref().unwrap().id, "company_1");
-    }
-
-    #[tokio::test]
-    async fn put_companies_public_data_in_dht() {
-        let (sender, mut receiver) = mpsc::channel(10);
-        let (
-            bill_store,
-            mut company_store,
-            company_blockchain_store,
-            identity_store,
-            file_upload_store,
-        ) = get_storages();
-        company_store.expect_get_all().returning(|| {
-            let mut map = HashMap::new();
-            let company_1 = get_baseline_company_data("company_1");
-            map.insert(String::from("company_1"), (company_1.1 .0, company_1.1 .1));
-            Ok(map)
-        });
-
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::PutRecord { key, value } => {
-                        assert_eq!(key, "COMPANYcompany_1".to_string());
-                        let parsed: CompanyPublicData = serde_json::from_slice(&value).unwrap();
-                        assert_eq!(parsed.id, String::from("company_1"));
-                    }
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "COMPANYcompany_1".to_string());
-                        let result: Vec<u8> = vec![];
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&"COMPANYcompany_1".to_string()),
-                                result,
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
-        let result = get_client_chan_stores(
-            bill_store,
-            company_store,
-            company_blockchain_store,
-            identity_store,
-            file_upload_store,
-            sender,
-        )
-        .put_companies_public_data_in_dht()
-        .await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
     async fn handle_company_data_file_request() {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2457,6 +2311,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2477,6 +2332,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2491,6 +2347,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2504,9 +2361,10 @@ mod tests {
 
     #[tokio::test]
     async fn handle_company_keys_file_request() {
-        let (sender, mut receiver) = mpsc::channel(10);
+        let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2525,27 +2383,9 @@ mod tests {
             })
         });
 
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
-                        let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = TEST_NODE_ID_SECP.to_string();
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
-                                serde_json::to_string(&identity).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2559,9 +2399,10 @@ mod tests {
 
     #[tokio::test]
     async fn handle_company_keys_file_request_not_if_not_signatory() {
-        let (sender, mut receiver) = mpsc::channel(10);
+        let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2574,27 +2415,9 @@ mod tests {
             .expect_get()
             .returning(move |_| Ok(company_clone.clone()));
 
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "IDENTITYsome_other_node_id".to_string());
-                        let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = "some_node_id".to_string();
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&"IDENTITYsome_other_node_id".to_string()),
-                                serde_json::to_string(&identity).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2608,9 +2431,10 @@ mod tests {
 
     #[tokio::test]
     async fn handle_company_chain_file_request() {
-        let (sender, mut receiver) = mpsc::channel(10);
+        let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             mut company_blockchain_store,
             identity_store,
@@ -2626,27 +2450,9 @@ mod tests {
             .expect_get_chain()
             .returning(|_| Ok(get_valid_company_chain("some_id")));
 
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
-                        let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = TEST_NODE_ID_SECP.to_string();
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
-                                serde_json::to_string(&identity).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2660,9 +2466,10 @@ mod tests {
 
     #[tokio::test]
     async fn handle_company_chain_file_request_not_if_not_signatory() {
-        let (sender, mut receiver) = mpsc::channel(10);
+        let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2675,27 +2482,9 @@ mod tests {
             .expect_get()
             .returning(move |_| Ok(company_clone.clone()));
 
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, "IDENTITYsome_other_node_id".to_string());
-                        let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = "some_node_id".to_string();
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&"IDENTITYsome_other_node_id".to_string()),
-                                serde_json::to_string(&identity).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2709,9 +2498,10 @@ mod tests {
 
     #[tokio::test]
     async fn handle_company_logo_file_request() {
-        let (sender, mut receiver) = mpsc::channel(10);
+        let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             mut identity_store,
@@ -2736,27 +2526,9 @@ mod tests {
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()));
 
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
-                        let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = TEST_NODE_ID_SECP.to_string();
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
-                                serde_json::to_string(&identity).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2773,6 +2545,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2791,6 +2564,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2807,6 +2581,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2822,6 +2597,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2838,6 +2614,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2856,6 +2633,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2869,9 +2647,10 @@ mod tests {
 
     #[tokio::test]
     async fn handle_company_proof_file_request() {
-        let (sender, mut receiver) = mpsc::channel(10);
+        let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             mut identity_store,
@@ -2896,27 +2675,9 @@ mod tests {
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()));
 
-        tokio::spawn(async move {
-            while let Some(event) = receiver.next().await {
-                match event {
-                    Command::GetRecord { key, sender } => {
-                        assert_eq!(key, format!("IDENTITY{TEST_NODE_ID_SECP}"));
-                        let mut identity = IdentityPublicData::new_empty();
-                        identity.node_id = TEST_NODE_ID_SECP.to_string();
-                        sender
-                            .send(Ok(Record::new(
-                                Key::new(&format!("IDENTITY{TEST_NODE_ID_SECP}")),
-                                serde_json::to_string(&identity).unwrap().into_bytes(),
-                            )))
-                            .unwrap();
-                    }
-                    _ => panic!("wrong event"),
-                }
-            }
-        });
-
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2933,6 +2694,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2951,6 +2713,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2967,6 +2730,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -2982,6 +2746,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -2998,6 +2763,7 @@ mod tests {
         let (sender, _receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             company_blockchain_store,
             identity_store,
@@ -3016,6 +2782,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -3032,6 +2799,7 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel(10);
         let (
             bill_store,
+            bill_chain_store,
             mut company_store,
             mut company_blockchain_store,
             mut identity_store,
@@ -3177,6 +2945,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,
@@ -3193,6 +2962,7 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel(10);
         let (
             mut bill_store,
+            mut bill_chain_store,
             company_store,
             company_blockchain_store,
             mut identity_store,
@@ -3213,15 +2983,9 @@ mod tests {
             .expect_get_key_pair()
             .returning(move || Ok(keys.clone()));
 
-        bill_store
-            .expect_bill_exists()
-            .returning(|id| id == "bill_1");
-        bill_store
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
-        bill_store
-            .expect_write_bill_keys_to_file()
-            .returning(|_, _, _| Ok(()));
+        bill_store.expect_exists().returning(|id| id == "bill_1");
+        bill_chain_store.expect_add_block().returning(|_, _| Ok(()));
+        bill_store.expect_save_keys().returning(|_, _| Ok(()));
 
         file_upload_store
             .expect_save_attached_file()
@@ -3262,7 +3026,7 @@ mod tests {
                             };
                             sender
                                 .send(Ok(util::crypto::encrypt_ecies(
-                                    &serde_json::to_vec(&keys).unwrap(),
+                                    &to_vec(&keys).unwrap(),
                                     TEST_PUB_KEY_SECP,
                                 )
                                 .unwrap()))
@@ -3285,9 +3049,7 @@ mod tests {
                                 hash: util::sha256_hash(&file_bytes),
                             });
                             let chain = get_genesis_chain(Some(bill));
-                            sender
-                                .send(Ok(serde_json::to_vec(&chain).unwrap()))
-                                .unwrap()
+                            sender.send(Ok(to_vec(&chain).unwrap())).unwrap()
                         } else {
                             panic!("wrong file request: {file_name}");
                         }
@@ -3306,6 +3068,7 @@ mod tests {
 
         let result = get_client_chan_stores(
             bill_store,
+            bill_chain_store,
             company_store,
             company_blockchain_store,
             identity_store,

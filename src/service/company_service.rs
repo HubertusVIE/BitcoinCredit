@@ -571,39 +571,6 @@ pub struct Company {
     pub signatories: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
-pub struct CompanyPublicData {
-    pub id: String,
-    pub name: String,
-    pub postal_address: String,
-    pub email: String,
-    pub public_key: String,
-}
-
-impl CompanyPublicData {
-    pub fn from_all(id: String, company: Company, company_keys: CompanyKeys) -> CompanyPublicData {
-        CompanyPublicData {
-            id,
-            name: company.name,
-            postal_address: company.postal_address,
-            email: company.email,
-            public_key: company_keys.public_key,
-        }
-    }
-}
-
-impl From<CompanyToReturn> for CompanyPublicData {
-    fn from(company: CompanyToReturn) -> Self {
-        Self {
-            id: company.id,
-            name: company.name,
-            postal_address: company.postal_address,
-            email: company.email,
-            public_key: company.public_key,
-        }
-    }
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct CompanyKeys {
     pub private_key: String,

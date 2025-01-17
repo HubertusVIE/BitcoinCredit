@@ -49,6 +49,7 @@ async fn main() -> Result<()> {
     let dht = dht::dht_main(
         &conf,
         db.bill_store.clone(),
+        db.bill_blockchain_store.clone(),
         db.company_store.clone(),
         db.company_chain_store.clone(),
         db.identity_store.clone(),
@@ -88,7 +89,6 @@ async fn main() -> Result<()> {
             error!("Error while checking for new companies: {e}");
         }
         dht_client.put_companies_for_signatories().await?;
-        dht_client.put_companies_public_data_in_dht().await?;
         dht_client.start_providing_companies().await?;
         dht_client.subscribe_to_all_companies_topics().await?;
     }

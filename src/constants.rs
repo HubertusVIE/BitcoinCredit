@@ -45,3 +45,4 @@ pub const DB_DATA: &str = "data";
 pub const DB_OP_CODE: &str = "op_code";
 
 pub const DB_COMPANY_ID: &str = "company_id";
+pub const DB_BILL_ID: &str = "bill_id";

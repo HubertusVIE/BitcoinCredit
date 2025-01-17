@@ -1,4 +1,4 @@
-use super::Result;
+use super::{FileDb, Result};
 use crate::{
     persistence::{company::CompanyStoreApi, Error},
     service::company_service::{Company, CompanyKeys},
@@ -119,12 +119,6 @@ pub struct CompanyDb {
     pub proof_of_registration_file: Option<FileDb>,
     pub logo_file: Option<FileDb>,
     pub signatories: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileDb {
-    pub name: String,
-    pub hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

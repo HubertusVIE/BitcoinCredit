@@ -256,7 +256,7 @@ pub struct BillFileRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BillKeysFileRequest {
     pub node_id: String,
-    pub key_name: String,
+    pub bill_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,7 +322,7 @@ pub fn parse_inbound_file_request(
         })),
         KEY_PREFIX => Ok(ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
             node_id,
-            key_name: parts[2].to_owned(),
+            bill_id: parts[2].to_owned(),
         })),
         BILL_ATTACHMENT_PREFIX => {
             if parts.len() < 4 {
@@ -562,7 +562,7 @@ mod tests {
             parse_inbound_file_request(&format!("{node_id}_KEY_TEST"), &peer_id).unwrap(),
             ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
                 node_id,
-                key_name: "TEST".to_string()
+                bill_id: "TEST".to_string()
             })
         );
     }
@@ -577,7 +577,7 @@ mod tests {
                 .unwrap(),
             ParsedInboundFileRequest::BillKeys(BillKeysFileRequest {
                 node_id,
-                key_name: "TEST".to_string()
+                bill_id: "TEST".to_string()
             })
         );
     }

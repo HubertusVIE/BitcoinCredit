@@ -15,6 +15,7 @@ use crate::blockchain::company::{CompanyBlock, CompanySignCompanyBillBlockData};
 use crate::blockchain::identity::{IdentityBlock, IdentitySignPersonBillBlockData};
 use crate::blockchain::{self, Blockchain};
 use crate::external::bitcoin::BitcoinClientApi;
+use crate::persistence::bill::BillChainStoreApi;
 use crate::persistence::company::CompanyChainStoreApi;
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
@@ -28,6 +29,7 @@ use crate::{
 };
 use crate::{error, CONFIG};
 use async_trait::async_trait;
+use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::info;
@@ -62,10 +64,6 @@ pub enum Error {
     #[error("Caller is not payee, or endorsee")]
     CallerIsNotPayeeOrEndorsee,
 
-    /// errors stemming from json deserialization
-    #[error("unable to serialize/deserialize to/from JSON {0}")]
-    Json(#[from] serde_json::Error),
-
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] blockchain::Error),
@@ -88,6 +86,9 @@ pub enum Error {
 
     #[error("Notification error: {0}")]
     Notification(#[from] notification_service::Error),
+
+    #[error("io error {0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
@@ -97,7 +98,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             Error::CannotReturnCombinedBitcoinKeyForBill => Status::BadRequest.respond_to(req),
             Error::CallerIsNotDrawee => Status::BadRequest.respond_to(req),
             Error::CallerIsNotPayeeOrEndorsee => Status::BadRequest.respond_to(req),
-            Error::Json(e) => {
+            Error::Io(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
@@ -258,6 +259,7 @@ pub trait BillServiceApi: Send + Sync {
 pub struct BillService {
     client: Client,
     store: Arc<dyn BillStoreApi>,
+    blockchain_store: Arc<dyn BillChainStoreApi>,
     identity_store: Arc<dyn IdentityStoreApi>,
     file_upload_store: Arc<dyn FileUploadStoreApi>,
     bitcoin_client: Arc<dyn BitcoinClientApi>,
@@ -271,6 +273,7 @@ impl BillService {
     pub fn new(
         client: Client,
         store: Arc<dyn BillStoreApi>,
+        blockchain_store: Arc<dyn BillChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
         file_upload_store: Arc<dyn FileUploadStoreApi>,
         bitcoin_client: Arc<dyn BitcoinClientApi>,
@@ -282,6 +285,7 @@ impl BillService {
         Self {
             client,
             store,
+            blockchain_store,
             identity_store,
             file_upload_store,
             bitcoin_client,
@@ -298,11 +302,9 @@ impl BillService {
         blockchain: &mut BillBlockchain,
         new_block: BillBlock,
     ) -> Result<()> {
-        let try_add_block = blockchain.try_add_block(new_block);
+        let try_add_block = blockchain.try_add_block(new_block.clone());
         if try_add_block && blockchain.is_chain_valid() {
-            self.store
-                .write_blockchain_to_file(bill_id, blockchain.to_pretty_printed_json()?)
-                .await?;
+            self.blockchain_store.add_block(bill_id, &new_block).await?;
             Ok(())
         } else {
             Err(Error::Blockchain(blockchain::Error::BlockchainInvalid))
@@ -323,7 +325,7 @@ impl BillService {
                 bill_id: bill_id.to_owned(),
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
-                operation: block.operation_code.clone(),
+                operation: block.op_code.clone(),
             },
             keys,
             timestamp,
@@ -352,7 +354,7 @@ impl BillService {
                 bill_id: bill_id.to_owned(),
                 block_id: block.id,
                 block_hash: block.hash.to_owned(),
-                operation: block.operation_code.clone(),
+                operation: block.op_code.clone(),
             },
             signatory_keys,
             company_keys,
@@ -434,7 +436,6 @@ impl BillService {
         Ok(BitcreditBill {
             id: last_version_bill.id,
             bill_jurisdiction: last_version_bill.bill_jurisdiction,
-            timestamp_at_drawing: last_version_bill.timestamp_at_drawing,
             drawee: drawee_contact,
             drawer: drawer_contact,
             payee: payee_contact,
@@ -456,12 +457,12 @@ impl BillService {
 impl BillServiceApi for BillService {
     async fn get_bills(&self) -> Result<Vec<BitcreditBillToReturn>> {
         let mut res = vec![];
-        let bill_ids = self.store.get_bill_ids().await?;
+        let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
 
         for bill_id in bill_ids {
-            let chain = self.store.read_bill_chain_from_file(&bill_id).await?;
-            let bill_keys = self.store.read_bill_keys_from_file(&bill_id).await?;
+            let chain = self.blockchain_store.get_chain(&bill_id).await?;
+            let bill_keys = self.store.get_keys(&bill_id).await?;
             let bill = self
                 .last_version_bill_to_bitcredit_bill(
                     chain.get_last_version_bill(&bill_keys)?,
@@ -500,7 +501,6 @@ impl BillServiceApi for BillService {
             res.push(BitcreditBillToReturn {
                 id: bill.id,
                 bill_jurisdiction: bill.bill_jurisdiction,
-                timestamp_at_drawing: bill.timestamp_at_drawing,
                 drawee: bill.drawee,
                 drawer,
                 payee: bill.payee,
@@ -541,8 +541,8 @@ impl BillServiceApi for BillService {
         bill_id: &str,
     ) -> Result<BillCombinedBitcoinKey> {
         let identity = self.identity_store.get_full().await?;
-        let chain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
 
         let bill = self
             .last_version_bill_to_bitcredit_bill(
@@ -578,8 +578,8 @@ impl BillServiceApi for BillService {
         current_timestamp: u64,
     ) -> Result<BitcreditBillToReturn> {
         let identity = self.identity_store.get_full().await?;
-        let chain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
                 chain.get_last_version_bill(&bill_keys)?,
@@ -691,7 +691,6 @@ impl BillServiceApi for BillService {
         Ok(BitcreditBillToReturn {
             id: bill.id,
             bill_jurisdiction: bill.bill_jurisdiction,
-            timestamp_at_drawing: bill.timestamp_at_drawing,
             drawee: bill.drawee,
             drawer,
             payee: bill.payee,
@@ -725,8 +724,8 @@ impl BillServiceApi for BillService {
     }
 
     async fn get_bill(&self, bill_id: &str) -> Result<BitcreditBill> {
-        let chain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let identity = self.identity_store.get().await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
@@ -738,7 +737,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn get_blockchain_for_bill(&self, bill_id: &str) -> Result<BillBlockchain> {
-        let chain = self.store.read_bill_chain_from_file(bill_id).await?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
         Ok(chain)
     }
 
@@ -752,7 +751,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn get_bill_keys(&self, bill_id: &str) -> Result<BillKeys> {
-        let keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let keys = self.store.get_keys(bill_id).await?;
         Ok(keys)
     }
 
@@ -811,10 +810,12 @@ impl BillServiceApi for BillService {
         let bill_id = util::sha256_hash(public_key.as_bytes());
 
         self.store
-            .write_bill_keys_to_file(
-                bill_id.clone(),
-                keys.get_private_key_string(),
-                public_key.clone(),
+            .save_keys(
+                &bill_id,
+                &BillKeys {
+                    private_key: keys.get_private_key_string(),
+                    public_key: keys.get_public_key(),
+                },
             )
             .await?;
 
@@ -845,7 +846,6 @@ impl BillServiceApi for BillService {
         let bill = BitcreditBill {
             id: bill_id.clone(),
             bill_jurisdiction,
-            timestamp_at_drawing: timestamp,
             place_of_drawing,
             currency_code,
             amount_numbers,
@@ -878,14 +878,14 @@ impl BillServiceApi for BillService {
         };
 
         let chain = BillBlockchain::new(
-            &BillIssueBlockData::from(bill.clone(), signatory_identity),
+            &BillIssueBlockData::from(bill.clone(), signatory_identity, timestamp),
             signatory_keys,
             company_keys,
             keys.clone(),
             timestamp,
         )?;
 
-        let block = chain.get_latest_block();
+        let block = chain.get_first_block();
         match drawer_public_data.t {
             ContactType::Person => {
                 self.add_block_to_identity_chain_for_signed_bill_action(
@@ -912,10 +912,7 @@ impl BillServiceApi for BillService {
             }
         }
 
-        let json_chain = serde_json::to_string_pretty(&chain)?;
-        self.store
-            .write_blockchain_to_file(&bill.id, json_chain)
-            .await?;
+        self.blockchain_store.add_block(&bill.id, block).await?;
 
         // clean up temporary file uploads, if there are any, logging any errors
         if let Some(ref upload_id) = file_upload_id {
@@ -937,7 +934,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn propagate_block(&self, bill_id: &str, block: &BillBlock) -> Result<()> {
-        let block_bytes = serde_json::to_vec(block)?;
+        let block_bytes = to_vec(block)?;
         let event = GossipsubEvent::new(GossipsubEventId::BillBlock, block_bytes);
         let message = event.to_byte_array()?;
 
@@ -980,9 +977,9 @@ impl BillServiceApi for BillService {
     async fn accept_bill(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
         let my_node_id = identity.identity.node_id.clone();
-        let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
 
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
                 blockchain.get_last_version_bill(&bill_keys)?,
@@ -1047,8 +1044,8 @@ impl BillServiceApi for BillService {
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
         let my_node_id = identity.identity.node_id.clone();
-        let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
                 blockchain.get_last_version_bill(&bill_keys)?,
@@ -1104,8 +1101,8 @@ impl BillServiceApi for BillService {
     async fn request_acceptance(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
         let my_node_id = identity.identity.node_id.clone();
-        let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
                 blockchain.get_last_version_bill(&bill_keys)?,
@@ -1167,8 +1164,8 @@ impl BillServiceApi for BillService {
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
         let my_node_id = identity.identity.node_id.clone();
-        let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
                 blockchain.get_last_version_bill(&bill_keys)?,
@@ -1233,8 +1230,8 @@ impl BillServiceApi for BillService {
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
         let my_node_id = identity.identity.node_id.clone();
-        let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
                 blockchain.get_last_version_bill(&bill_keys)?,
@@ -1297,8 +1294,8 @@ impl BillServiceApi for BillService {
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
         let my_node_id = identity.identity.node_id.clone();
-        let mut blockchain = self.store.read_bill_chain_from_file(bill_id).await?;
-        let bill_keys = self.store.read_bill_keys_from_file(bill_id).await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .last_version_bill_to_bitcredit_bill(
                 blockchain.get_last_version_bill(&bill_keys)?,
@@ -1352,11 +1349,32 @@ impl BillServiceApi for BillService {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bill {
+    pub id: String,
+    pub drawer_node_id: String,
+    pub payer_node_id: String,
+    pub payee_node_id: String,
+    pub holder_node_id: String,
+    pub place_of_issuing: String,
+    pub issue_date: String,
+    pub maturity_date: String,
+    pub sum: u64,
+    pub currency_code: String,
+    pub place_of_payment: String,
+    pub requested_to_accept: bool,
+    pub accepted: bool,
+    pub requested_to_pay: bool,
+    pub paid: bool,
+    pub payment_address: Option<String>,
+    pub mint_token: Option<String>,
+    pub language: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct BitcreditBillToReturn {
     pub id: String,
     pub bill_jurisdiction: String,
-    pub timestamp_at_drawing: u64,
     /// The party obliged to pay a Bill
     pub drawee: IdentityPublicData,
     /// The party issuing a Bill
@@ -1408,7 +1426,6 @@ pub struct BitcreditEbillQuote {
 pub struct BitcreditBill {
     pub id: String,
     pub bill_jurisdiction: String,
-    pub timestamp_at_drawing: u64,
     // The party obliged to pay a Bill
     pub drawee: IdentityPublicData,
     // The party issuing a Bill
@@ -1436,7 +1453,6 @@ impl BitcreditBill {
         Self {
             id: "".to_string(),
             bill_jurisdiction: "".to_string(),
-            timestamp_at_drawing: 0,
             drawee: IdentityPublicData::new_empty(),
             drawer: IdentityPublicData::new_empty(),
             payee: IdentityPublicData::new_empty(),
@@ -1454,7 +1470,7 @@ impl BitcreditBill {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct BillKeys {
     pub private_key: String,
     pub public_key: String,
@@ -1477,7 +1493,7 @@ pub mod tests {
     use futures::channel::mpsc;
     use mockall::predicate::{always, eq};
     use persistence::{
-        bill::MockBillStoreApi,
+        bill::{MockBillChainStoreApi, MockBillStoreApi},
         company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
         contact::MockContactStoreApi,
         db::contact::tests::get_baseline_contact,
@@ -1512,7 +1528,7 @@ pub mod tests {
     pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
         let bill = bill.unwrap_or(get_baseline_bill("some id"));
         BillBlockchain::new(
-            &BillIssueBlockData::from(bill, None),
+            &BillIssueBlockData::from(bill, None, 1731593928),
             get_baseline_identity().key_pair,
             None,
             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
@@ -1523,6 +1539,7 @@ pub mod tests {
 
     fn get_service(
         mock_storage: MockBillStoreApi,
+        mock_chain_storage: MockBillChainStoreApi,
         mock_identity_storage: MockIdentityStoreApi,
         mock_file_upload_storage: MockFileUploadStoreApi,
         mock_identity_chain_storage: MockIdentityChainStoreApi,
@@ -1531,6 +1548,7 @@ pub mod tests {
     ) -> BillService {
         get_service_base(
             mock_storage,
+            mock_chain_storage,
             mock_identity_storage,
             mock_file_upload_storage,
             mock_identity_chain_storage,
@@ -1542,6 +1560,7 @@ pub mod tests {
 
     fn get_service_base(
         mock_storage: MockBillStoreApi,
+        mock_chain_storage: MockBillChainStoreApi,
         mock_identity_storage: MockIdentityStoreApi,
         mock_file_upload_storage: MockFileUploadStoreApi,
         mock_identity_chain_storage: MockIdentityChainStoreApi,
@@ -1562,12 +1581,14 @@ pub mod tests {
             Client::new(
                 sender,
                 Arc::new(MockBillStoreApi::new()),
+                Arc::new(MockBillChainStoreApi::new()),
                 Arc::new(MockCompanyStoreApi::new()),
                 Arc::new(MockCompanyChainStoreApi::new()),
                 Arc::new(MockIdentityStoreApi::new()),
                 Arc::new(MockFileUploadStoreApi::new()),
             ),
             Arc::new(mock_storage),
+            Arc::new(mock_chain_storage),
             Arc::new(mock_identity_storage),
             Arc::new(mock_file_upload_storage),
             Arc::new(bitcoin_client),
@@ -1580,6 +1601,7 @@ pub mod tests {
 
     fn get_storages() -> (
         MockBillStoreApi,
+        MockBillChainStoreApi,
         MockIdentityStoreApi,
         MockFileUploadStoreApi,
         MockIdentityChainStoreApi,
@@ -1614,6 +1636,7 @@ pub mod tests {
             .returning(|_, _| Ok(()));
         (
             MockBillStoreApi::new(),
+            MockBillChainStoreApi::new(),
             MockIdentityStoreApi::new(),
             MockFileUploadStoreApi::new(),
             identity_chain_store,
@@ -1626,6 +1649,7 @@ pub mod tests {
     async fn issue_bill_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             mut file_upload_storage,
             identity_chain_store,
@@ -1644,12 +1668,8 @@ pub mod tests {
         file_upload_storage
             .expect_save_attached_file()
             .returning(move |_, _, _| Ok(()));
-        storage
-            .expect_write_bill_keys_to_file()
-            .returning(|_, _, _| Ok(()));
-        storage
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
+        storage.expect_save_keys().returning(|_, _| Ok(()));
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
         identity_storage
             .expect_get_key_pair()
             .returning(|| Ok(get_baseline_identity().key_pair));
@@ -1663,6 +1683,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1701,6 +1722,7 @@ pub mod tests {
     async fn save_encrypt_open_decrypt_compare_hashes() {
         let (
             storage,
+            chain_storage,
             identity_storage,
             mut file_upload_storage,
             identity_chain_store,
@@ -1726,6 +1748,7 @@ pub mod tests {
             .returning(move |_, _| Ok(expected_encrypted.clone()));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1754,6 +1777,7 @@ pub mod tests {
     async fn save_encrypt_propagates_write_file_error() {
         let (
             storage,
+            chain_storage,
             identity_storage,
             mut file_upload_storage,
             identity_chain_store,
@@ -1770,6 +1794,7 @@ pub mod tests {
             });
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1787,6 +1812,7 @@ pub mod tests {
     async fn open_decrypt_propagates_read_file_error() {
         let (
             storage,
+            chain_storage,
             identity_storage,
             mut file_upload_storage,
             identity_chain_store,
@@ -1803,6 +1829,7 @@ pub mod tests {
             });
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1820,13 +1847,14 @@ pub mod tests {
     async fn get_bill_keys_calls_storage() {
         let (
             mut storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
             contact_storage,
         ) = get_storages();
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
@@ -1834,6 +1862,7 @@ pub mod tests {
         });
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1856,13 +1885,14 @@ pub mod tests {
     async fn get_bill_keys_propagates_errors() {
         let (
             mut storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
             contact_storage,
         ) = get_storages();
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Err(persistence::Error::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "test error",
@@ -1870,6 +1900,7 @@ pub mod tests {
         });
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1884,6 +1915,7 @@ pub mod tests {
     async fn get_bills_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1896,17 +1928,17 @@ pub mod tests {
         identity_storage
             .expect_get()
             .returning(|| Ok(get_baseline_identity().identity));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(|_| Ok(get_genesis_chain(None)));
         storage
-            .expect_get_bill_ids()
+            .expect_get_ids()
             .returning(|| Ok(vec!["some id".to_string()]));
 
         notification_service
@@ -1916,6 +1948,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1935,18 +1968,20 @@ pub mod tests {
     async fn get_bills_empty_for_no_bills() {
         let (
             mut storage,
+            chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
             contact_storage,
         ) = get_storages();
-        storage.expect_get_bill_ids().returning(|| Ok(vec![]));
+        storage.expect_get_ids().returning(|| Ok(vec![]));
         identity_storage
             .expect_get()
             .returning(|| Ok(get_baseline_identity().identity));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1963,6 +1998,7 @@ pub mod tests {
     async fn get_full_bill_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -1974,14 +2010,14 @@ pub mod tests {
         let mut bill = get_baseline_bill("some id");
         bill.drawee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -1993,6 +2029,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2011,6 +2048,7 @@ pub mod tests {
     async fn accept_bill_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2020,17 +2058,15 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.drawee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
-        storage
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2045,6 +2081,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2056,13 +2093,14 @@ pub mod tests {
         let res = service.accept_bill("some id", 1731593928).await;
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 2);
-        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Accept);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::Accept);
     }
 
     #[tokio::test]
     async fn accept_bill_fails_if_drawee_not_caller() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2072,7 +2110,7 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
@@ -2081,11 +2119,12 @@ pub mod tests {
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2101,6 +2140,7 @@ pub mod tests {
     async fn accept_bill_fails_if_already_accepted() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2114,7 +2154,7 @@ pub mod tests {
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
@@ -2135,11 +2175,12 @@ pub mod tests {
             )
             .unwrap(),
         );
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(chain.clone()));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2155,6 +2196,7 @@ pub mod tests {
     async fn request_pay_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2164,17 +2206,15 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
-        storage
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2189,6 +2229,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2200,13 +2241,14 @@ pub mod tests {
         let res = service.request_pay("some id", "sat", 1731593928).await;
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 2);
-        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::RequestToPay);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::RequestToPay);
     }
 
     #[tokio::test]
     async fn request_pay_fails_if_payee_not_caller() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2216,20 +2258,21 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2245,6 +2288,7 @@ pub mod tests {
     async fn request_acceptance_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2254,17 +2298,15 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
-        storage
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2279,6 +2321,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2290,13 +2333,14 @@ pub mod tests {
         let res = service.request_acceptance("some id", 1731593928).await;
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 2);
-        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::RequestToAccept);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::RequestToAccept);
     }
 
     #[tokio::test]
     async fn request_acceptance_fails_if_payee_not_caller() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2306,20 +2350,21 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2335,6 +2380,7 @@ pub mod tests {
     async fn mint_bitcredit_bill_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2344,17 +2390,15 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
-        storage
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2369,6 +2413,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2388,13 +2433,14 @@ pub mod tests {
             .await;
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 2);
-        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Mint);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::Mint);
     }
 
     #[tokio::test]
     async fn mint_bitcredit_bill_fails_if_payee_not_caller() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2404,20 +2450,21 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2441,6 +2488,7 @@ pub mod tests {
     async fn sell_bitcredit_bill_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2450,17 +2498,15 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
-        storage
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2475,6 +2521,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2494,13 +2541,14 @@ pub mod tests {
             .await;
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 2);
-        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Sell);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::Sell);
     }
 
     #[tokio::test]
     async fn sell_bitcredit_bill_fails_if_payee_not_caller() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2510,20 +2558,21 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2547,6 +2596,7 @@ pub mod tests {
     async fn endorse_bitcredit_bill_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2556,17 +2606,15 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
-        storage
-            .expect_write_blockchain_to_file()
-            .returning(|_, _| Ok(()));
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2581,6 +2629,7 @@ pub mod tests {
 
         let service = get_service_base(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2598,13 +2647,14 @@ pub mod tests {
             .await;
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 2);
-        assert!(res.unwrap().blocks()[1].operation_code == BillOpCode::Endorse);
+        assert!(res.unwrap().blocks()[1].op_code == BillOpCode::Endorse);
     }
 
     #[tokio::test]
     async fn endorse_bitcredit_bill_fails_if_payee_not_caller() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2614,20 +2664,21 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
             .returning(move || Ok(identity.clone()));
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2645,6 +2696,7 @@ pub mod tests {
     async fn get_combined_bitcoin_key_for_bill_baseline() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2655,14 +2707,14 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(identity.key_pair.get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2670,6 +2722,7 @@ pub mod tests {
 
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2685,6 +2738,7 @@ pub mod tests {
     async fn get_combined_bitcoin_key_for_bill_err() {
         let (
             mut storage,
+            mut chain_storage,
             mut identity_storage,
             file_upload_storage,
             identity_chain_store,
@@ -2695,14 +2749,14 @@ pub mod tests {
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
-        storage.expect_read_bill_keys_from_file().returning(|_| {
+        storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
-        storage
-            .expect_read_bill_chain_from_file()
+        chain_storage
+            .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
         identity_storage
             .expect_get_full()
@@ -2710,6 +2764,7 @@ pub mod tests {
 
         let service = get_service(
             storage,
+            chain_storage,
             identity_storage,
             file_upload_storage,
             identity_chain_store,
