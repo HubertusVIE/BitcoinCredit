@@ -124,7 +124,7 @@ impl From<Contact> for ContactDb {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::{persistence::db::get_memory_db, tests::test::TEST_NODE_ID_SECP};
+    use crate::{persistence::db::get_memory_db, tests::tests::TEST_NODE_ID_SECP};
 
     pub fn get_baseline_contact() -> Contact {
         Contact {

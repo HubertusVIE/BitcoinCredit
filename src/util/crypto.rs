@@ -154,7 +154,7 @@ impl BcrKeys {
 }
 
 /// Number of words to use when generating BIP39 seed phrases
-const BIP39_WORD_COUNT: usize = 24;
+const BIP39_WORD_COUNT: usize = 12;
 
 /// Calculates the XOnlyPublicKey as hex from the given node_id to be used as the npub as hex for
 /// nostr
@@ -314,7 +314,7 @@ pub fn decrypt_ecies(bytes: &[u8], private_key: &str) -> Result<Vec<u8>> {
 
 // ------------------------ BIP39 ---------------------------
 
-/// Generata a new secp256k1 keypair using a 12 word seed phrase.
+/// Generate a new secp256k1 keypair using a 12 word seed phrase.
 /// Returns both the keypair and the Mnemonic with the seed phrase.
 fn generate_keypair_from_seed_phrase() -> Result<(Mnemonic, Keypair)> {
     let mnemonic = Mnemonic::generate(BIP39_WORD_COUNT)?;
@@ -342,8 +342,8 @@ fn keypair_from_mnemonic(mnemonic: &Mnemonic) -> Result<Keypair> {
 mod tests {
     use super::*;
     use crate::{
-        service::company_service::test::get_baseline_company_data,
-        tests::test::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
+        service::company_service::tests::get_baseline_company_data,
+        tests::tests::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
         util,
     };
     use borsh::to_vec;

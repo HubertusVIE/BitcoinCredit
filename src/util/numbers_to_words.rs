@@ -67,7 +67,7 @@ fn format_num(num: &u64, div: u64, order: &str) -> String {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]

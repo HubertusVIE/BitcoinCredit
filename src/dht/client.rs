@@ -139,8 +139,13 @@ impl Client {
             if self.company_store.exists(&company).await {
                 continue;
             }
-            self.get_company_data_from_the_network(&company, &local_node_id)
-                .await?;
+            if let Err(e) = self
+                .get_company_data_from_the_network(&company, &local_node_id)
+                .await
+            {
+                error!("Could not get company data from network for {company}: {e}");
+                continue;
+            }
             self.start_providing_company(&company).await?;
             self.subscribe_to_company_topic(&company).await?;
         }
@@ -771,8 +776,13 @@ impl Client {
                 if self.bill_store.bill_exists(&bill_id).await {
                     continue;
                 }
-                self.get_bill_data_from_the_network(&bill_id, &local_node_id)
-                    .await?;
+                if let Err(e) = self
+                    .get_bill_data_from_the_network(&bill_id, &local_node_id)
+                    .await
+                {
+                    error!("Could not get bill data from network for {bill_id}: {e}");
+                    continue;
+                };
                 self.start_providing_bill(&bill_id).await?;
                 self.subscribe_to_bill_topic(&bill_id).await?;
             }
@@ -941,17 +951,14 @@ impl Client {
 
     /// Puts all participants of every local bill to the record of the respective bill in the DHT
     pub async fn put_bills_for_parties(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bills().await?;
+        let bill_ids = self.bill_store.get_bill_ids().await?;
 
-        for bill in bills {
-            let bill_keys = self.bill_store.read_bill_keys_from_file(&bill.name).await?;
-            let chain = self
-                .bill_store
-                .read_bill_chain_from_file(&bill.name)
-                .await?;
+        for bill in bill_ids {
+            let bill_keys = self.bill_store.read_bill_keys_from_file(&bill).await?;
+            let chain = self.bill_store.read_bill_chain_from_file(&bill).await?;
             let nodes = chain.get_all_nodes_from_bill(&bill_keys)?;
             for node in nodes {
-                self.add_bill_to_dht_for_node(&bill.name, &node).await?;
+                self.add_bill_to_dht_for_node(&bill, &node).await?;
             }
         }
         Ok(())
@@ -959,24 +966,24 @@ impl Client {
 
     /// Subscribes to all locally available bills
     pub async fn subscribe_to_all_bills_topics(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bills().await?;
+        let bill_ids = self.bill_store.get_bill_ids().await?;
 
-        for bill in bills {
-            self.subscribe_to_bill_topic(&bill.name).await?;
+        for bill in bill_ids {
+            self.subscribe_to_bill_topic(&bill).await?;
         }
         Ok(())
     }
 
     /// Asks on the topic to receive the current chain of all local bills
     pub async fn receive_updates_for_all_bills_topics(&mut self) -> Result<()> {
-        let bills = self.bill_store.get_bills().await?;
+        let bill_ids = self.bill_store.get_bill_ids().await?;
 
-        for bill in bills {
+        for bill in bill_ids {
             let event =
                 GossipsubEvent::new(GossipsubEventId::CommandGetBillBlockchain, vec![0; 24]);
             let message = event.to_byte_array()?;
 
-            self.add_message_to_bill_topic(message, &bill.name).await?;
+            self.add_message_to_bill_topic(message, &bill).await?;
         }
         Ok(())
     }
@@ -1573,7 +1580,7 @@ impl Client {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use crate::{
         constants::{
@@ -1587,12 +1594,12 @@ mod test {
             identity::MockIdentityStoreApi,
         },
         service::{
-            bill_service::test::{get_baseline_bill, get_genesis_chain},
+            bill_service::tests::{get_baseline_bill, get_genesis_chain},
             company_service::CompanyToReturn,
             contact_service::IdentityPublicData,
             identity_service::Identity,
         },
-        tests::test::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         web::data::File,
     };
     use blockchain::company::CompanyCreateBlockData;

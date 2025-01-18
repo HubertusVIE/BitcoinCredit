@@ -104,20 +104,20 @@ pub fn get_identity_public_data(
     nostr_relay: Option<&str>,
 ) -> IdentityPublicData {
     let mut identity = IdentityPublicData::new_only_node_id(node_id.to_owned());
-    identity.email = email.to_owned();
+    identity.email = Some(email.to_owned());
     identity.nostr_relay = nostr_relay.map(|nostr_relay| nostr_relay.to_owned());
     identity
 }
 
 pub fn get_test_bitcredit_bill(
-    name: &str,
+    id: &str,
     payer: &IdentityPublicData,
     payee: &IdentityPublicData,
     drawer: Option<&IdentityPublicData>,
     endorsee: Option<&IdentityPublicData>,
 ) -> BitcreditBill {
     let mut bill = BitcreditBill::new_empty();
-    bill.name = name.to_owned();
+    bill.id = id.to_owned();
     bill.payee = payee.clone();
     bill.drawee = payer.clone();
     if let Some(drawer) = drawer {

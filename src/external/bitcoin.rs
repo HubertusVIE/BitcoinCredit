@@ -48,7 +48,11 @@ pub trait BitcoinClientApi: Send + Sync {
 
     fn generate_link_to_pay(&self, address: &str, amount: u64, message: &str) -> String;
 
-    fn get_combined_private_key(&self, pkey: &str, pkey_to_combine: &str) -> Result<String>;
+    fn get_combined_private_key(
+        &self,
+        pkey: &bitcoin::PrivateKey,
+        pkey_to_combine: &bitcoin::PrivateKey,
+    ) -> Result<String>;
 }
 
 #[derive(Clone)]
@@ -143,15 +147,14 @@ impl BitcoinClientApi for BitcoinClient {
         link
     }
 
-    fn get_combined_private_key(&self, pkey: &str, pkey_to_combine: &str) -> Result<String> {
-        let private_key_bill = bitcoin::PrivateKey::from_str(pkey).map_err(Error::from)?;
-
-        let private_key_bill_holder =
-            bitcoin::PrivateKey::from_str(pkey_to_combine).map_err(Error::from)?;
-
-        let private_key_bill = private_key_bill
+    fn get_combined_private_key(
+        &self,
+        pkey: &bitcoin::PrivateKey,
+        pkey_to_combine: &bitcoin::PrivateKey,
+    ) -> Result<String> {
+        let private_key_bill = pkey
             .inner
-            .add_tweak(&Scalar::from(private_key_bill_holder.inner))
+            .add_tweak(&Scalar::from(pkey_to_combine.inner))
             .map_err(Error::from)?;
         Ok(bitcoin::PrivateKey::new(private_key_bill, CONFIG.bitcoin_network()).to_string())
     }

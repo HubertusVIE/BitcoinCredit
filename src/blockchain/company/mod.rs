@@ -1,6 +1,6 @@
 use super::bill::BillOpCode;
 use super::Result;
-use super::{Block, Blockchain};
+use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::service::company_service::{CompanyKeys, CompanyToReturn};
 use crate::util::{self, crypto, BcrKeys};
 use crate::web::data::File;
@@ -36,8 +36,8 @@ pub enum SignatoryType {
 
 /// Structure for the block data of a company block
 ///
-/// - `data` contains the actual data of the block, encrypted using the company's RSA pub key
-/// - `key` is optional and if set, contains the company private keys encrypted by an identity RSA
+/// - `data` contains the actual data of the block, encrypted using the company's pub key
+/// - `key` is optional and if set, contains the company private keys encrypted by an identity
 ///   pub key (e.g. for CreateCompany the creator's and AddSignatory the signatory's)
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct CompanyBlockData {
@@ -190,11 +190,7 @@ impl CompanyBlock {
             identity_keys.get_private_key_string(),
             company_keys.private_key.to_owned(),
         ];
-        let signatory_node_id = identity_keys
-            .get_libp2p_keys()?
-            .public()
-            .to_peer_id()
-            .to_string();
+        let signatory_node_id = identity_keys.get_public_key();
         let aggregated_public_key = crypto::get_aggregated_public_key(&keys)?;
         let hash = Self::calculate_hash(CompanyBlockDataToHash {
             company_id: company_id.clone(),
@@ -224,7 +220,6 @@ impl CompanyBlock {
 
     pub fn create_block_for_create(
         company_id: String,
-        id: u64,
         genesis_hash: String,
         company: &CompanyCreateBlockData,
         identity_keys: &BcrKeys,
@@ -238,22 +233,22 @@ impl CompanyBlock {
             &company_keys.public_key,
         )?);
 
-        let keys_bytes = to_vec(&company_keys)?;
+        let key_bytes = to_vec(&company_keys.private_key)?;
         // encrypt company keys using creator's identity pub key
-        let encrypted_keys = util::base58_encode(&util::crypto::encrypt_ecies(
-            &keys_bytes,
+        let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
+            &key_bytes,
             &identity_keys.get_public_key(),
         )?);
 
         let data = CompanyBlockData {
             data: encrypted_data,
-            key: Some(encrypted_keys),
+            key: Some(encrypted_key),
         };
         let serialized_and_hashed_data = util::base58_encode(&to_vec(&data)?);
 
         Self::new(
             company_id.to_owned(),
-            id,
+            FIRST_BLOCK_ID,
             genesis_hash,
             serialized_and_hashed_data,
             CompanyOpCode::Create,
@@ -284,7 +279,6 @@ impl CompanyBlock {
         Ok(block)
     }
 
-    #[allow(dead_code)]
     pub fn create_block_for_sign_company_bill(
         company_id: String,
         previous_block: &Self,
@@ -366,23 +360,23 @@ impl CompanyBlock {
             &company_keys.public_key,
         )?);
 
-        let mut keys = None;
+        let mut key = None;
 
         // in case there are keys to encrypt, encrypt them using the receiver's identity pub key
         if op_code == CompanyOpCode::AddSignatory {
             if let Some(signatory_public_key) = public_key_for_keys {
-                let keys_bytes = to_vec(&company_keys)?;
-                let encrypted_keys = util::base58_encode(&util::crypto::encrypt_ecies(
-                    &keys_bytes,
+                let key_bytes = to_vec(&company_keys.private_key)?;
+                let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
+                    &key_bytes,
                     signatory_public_key,
                 )?);
-                keys = Some(encrypted_keys);
+                key = Some(encrypted_key);
             }
         }
 
         let data = CompanyBlockData {
             data: encrypted_data,
-            key: keys,
+            key,
         };
         let serialized_and_hashed_data = util::base58_encode(&to_vec(&data)?);
 
@@ -433,7 +427,6 @@ impl CompanyBlockchain {
 
         let first_block = CompanyBlock::create_block_for_create(
             company.id.clone(),
-            1,
             genesis_hash,
             company,
             identity_keys,
@@ -470,11 +463,11 @@ impl CompanyBlockchain {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use crate::{
-        service::company_service::{test::get_baseline_company_data, CompanyToReturn},
-        tests::test::TEST_PUB_KEY_SECP,
+        service::company_service::{tests::get_baseline_company_data, CompanyToReturn},
+        tests::tests::TEST_PUB_KEY_SECP,
     };
 
     #[test]

@@ -160,19 +160,18 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_company_and_keys_by_id(&self, id: &str) -> Result<(Company, CompanyKeys)> {
-        let (company, keys) = self.get_company_and_keys_by_id(id).await?;
-        Ok((company, keys))
-    }
-
-    async fn get_company_by_id(&self, id: &str) -> Result<CompanyToReturn> {
         if !self.store.exists(id).await {
             return Err(super::Error::Validation(format!(
                 "No company with id: {id} found",
             )));
         }
-
         let company = self.store.get(id).await?;
         let keys = self.store.get_key_pair(id).await?;
+        Ok((company, keys))
+    }
+
+    async fn get_company_by_id(&self, id: &str) -> Result<CompanyToReturn> {
+        let (company, keys) = self.get_company_and_keys_by_id(id).await?;
         Ok(CompanyToReturn::from(id.to_owned(), company, keys))
     }
 
@@ -612,7 +611,7 @@ pub struct CompanyKeys {
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod tests {
     use super::*;
     use crate::{
         blockchain::{identity::IdentityBlockchain, Blockchain},
@@ -625,7 +624,7 @@ pub mod test {
             identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
         },
         service::identity_service::{Identity, IdentityWithAll},
-        tests::test::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
     };
     use mockall::predicate::{always, eq};
     use std::collections::HashMap;
@@ -692,7 +691,7 @@ pub mod test {
         )
     }
 
-    fn get_valid_company_block() -> CompanyBlock {
+    pub fn get_valid_company_block() -> CompanyBlock {
         let (id, (company, company_keys)) = get_baseline_company_data();
         let to_return = CompanyToReturn::from(id, company, company_keys.clone());
 

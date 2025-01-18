@@ -215,7 +215,7 @@ mod tests {
         blockchain::company::CompanyUpdateBlockData,
         persistence::db::get_memory_db,
         service::company_service::{CompanyKeys, CompanyToReturn},
-        tests::test::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        tests::tests::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         util::BcrKeys,
     };
 
@@ -238,7 +238,6 @@ mod tests {
         let store = get_store().await;
         let block = CompanyBlock::create_block_for_create(
             "some_id".to_string(),
-            1,
             "genesis hash".to_string(),
             &CompanyToReturn {
                 id: "some_id".to_string(),
@@ -290,7 +289,6 @@ mod tests {
         let store = get_store().await;
         let block = CompanyBlock::create_block_for_create(
             "some_id".to_string(),
-            1,
             "genesis hash".to_string(),
             &CompanyToReturn {
                 id: "some_id".to_string(),

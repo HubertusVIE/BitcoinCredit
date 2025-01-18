@@ -164,7 +164,7 @@ pub struct ServiceContext {
 
 /// A structure describing the currently selected identity between the personal and multiple
 /// possible company identities
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SwitchIdentityState {
     pub personal: String,
     pub company: Option<String>,
@@ -227,6 +227,8 @@ pub async fn create_service_context(
         bitcoin_client,
         notification_service.clone(),
         db.identity_chain_store.clone(),
+        db.company_chain_store.clone(),
+        db.contact_store.clone(),
     );
     let identity_service =
         IdentityService::new(db.identity_store.clone(), db.identity_chain_store.clone());

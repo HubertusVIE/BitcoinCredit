@@ -1,7 +1,6 @@
 use super::{file_storage_path, Result};
 use crate::{
-    blockchain::bill::BillBlockchain,
-    service::bill_service::{BillKeys, BitcreditBill},
+    blockchain::bill::BillBlockchain, service::bill_service::BillKeys,
     util::file::is_not_hidden_or_directory_async,
 };
 use async_trait::async_trait;
@@ -28,9 +27,6 @@ pub trait BillStoreApi: Send + Sync {
 
     /// Gets all bill ids
     async fn get_bill_ids(&self) -> Result<Vec<String>>;
-
-    /// Gets all bills
-    async fn get_bills(&self) -> Result<Vec<BitcreditBill>>;
 
     /// Reads the blockchain of the given bill from disk
     async fn read_bill_chain_from_file(&self, bill_id: &str) -> Result<BillBlockchain>;
@@ -131,25 +127,6 @@ impl BillStoreApi for FileBasedBillStore {
             }
         }
         Ok(res)
-    }
-
-    async fn get_bills(&self) -> Result<Vec<BitcreditBill>> {
-        let mut bills = Vec::new();
-        let mut dir = read_dir(self.get_path_for_bills()).await?;
-        while let Some(entry) = dir.next_entry().await? {
-            if is_not_hidden_or_directory_async(&entry).await {
-                let bill_path = entry.path();
-                if let Some(file_name) = bill_path.file_stem() {
-                    if let Some(file_name_str) = file_name.to_str() {
-                        let chain = self.read_bill_chain_from_file(file_name_str).await?;
-                        let bill_keys = self.read_bill_keys_from_file(file_name_str).await?;
-                        let bill = chain.get_last_version_bill(&bill_keys)?;
-                        bills.push(bill);
-                    }
-                }
-            }
-        }
-        Ok(bills)
     }
 
     async fn read_bill_chain_from_file(&self, bill_id: &str) -> Result<BillBlockchain> {

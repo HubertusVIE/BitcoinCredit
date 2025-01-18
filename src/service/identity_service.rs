@@ -39,7 +39,7 @@ pub trait IdentityServiceApi: Send + Sync {
         timestamp: u64,
     ) -> Result<()>;
     async fn get_seedphrase(&self) -> Result<String>;
-    /// Rcovers the private keys in the identity from a seed pharse
+    /// Recovers the private keys in the identity from a seed phrase
     async fn recover_from_seedphrase(&self, seed: &str) -> Result<()>;
 }
 
@@ -250,14 +250,13 @@ impl IdentityToReturn {
 }
 
 #[cfg(test)]
-mod test {
-    use mockall::predicate::eq;
-
+mod tests {
     use super::*;
     use crate::persistence::{
         self,
         identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
     };
+    use mockall::predicate::eq;
 
     fn get_service(mock_storage: MockIdentityStoreApi) -> IdentityService {
         IdentityService::new(

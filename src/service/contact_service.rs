@@ -331,7 +331,7 @@ pub struct IdentityPublicData {
     /// Full postal address of the identity
     pub postal_address: String,
     /// email address of the identity
-    pub email: String,
+    pub email: Option<String>,
     /// The preferred Nostr relay to deliver Nostr messages to
     pub nostr_relay: Option<String>,
 }
@@ -343,7 +343,7 @@ impl From<Contact> for IdentityPublicData {
             node_id: value.node_id.clone(),
             name: value.name,
             postal_address: value.postal_address,
-            email: value.email,
+            email: Some(value.email),
             nostr_relay: value.nostr_relays.first().cloned(),
         }
     }
@@ -356,7 +356,7 @@ impl From<Company> for IdentityPublicData {
             node_id: value.id.clone(),
             name: value.name,
             postal_address: value.postal_address,
-            email: value.email,
+            email: Some(value.email),
             nostr_relay: None,
         }
     }
@@ -369,7 +369,7 @@ impl IdentityPublicData {
             node_id: identity.node_id,
             name: identity.name,
             postal_address: identity.postal_address,
-            email: identity.email,
+            email: Some(identity.email),
             nostr_relay: identity.nostr_relay,
         }
     }
@@ -381,7 +381,7 @@ impl IdentityPublicData {
             node_id: "".to_string(),
             name: "".to_string(),
             postal_address: "".to_string(),
-            email: "".to_string(),
+            email: None,
             nostr_relay: None,
         }
     }
@@ -393,21 +393,21 @@ impl IdentityPublicData {
             node_id,
             name: "".to_string(),
             postal_address: "".to_string(),
-            email: "".to_string(),
+            email: None,
             nostr_relay: None,
         }
     }
 }
 
 #[cfg(test)]
-pub mod test {
+pub mod tests {
     use super::*;
     use crate::{
         persistence::{
             contact::MockContactStoreApi, db::contact::tests::get_baseline_contact,
             file_upload::MockFileUploadStoreApi, identity::MockIdentityStoreApi,
         },
-        tests::test::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
+        tests::tests::{TEST_NODE_ID_SECP, TEST_NODE_ID_SECP_AS_NPUB_HEX},
     };
     use std::collections::HashMap;
     use util::BcrKeys;

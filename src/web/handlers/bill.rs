@@ -5,10 +5,11 @@ use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
 use crate::util::BcrKeys;
 use crate::web::data::{
-    AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BitcreditBillPayload,
-    EndorseBitcreditBillPayload, MintBitcreditBillPayload, RequestToAcceptBitcreditBillPayload,
-    RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, SellBitcreditBillPayload,
-    UploadBillFilesForm, UploadFilesResponse,
+    AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey,
+    BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
+    RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
+    RequestToPayBitcreditBillPayload, SellBitcreditBillPayload, UploadBillFilesForm,
+    UploadFilesResponse,
 };
 use crate::{external, service};
 use crate::{
@@ -22,11 +23,23 @@ use rocket::{get, post, put, State};
 use std::thread;
 
 #[get("/holder/<id>")]
-pub async fn holder(state: &State<ServiceContext>, id: String) -> Result<Json<bool>> {
+pub async fn holder(state: &State<ServiceContext>, id: &str) -> Result<Json<bool>> {
     let identity = state.identity_service.get_full_identity().await?;
-    let bill = state.bill_service.get_bill(&id).await?;
+    let bill = state.bill_service.get_bill(id).await?;
     let am_i_holder = identity.identity.node_id.eq(&bill.payee.node_id);
     Ok(Json(am_i_holder))
+}
+
+#[get("/bitcoin-key/<id>")]
+pub async fn bitcoin_key(
+    state: &State<ServiceContext>,
+    id: &str,
+) -> Result<Json<BillCombinedBitcoinKey>> {
+    let combined_key = state
+        .bill_service
+        .get_combined_bitcoin_key_for_bill(id)
+        .await?;
+    Ok(Json(combined_key))
 }
 
 #[get("/attachment/<bill_id>/<file_name>")]
@@ -300,7 +313,7 @@ pub async fn issue_bill(
     state
         .bill_service
         .propagate_bill(
-            &bill.name,
+            &bill.id,
             &bill.drawer.node_id,
             &bill.drawee.node_id,
             &bill.payee.node_id,
@@ -312,7 +325,7 @@ pub async fn issue_bill(
         let timestamp_accept = external::time::TimeApi::get_atomic_time().await?.timestamp;
         state
             .bill_service
-            .accept_bill(&bill.name, timestamp_accept)
+            .accept_bill(&bill.id, timestamp_accept)
             .await?;
     }
 
@@ -348,8 +361,9 @@ pub async fn sell_bill(
         .sell_bitcredit_bill(
             &sell_bill_payload.bill_id,
             public_data_buyer.clone(),
-            timestamp,
             sell_bill_payload.amount_numbers,
+            &sell_bill_payload.currency_code,
+            timestamp,
         )
         .await?;
 
@@ -432,7 +446,11 @@ pub async fn request_to_pay_bill(
 
     let chain = state
         .bill_service
-        .request_pay(&request_to_pay_bill_payload.bill_id, timestamp)
+        .request_pay(
+            &request_to_pay_bill_payload.bill_id,
+            &request_to_pay_bill_payload.currency_code,
+            timestamp,
+        )
         .await?;
 
     state
@@ -622,6 +640,8 @@ pub async fn mint_bill(
         .bill_service
         .mint_bitcredit_bill(
             &mint_bill_payload.bill_id,
+            mint_bill_payload.amount_numbers,
+            &mint_bill_payload.currency_code,
             public_mint_node.clone(),
             timestamp,
         )
