@@ -3,6 +3,7 @@ use crate::external::mint::{
     check_bitcredit_quote, client_accept_bitcredit_quote, get_quote_from_map,
 };
 use crate::service::{bill_service::BitcreditEbillQuote, Error, Result, ServiceContext};
+use crate::util::base58_decode;
 use rocket::serde::json::Json;
 use rocket::{get, put, State};
 use std::thread;
@@ -13,12 +14,18 @@ pub async fn return_quote(
     id: String,
 ) -> Result<Json<BitcreditEbillQuote>> {
     let mut quote = get_quote_from_map(&id).ok_or(Error::NotFound)?;
-    let copy_id = id.clone();
+
+    let copy_id_base58 = id.clone();
+
+    let bill_id_u8 = base58_decode(&id).unwrap();
+    let bill_id_hex = hex::encode(bill_id_u8);
+    let copy_id_hex = bill_id_hex.clone();
+
     let local_node_id = state.identity_service.get_identity().await?.node_id;
     if !quote.bill_id.is_empty() && quote.quote_id.is_empty() {
         // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
         // thread, but this logic will be replaced soon
-        thread::spawn(move || check_bitcredit_quote(&copy_id, &local_node_id))
+        thread::spawn(move || check_bitcredit_quote(&copy_id_hex, &local_node_id, copy_id_base58))
             .join()
             .expect("Thread panicked");
     }
@@ -49,11 +56,13 @@ pub async fn accept_quote(
             .await?;
     }
 
-    let copy_id = id.clone();
+    let bill_id_u8 = base58_decode(&quote.bill_id).unwrap();
+    let bill_id_hex = hex::encode(bill_id_u8);
+
     if !quote.bill_id.is_empty() && !quote.quote_id.is_empty() {
         // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
         // thread, but this logic will be replaced soon
-        thread::spawn(move || client_accept_bitcredit_quote(&copy_id))
+        thread::spawn(move || client_accept_bitcredit_quote(&bill_id_hex, &quote.bill_id))
             .join()
             .expect("Thread panicked");
     }

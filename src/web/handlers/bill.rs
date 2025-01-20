@@ -3,7 +3,7 @@ use crate::blockchain::Blockchain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
-use crate::util::BcrKeys;
+use crate::util::{base58_encode, BcrKeys};
 use crate::web::data::{
     AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey,
     BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
@@ -24,8 +24,11 @@ use std::thread;
 
 #[get("/holder/<id>")]
 pub async fn holder(state: &State<ServiceContext>, id: &str) -> Result<Json<bool>> {
+    let bill_id_u8 = hex::decode(id).unwrap();
+    let bill_id_base58 = base58_encode(&bill_id_u8);
+
     let identity = state.identity_service.get_full_identity().await?;
-    let bill = state.bill_service.get_bill(id).await?;
+    let bill = state.bill_service.get_bill(&bill_id_base58).await?;
     let am_i_holder = identity.identity.node_id.eq(&bill.payee.node_id);
     Ok(Json(am_i_holder))
 }

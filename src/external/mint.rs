@@ -1,6 +1,7 @@
 use crate::constants::QUOTE_MAP_FILE_PATH;
 use crate::service::bill_service::BillKeys as LocalBillKeys;
 use crate::service::bill_service::BitcreditEbillQuote;
+use crate::util::base58_decode;
 use crate::web::data::RequestToMintBitcreditBillPayload;
 use crate::CONFIG;
 use borsh::{to_vec, BorshDeserialize};
@@ -25,6 +26,9 @@ pub async fn accept_mint_bitcredit(
     bill_id: String,
     node_id: String,
 ) -> PostMintQuoteBitcreditResponse {
+    let bill_id_u8 = base58_decode(&bill_id).unwrap();
+    let bill_id_hex = hex::encode(bill_id_u8);
+
     let dir = PathBuf::from("./data/wallet".to_string());
     let db_path = dir.join("wallet.db").to_str().unwrap().to_string();
     let localstore = SqliteLocalStore::with_path(db_path.clone())
@@ -39,7 +43,7 @@ pub async fn accept_mint_bitcredit(
         .await
         .expect("Could not create wallet");
 
-    let req = wallet.create_quote_bitcredit(&mint_url, bill_id, node_id, amount);
+    let req = wallet.create_quote_bitcredit(&mint_url, bill_id_hex, node_id, amount);
 
     req.await.unwrap()
 }
@@ -47,7 +51,7 @@ pub async fn accept_mint_bitcredit(
 // Usage of tokio::main to spawn a new runtime is necessary here, because Wallet is'nt Send - but
 // this logic will be replaced soon
 #[tokio::main]
-pub async fn check_bitcredit_quote(bill_id: &str, node_id: &str) {
+pub async fn check_bitcredit_quote(bill_id_hex: &str, node_id: &str, bill_id_base58: String) {
     let dir = PathBuf::from("./data/wallet".to_string());
     let db_path = dir.join("wallet.db").to_str().unwrap().to_string();
     let localstore = SqliteLocalStore::with_path(db_path.clone())
@@ -63,13 +67,13 @@ pub async fn check_bitcredit_quote(bill_id: &str, node_id: &str) {
         .expect("Could not create wallet");
 
     let result = wallet
-        .check_bitcredit_quote(&mint_url, bill_id.to_owned(), node_id.to_owned())
+        .check_bitcredit_quote(&mint_url, bill_id_hex.to_owned(), node_id.to_owned())
         .await;
 
     let quote = result.unwrap();
 
     if !quote.quote.is_empty() {
-        add_bitcredit_quote_and_amount_in_quotes_map(quote.clone(), bill_id.to_owned());
+        add_bitcredit_quote_and_amount_in_quotes_map(quote.clone(), bill_id_base58);
     }
 
     // quote
@@ -78,7 +82,7 @@ pub async fn check_bitcredit_quote(bill_id: &str, node_id: &str) {
 // Usage of tokio::main to spawn a new runtime is necessary here, because Wallet is'nt Send - but
 // this logic will be replaced soon
 #[tokio::main]
-pub async fn client_accept_bitcredit_quote(bill_id: &String) -> String {
+pub async fn client_accept_bitcredit_quote(bill_id_hex: &str, bill_id_base58: &String) -> String {
     let dir = PathBuf::from("./data/wallet".to_string());
     let db_path = dir.join("wallet.db").to_str().unwrap().to_string();
 
@@ -94,14 +98,14 @@ pub async fn client_accept_bitcredit_quote(bill_id: &String) -> String {
         .await
         .expect("Could not create wallet");
 
-    let clone_bill_id = bill_id.clone();
+    let clone_bill_id_hex = bill_id_hex.to_owned();
     let wallet_keysets = wallet
-        .add_mint_keysets_by_id(&mint_url, "cr-sat".to_string(), clone_bill_id)
+        .add_mint_keysets_by_id(&mint_url, "cr-sat".to_string(), clone_bill_id_hex)
         .await
         .unwrap();
     let wallet_keyset = wallet_keysets.first().unwrap();
 
-    let quote = get_quote_from_map(bill_id).unwrap();
+    let quote = get_quote_from_map(bill_id_base58).unwrap();
     let quote_id = quote.quote_id.clone();
     let amount = quote.amount;
 
@@ -123,7 +127,7 @@ pub async fn client_accept_bitcredit_quote(bill_id: &String) -> String {
             .serialize(Option::from(CurrencyUnit::CrSat))
             .unwrap();
 
-        add_bitcredit_token_in_quotes_map(token.clone(), bill_id.clone());
+        add_bitcredit_token_in_quotes_map(token.clone(), bill_id_base58.clone());
     }
 
     token
@@ -155,7 +159,10 @@ pub async fn request_to_mint_bitcredit(
         public_key_pem: bill_keys.public_key,
     };
 
-    let req = wallet.send_request_to_mint_bitcredit(&mint_url, payload.bill_id.clone(), keys);
+    let bill_id_u8 = base58_decode(&payload.bill_id).unwrap();
+    let bill_id_hex = hex::encode(bill_id_u8);
+
+    let req = wallet.send_request_to_mint_bitcredit(&mint_url, bill_id_hex.clone(), keys);
 
     let quote: BitcreditEbillQuote = BitcreditEbillQuote {
         bill_id: payload.bill_id.clone(),
