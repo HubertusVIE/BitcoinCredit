@@ -17,6 +17,7 @@ pub struct SurrealBillStore {
 impl SurrealBillStore {
     const CHAIN_TABLE: &'static str = "bill_chain";
     const KEYS_TABLE: &'static str = "bill_keys";
+    // These are in preparation for #330, improving the persistence performance for bills
     const DATA_TABLE: &'static str = "bill";
     const PARTICIPANTS_TABLE: &'static str = "bill_participants";
 

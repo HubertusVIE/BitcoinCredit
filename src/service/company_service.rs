@@ -201,12 +201,21 @@ impl CompanyServiceApi for CompanyService {
 
         let full_identity = self.identity_store.get_full().await?;
 
+        // Save the files locally with the identity public key
         let proof_of_registration_file = self
-            .process_upload_file(&proof_of_registration_file_upload_id, &id, &public_key)
+            .process_upload_file(
+                &proof_of_registration_file_upload_id,
+                &id,
+                &full_identity.key_pair.get_public_key(),
+            )
             .await?;
 
         let logo_file = self
-            .process_upload_file(&logo_file_upload_id, &id, &public_key)
+            .process_upload_file(
+                &logo_file_upload_id,
+                &id,
+                &full_identity.key_pair.get_public_key(),
+            )
             .await?;
 
         self.store.save_key_pair(&id, &company_keys).await?;
