@@ -1349,28 +1349,6 @@ impl BillServiceApi for BillService {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Bill {
-    pub id: String,
-    pub drawer_node_id: String,
-    pub payer_node_id: String,
-    pub payee_node_id: String,
-    pub holder_node_id: String,
-    pub place_of_issuing: String,
-    pub issue_date: String,
-    pub maturity_date: String,
-    pub sum: u64,
-    pub currency_code: String,
-    pub place_of_payment: String,
-    pub requested_to_accept: bool,
-    pub accepted: bool,
-    pub requested_to_pay: bool,
-    pub paid: bool,
-    pub payment_address: Option<String>,
-    pub mint_token: Option<String>,
-    pub language: String,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct BitcreditBillToReturn {
     pub id: String,
