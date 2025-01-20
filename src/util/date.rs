@@ -6,7 +6,7 @@ pub type DateTimeUtc = DateTime<Utc>;
 /// Returns the current time as DateTime
 #[allow(dead_code)]
 pub fn now() -> DateTimeUtc {
-    DateTime::default()
+    Utc::now()
 }
 
 /// Quickly create a DateTimeUtc from a timestamp. chrone does not
@@ -34,8 +34,24 @@ pub fn date_time_string_to_i64_timestamp(
 
 #[cfg(test)]
 mod tests {
+    use std::time::UNIX_EPOCH;
+
     use super::*;
     use chrono::Utc;
+
+    #[test]
+    fn test_now() {
+        let now = now().timestamp();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!(
+            now >= timestamp - 1,
+            "now date was {} seconds smaller than expected",
+            (timestamp - now)
+        );
+    }
 
     #[test]
     fn test_date_time_string_to_u64_timestamp_with_default_format() {
