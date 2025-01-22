@@ -175,31 +175,55 @@ impl ContactServiceApi for ContactService {
                 return Err(super::Error::NotFound);
             }
         };
+        let mut changed = false;
 
         let identity_public_key = self.identity_store.get_key_pair().await?.get_public_key();
 
         if let Some(ref name_to_set) = name {
             contact.name = name_to_set.clone();
+            changed = true;
         }
 
         if let Some(ref email_to_set) = email {
             contact.email = email_to_set.clone();
+            changed = true;
         }
 
         if let Some(ref postal_address_city_to_set) = postal_address.city {
             contact.postal_address.city = postal_address_city_to_set.clone();
+            changed = true;
         }
 
         if let Some(ref postal_address_country_to_set) = postal_address.country {
             contact.postal_address.country = postal_address_country_to_set.clone();
+            changed = true;
         }
 
-        if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-            contact.postal_address.zip = postal_address_zip_to_set.clone();
-        }
+        match contact.postal_address.zip {
+            Some(_) => {
+                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+                    contact.postal_address.zip = Some(postal_address_zip_to_set.clone());
+                    changed = true;
+                } else {
+                    contact.postal_address.zip = None;
+                    changed = true;
+                }
+            }
+            None => {
+                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+                    contact.postal_address.zip = Some(postal_address_zip_to_set.clone());
+                    changed = true;
+                }
+            }
+        };
 
         if let Some(ref postal_address_address_to_set) = postal_address.address {
             contact.postal_address.address = postal_address_address_to_set.clone();
+            changed = true;
+        }
+
+        if !changed && avatar_file_upload_id.is_none() {
+            return Ok(());
         }
 
         let avatar_file = self

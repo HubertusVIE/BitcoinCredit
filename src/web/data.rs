@@ -183,17 +183,24 @@ impl OptionalPostalAddress {
 pub struct PostalAddress {
     pub country: String,
     pub city: String,
-    pub zip: String,
+    pub zip: Option<String>,
     pub address: String,
 }
 
 impl fmt::Display for PostalAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}, {} {}, {}",
-            self.address, self.zip, self.city, self.country
-        )
+        match self.zip {
+            Some(ref zip) => {
+                write!(
+                    f,
+                    "{}, {} {}, {}",
+                    self.address, zip, self.city, self.country
+                )
+            }
+            None => {
+                write!(f, "{}, {}, {}", self.address, self.city, self.country)
+            }
+        }
     }
 }
 
@@ -203,7 +210,7 @@ impl PostalAddress {
         Self {
             country: "".to_string(),
             city: "".to_string(),
-            zip: "".to_string(),
+            zip: None,
             address: "".to_string(),
         }
     }

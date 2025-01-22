@@ -300,28 +300,53 @@ impl CompanyServiceApi for CompanyService {
                 "Caller must be signatory for company",
             )));
         }
+        let mut changed = false;
 
         if let Some(ref name_to_set) = name {
             company.name = name_to_set.clone();
+            changed = true;
         }
+
         if let Some(ref email_to_set) = email {
             company.email = email_to_set.clone();
+            changed = true;
         }
 
         if let Some(ref postal_address_city_to_set) = postal_address.city {
             company.postal_address.city = postal_address_city_to_set.clone();
+            changed = true;
         }
 
         if let Some(ref postal_address_country_to_set) = postal_address.country {
             company.postal_address.country = postal_address_country_to_set.clone();
+            changed = true;
         }
 
-        if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-            company.postal_address.zip = postal_address_zip_to_set.clone();
-        }
+        match company.postal_address.zip {
+            Some(_) => {
+                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+                    company.postal_address.zip = Some(postal_address_zip_to_set.clone());
+                    changed = true;
+                } else {
+                    company.postal_address.zip = None;
+                    changed = true;
+                }
+            }
+            None => {
+                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+                    company.postal_address.zip = Some(postal_address_zip_to_set.clone());
+                    changed = true;
+                }
+            }
+        };
 
         if let Some(ref postal_address_address_to_set) = postal_address.address {
             company.postal_address.address = postal_address_address_to_set.clone();
+            changed = true;
+        }
+
+        if !changed && logo_file_upload_id.is_none() {
+            return Ok(());
         }
 
         let logo_file = self

@@ -860,7 +860,7 @@ mod tests {
         endorser.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
         let block = BillBlock::create_block_for_endorse(
@@ -928,7 +928,7 @@ mod tests {
         minter.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
 
@@ -992,7 +992,7 @@ mod tests {
         requester.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
 
@@ -1027,7 +1027,7 @@ mod tests {
         accepter.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
 
@@ -1059,7 +1059,7 @@ mod tests {
         accepter.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
 
@@ -1122,7 +1122,7 @@ mod tests {
         requester.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
 
@@ -1192,7 +1192,7 @@ mod tests {
         seller.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
         let mut buyer = IdentityPublicData::new_empty();
@@ -1271,7 +1271,7 @@ mod tests {
         seller.postal_address = PostalAddress {
             country: String::from("Austria"),
             city: String::from("Vienna"),
-            zip: String::from("1020"),
+            zip: Some(String::from("1020")),
             address: String::from("Hayekweg 12"),
         };
         let mut buyer = IdentityPublicData::new_empty();

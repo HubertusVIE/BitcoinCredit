@@ -105,10 +105,23 @@ impl IdentityServiceApi for IdentityService {
             changed = true;
         }
 
-        if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-            identity.postal_address.zip = postal_address_zip_to_set.clone();
-            changed = true;
-        }
+        match identity.postal_address.zip {
+            Some(_) => {
+                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+                    identity.postal_address.zip = Some(postal_address_zip_to_set.clone());
+                    changed = true;
+                } else {
+                    identity.postal_address.zip = None;
+                    changed = true;
+                }
+            }
+            None => {
+                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+                    identity.postal_address.zip = Some(postal_address_zip_to_set.clone());
+                    changed = true;
+                }
+            }
+        };
 
         if let Some(ref postal_address_address_to_set) = postal_address.address {
             identity.postal_address.address = postal_address_address_to_set.clone();

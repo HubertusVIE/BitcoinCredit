@@ -104,7 +104,7 @@ impl From<&File> for FileDb {
 pub struct PostalAddressDb {
     pub country: String,
     pub city: String,
-    pub zip: String,
+    pub zip: Option<String>,
     pub address: String,
 }
 
