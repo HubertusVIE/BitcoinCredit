@@ -10,7 +10,10 @@ Accept: application/json
   "city_of_birth": "Vienna",
   "country_of_birth": "Austria",
   "email": "test@example.com",
-  "postal_address": "1020"
+  "country": "AT",
+  "city": "Vienna",
+  "zip": "1020",
+  "address": "Smithstreet 15, Top 22"
 }
 
 ### Get identity
@@ -29,5 +32,8 @@ Accept: application/json
   "name": "John Doe",
   "company": "Some Company",
   "email": "test@example.com",
-  "postal_address": "1020"
+  "country": "AT",
+  "city": "Vienna",
+  "zip": "1020",
+  "address": "Smithstreet 15, Top 22"
 }
