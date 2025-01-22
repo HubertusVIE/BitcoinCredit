@@ -186,7 +186,7 @@ pub mod tests {
         blockchain::bill::{
             block::{
                 BillIssueBlockData, BillOfferToSellBlockData, BillRequestToPayBlockData,
-                BillSoldBlockData,
+                BillSellBlockData,
             },
             tests::get_baseline_identity,
             BillBlock,
@@ -425,7 +425,7 @@ pub mod tests {
                 &BillBlock::create_block_for_sold(
                     "1234".to_string(),
                     &second_block,
-                    &BillSoldBlockData {
+                    &BillSellBlockData {
                         seller: IdentityPublicData::new_only_node_id(
                             BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
                                 .unwrap()

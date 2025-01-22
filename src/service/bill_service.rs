@@ -5,7 +5,7 @@ use super::notification_service::{self, Notification, NotificationServiceApi};
 use crate::blockchain::bill::block::{
     BillAcceptBlockData, BillEndorseBlockData, BillIdentityBlockData, BillIssueBlockData,
     BillMintBlockData, BillOfferToSellBlockData, BillRequestToAcceptBlockData,
-    BillRequestToPayBlockData, BillSignatoryBlockData, BillSoldBlockData,
+    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData,
 };
 use crate::blockchain::bill::{
     BillBlock, BillBlockchain, BillBlockchainToReturn, BillOpCode, WaitingForPayment,
@@ -70,7 +70,7 @@ pub enum Error {
 
     /// error returned if the selling data of selling a bill does not match the waited for offer to
     /// sell
-    #[error("Sold data does not match offer to sell")]
+    #[error("Sell data does not match offer to sell")]
     BillSellDataInvalid,
 
     /// error returned if the bill is offered to sell and waiting for payment
@@ -285,7 +285,7 @@ pub trait BillServiceApi: Send + Sync {
     async fn check_bills_payment(&self) -> Result<()>;
 
     /// Check payment status of bills that are waiting for a payment on an OfferToSell block, which
-    /// haven't been expired, adding a Sold block if they were paid
+    /// haven't been expired, adding a Sell block if they were paid
     async fn check_bills_offer_to_sell_payment(&self) -> Result<()>;
 }
 
@@ -453,14 +453,14 @@ impl BillService {
             let last_version_block_offer_to_sell =
                 chain.get_last_version_block_with_op_code(BillOpCode::OfferToSell);
             let last_version_block_sold =
-                chain.get_last_version_block_with_op_code(BillOpCode::Sold);
+                chain.get_last_version_block_with_op_code(BillOpCode::Sell);
 
             // If the last block is sold, the buyer is the holder
             if (last_version_block_endorse.id < last_version_block_sold.id)
                 && (last_version_block_mint.id < last_version_block_sold.id)
                 && (last_version_block_offer_to_sell.id < last_version_block_sold.id)
             {
-                let block_data_decrypted: BillSoldBlockData =
+                let block_data_decrypted: BillSellBlockData =
                     last_version_block_sold.get_decrypted_block_bytes(bill_keys)?;
                 let buyer = block_data_decrypted.buyer;
 
@@ -1374,7 +1374,7 @@ impl BillServiceApi for BillService {
                 let block = BillBlock::create_block_for_sold(
                     bill_id.to_owned(),
                     previous_block,
-                    &BillSoldBlockData {
+                    &BillSellBlockData {
                         seller: IdentityPublicData::new(identity.identity.clone()).into(),
                         buyer: buyer.into(),
                         currency_code: currency_code.to_owned(),
@@ -3086,7 +3086,7 @@ pub mod tests {
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 3);
         assert!(res.as_ref().unwrap().blocks()[1].op_code == BillOpCode::OfferToSell);
-        assert!(res.as_ref().unwrap().blocks()[2].op_code == BillOpCode::Sold);
+        assert!(res.as_ref().unwrap().blocks()[2].op_code == BillOpCode::Sell);
     }
 
     #[tokio::test]

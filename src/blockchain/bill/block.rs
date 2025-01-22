@@ -1,7 +1,7 @@
 use super::super::{Error, Result};
 use super::BillOpCode;
 use super::BillOpCode::{
-    Accept, Endorse, Issue, Mint, OfferToSell, RequestToAccept, RequestToPay, Sold,
+    Accept, Endorse, Issue, Mint, OfferToSell, RequestToAccept, RequestToPay, Sell,
 };
 
 use crate::blockchain::{Block, FIRST_BLOCK_ID};
@@ -140,7 +140,7 @@ pub struct BillOfferToSellBlockData {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
-pub struct BillSoldBlockData {
+pub struct BillSellBlockData {
     pub seller: BillIdentityBlockData,
     pub buyer: BillIdentityBlockData,
     pub currency_code: String,
@@ -452,7 +452,7 @@ impl BillBlock {
     pub fn create_block_for_sold(
         bill_id: String,
         previous_block: &Self,
-        data: &BillSoldBlockData,
+        data: &BillSellBlockData,
         identity_keys: &BcrKeys,
         company_keys: Option<&BcrKeys>,
         bill_keys: &BcrKeys,
@@ -467,7 +467,7 @@ impl BillBlock {
             bill_keys,
             Some(data.buyer.node_id.as_str()),
             timestamp,
-            BillOpCode::Sold,
+            BillOpCode::Sell,
         )?;
         Ok(block)
     }
@@ -517,7 +517,7 @@ impl BillBlock {
 
         // in case there are keys to encrypt, encrypt them using the receiver's identity pub key
         if op_code == BillOpCode::Endorse
-            || op_code == BillOpCode::Sold
+            || op_code == BillOpCode::Sell
             || op_code == BillOpCode::Mint
         {
             if let Some(new_holder_public_key) = public_key_for_keys {
@@ -619,8 +619,8 @@ impl BillBlock {
                 nodes.insert(block_data_decrypted.buyer.node_id);
                 nodes.insert(block_data_decrypted.seller.node_id);
             }
-            Sold => {
-                let block_data_decrypted: BillSoldBlockData =
+            Sell => {
+                let block_data_decrypted: BillSellBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
                 nodes.insert(block_data_decrypted.buyer.node_id);
                 nodes.insert(block_data_decrypted.seller.node_id);
@@ -703,8 +703,8 @@ impl BillBlock {
                     seller.name, seller.postal_address
                 ))
             }
-            Sold => {
-                let block_data_decrypted: BillSoldBlockData =
+            Sell => {
+                let block_data_decrypted: BillSellBlockData =
                     self.get_decrypted_block_bytes(bill_keys)?;
                 let seller = block_data_decrypted.seller;
 
@@ -1196,7 +1196,7 @@ mod tests {
         let block = BillBlock::create_block_for_sold(
             "some id".to_string(),
             &get_first_block(),
-            &BillSoldBlockData {
+            &BillSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 amount: 5000,
@@ -1235,7 +1235,7 @@ mod tests {
         let block = BillBlock::create_block_for_sold(
             "some id".to_string(),
             &get_first_block(),
-            &BillSoldBlockData {
+            &BillSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
                 amount: 5000,

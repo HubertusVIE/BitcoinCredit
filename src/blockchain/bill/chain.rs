@@ -77,21 +77,21 @@ impl BillBlockchain {
         }
     }
 
-    /// Checks if the the chain has Endorse, Mint, or Sold blocks in it
+    /// Checks if the the chain has Endorse, Mint, or Sell blocks in it
     pub fn has_been_endorsed_sold_or_minted(&self) -> bool {
         self.blocks.iter().any(|block| {
             matches!(
                 block.op_code,
-                BillOpCode::Mint | BillOpCode::Sold | BillOpCode::Endorse
+                BillOpCode::Mint | BillOpCode::Sell | BillOpCode::Endorse
             )
         })
     }
 
-    /// Checks if the the chain has Endorse, or Sold blocks in it
+    /// Checks if the the chain has Endorse, or Sell blocks in it
     pub fn has_been_endorsed_or_sold(&self) -> bool {
         self.blocks
             .iter()
-            .any(|block| matches!(block.op_code, BillOpCode::Sold | BillOpCode::Endorse))
+            .any(|block| matches!(block.op_code, BillOpCode::Sell | BillOpCode::Endorse))
     }
 
     /// Checks if the last block is an offer to sell block, if it's deadline is still active and if so,

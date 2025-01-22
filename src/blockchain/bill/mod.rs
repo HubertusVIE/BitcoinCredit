@@ -22,7 +22,7 @@ pub enum BillOpCode {
     RequestToAccept,
     RequestToPay,
     OfferToSell,
-    Sold,
+    Sell,
     Mint,
 }
 
