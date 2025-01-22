@@ -12,6 +12,7 @@ Please ensure the following tasks are completed before requesting a review:
 
 - [ ] My code adheres to the coding guidelines of this project.
 - [ ] I have run `cargo fmt`.
+- [ ] I have run `cargo clippy`.
 - [ ] I have added or updated tests (if applicable).
 - [ ] All CI/CD steps were successful.
 - [ ] I have updated the documentation (if applicable).
