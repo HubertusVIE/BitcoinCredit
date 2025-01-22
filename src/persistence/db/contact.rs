@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::Result;
+use super::{FileDb, PostalAddressDb, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use surrealdb::{engine::any::Any, Surreal};
@@ -8,7 +8,6 @@ use surrealdb::{engine::any::Any, Surreal};
 use crate::{
     persistence::ContactStoreApi,
     service::contact_service::{Contact, ContactType},
-    web::data::File,
 };
 
 #[derive(Clone)]
@@ -73,13 +72,13 @@ pub struct ContactDb {
     pub node_id: String,
     pub name: String,
     pub email: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddressDb,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
     pub identification_number: Option<String>,
-    pub avatar_file: Option<File>,
-    pub proof_document_file: Option<File>,
+    pub avatar_file: Option<FileDb>,
+    pub proof_document_file: Option<FileDb>,
     pub nostr_relays: Vec<String>,
 }
 
@@ -90,13 +89,13 @@ impl From<ContactDb> for Contact {
             node_id: contact.node_id,
             name: contact.name,
             email: contact.email,
-            postal_address: contact.postal_address,
+            postal_address: contact.postal_address.into(),
             date_of_birth_or_registration: contact.date_of_birth_or_registration,
             country_of_birth_or_registration: contact.country_of_birth_or_registration,
             city_of_birth_or_registration: contact.city_of_birth_or_registration,
             identification_number: contact.identification_number,
-            avatar_file: contact.avatar_file,
-            proof_document_file: contact.proof_document_file,
+            avatar_file: contact.avatar_file.map(|f| f.into()),
+            proof_document_file: contact.proof_document_file.map(|f| f.into()),
             nostr_relays: contact.nostr_relays,
         }
     }
@@ -109,13 +108,13 @@ impl From<Contact> for ContactDb {
             node_id: contact.node_id,
             name: contact.name,
             email: contact.email,
-            postal_address: contact.postal_address,
+            postal_address: contact.postal_address.into(),
             date_of_birth_or_registration: contact.date_of_birth_or_registration,
             country_of_birth_or_registration: contact.country_of_birth_or_registration,
             city_of_birth_or_registration: contact.city_of_birth_or_registration,
             identification_number: contact.identification_number,
-            avatar_file: contact.avatar_file,
-            proof_document_file: contact.proof_document_file,
+            avatar_file: contact.avatar_file.map(|f| f.into()),
+            proof_document_file: contact.proof_document_file.map(|f| f.into()),
             nostr_relays: contact.nostr_relays,
         }
     }
@@ -124,7 +123,9 @@ impl From<Contact> for ContactDb {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::{persistence::db::get_memory_db, tests::tests::TEST_NODE_ID_SECP};
+    use crate::{
+        persistence::db::get_memory_db, tests::tests::TEST_NODE_ID_SECP, web::data::PostalAddress,
+    };
 
     pub fn get_baseline_contact() -> Contact {
         Contact {
@@ -132,7 +133,7 @@ pub mod tests {
             node_id: TEST_NODE_ID_SECP.to_owned(),
             name: "some_name".to_string(),
             email: "some_mail@example.com".to_string(),
-            postal_address: "some_address".to_string(),
+            postal_address: PostalAddress::new_empty(),
             date_of_birth_or_registration: None,
             country_of_birth_or_registration: None,
             city_of_birth_or_registration: None,

@@ -11,7 +11,7 @@ use crate::service::contact_service::{ContactType, IdentityPublicData};
 use crate::util::BcrKeys;
 use crate::util::{self, crypto};
 
-use crate::web::data::File;
+use crate::web::data::{File, PostalAddress};
 use borsh::{from_slice, to_vec};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -59,7 +59,7 @@ pub struct BillIssueBlockData {
     pub files: Vec<File>,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String,
+    pub signing_address: PostalAddress,
 }
 
 impl BillIssueBlockData {
@@ -96,7 +96,7 @@ pub struct BillAcceptBlockData {
     pub accepter: BillIdentityBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String, // address of the accepter
+    pub signing_address: PostalAddress, // address of the accepter
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -105,7 +105,7 @@ pub struct BillRequestToPayBlockData {
     pub currency_code: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String, // address of the requester
+    pub signing_address: PostalAddress, // address of the requester
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -113,7 +113,7 @@ pub struct BillRequestToAcceptBlockData {
     pub requester: BillIdentityBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String, // address of the requester
+    pub signing_address: PostalAddress, // address of the requester
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -124,7 +124,7 @@ pub struct BillMintBlockData {
     pub amount: u64,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String, // address of the endorser
+    pub signing_address: PostalAddress, // address of the endorser
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -136,7 +136,7 @@ pub struct BillOfferToSellBlockData {
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String, // address of the seller
+    pub signing_address: PostalAddress, // address of the seller
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -148,7 +148,7 @@ pub struct BillSellBlockData {
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String, // address of the seller
+    pub signing_address: PostalAddress, // address of the seller
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -157,7 +157,7 @@ pub struct BillEndorseBlockData {
     pub endorsee: BillIdentityBlockData,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
-    pub signing_address: String, // address of the endorser
+    pub signing_address: PostalAddress, // address of the endorser
 }
 
 /// Legal data for parties within a bill transaction
@@ -166,7 +166,7 @@ pub struct BillIdentityBlockData {
     pub t: ContactType,
     pub node_id: String,
     pub name: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddress,
 }
 
 impl From<IdentityPublicData> for BillIdentityBlockData {
@@ -857,7 +857,12 @@ mod tests {
         let mut endorser =
             IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
         endorser.name = "bill".to_string();
-        endorser.postal_address = "some street 1".to_string();
+        endorser.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
         let block = BillBlock::create_block_for_endorse(
             "some id".to_owned(),
             &get_first_block(),
@@ -876,7 +881,10 @@ mod tests {
         .unwrap();
         let res = block.get_history_label(&get_bill_keys());
         assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap(), "bill, some street 1");
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "bill, Hayekweg 12, 1020 Vienna, Austria"
+        );
     }
 
     #[test]
@@ -917,7 +925,12 @@ mod tests {
         let mint = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
         let mut minter = IdentityPublicData::new_empty();
         minter.name = "bill".to_string();
-        minter.postal_address = "some street 1".to_string();
+        minter.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
 
         let block = BillBlock::create_block_for_mint(
             "some id".to_owned(),
@@ -939,7 +952,10 @@ mod tests {
         .unwrap();
         let res = block.get_history_label(&get_bill_keys());
         assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap(), "bill, some street 1");
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "bill, Hayekweg 12, 1020 Vienna, Austria"
+        );
     }
 
     #[test]
@@ -973,7 +989,12 @@ mod tests {
     fn get_history_label_req_to_accept() {
         let mut requester = IdentityPublicData::new_empty();
         requester.name = "bill".to_string();
-        requester.postal_address = "some street 1".to_string();
+        requester.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
 
         let block = BillBlock::create_block_for_request_to_accept(
             "some id".to_owned(),
@@ -994,7 +1015,7 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(
             res.as_ref().unwrap(),
-            "Bill requested to accept by bill at 2024-11-14 14:18:48 UTC in some street 1"
+            "Bill requested to accept by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
         );
     }
 
@@ -1003,7 +1024,12 @@ mod tests {
         let mut accepter = IdentityPublicData::new_empty();
         let node_id = BcrKeys::new().get_public_key();
         accepter.node_id = node_id.clone();
-        accepter.postal_address = "some street 1".to_string();
+        accepter.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
 
         let block = BillBlock::create_block_for_accept(
             "some id".to_owned(),
@@ -1030,7 +1056,12 @@ mod tests {
     fn get_history_label_accept() {
         let mut accepter = IdentityPublicData::new_empty();
         accepter.name = "bill".to_string();
-        accepter.postal_address = "some street 1".to_string();
+        accepter.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
 
         let block = BillBlock::create_block_for_accept(
             "some id".to_owned(),
@@ -1052,7 +1083,7 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(
             res.as_ref().unwrap(),
-            "Bill accepted by bill at 2024-11-14 14:18:48 UTC in some street 1"
+            "Bill accepted by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
         );
     }
 
@@ -1088,7 +1119,12 @@ mod tests {
     fn get_history_label_req_to_pay() {
         let mut requester = IdentityPublicData::new_empty();
         requester.name = "bill".to_string();
-        requester.postal_address = "some street 1".to_string();
+        requester.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
 
         let block = BillBlock::create_block_for_request_to_pay(
             "some id".to_string(),
@@ -1111,7 +1147,7 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(
             res.as_ref().unwrap(),
-            "Bill requested to pay by bill at 2024-11-14 14:18:48 UTC in some street 1"
+            "Bill requested to pay by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
         );
     }
 
@@ -1153,7 +1189,12 @@ mod tests {
         let mut seller =
             IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
         seller.name = "bill".to_string();
-        seller.postal_address = "some street 1".to_string();
+        seller.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
         let mut buyer = IdentityPublicData::new_empty();
         let node_id = BcrKeys::new().get_public_key();
         buyer.node_id = node_id.clone();
@@ -1182,7 +1223,7 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(
             res.as_ref().unwrap(),
-            "Bill offered to sell by bill, some street 1"
+            "Bill offered to sell by bill, Hayekweg 12, 1020 Vienna, Austria"
         );
     }
 
@@ -1227,7 +1268,12 @@ mod tests {
         let mut seller =
             IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
         seller.name = "bill".to_string();
-        seller.postal_address = "some street 1".to_string();
+        seller.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: String::from("1020"),
+            address: String::from("Hayekweg 12"),
+        };
         let mut buyer = IdentityPublicData::new_empty();
         let node_id = BcrKeys::new().get_public_key();
         buyer.node_id = node_id.clone();
@@ -1257,6 +1303,9 @@ mod tests {
 
         let res = block.get_history_label(&get_bill_keys());
         assert!(res.is_ok());
-        assert_eq!(res.as_ref().unwrap(), "bill, some street 1");
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "bill, Hayekweg 12, 1020 Vienna, Austria"
+        );
     }
 }

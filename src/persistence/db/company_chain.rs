@@ -217,6 +217,7 @@ mod tests {
         service::company_service::{CompanyKeys, CompanyToReturn},
         tests::tests::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         util::BcrKeys,
+        web::data::{OptionalPostalAddress, PostalAddress},
     };
 
     async fn get_store() -> SurrealCompanyChainStore {
@@ -244,7 +245,7 @@ mod tests {
                 name: "Hayek Ltd".to_string(),
                 country_of_registration: "AT".to_string(),
                 city_of_registration: "Vienna".to_string(),
-                postal_address: "some address 123".to_string(),
+                postal_address: PostalAddress::new_empty(),
                 email: "hayekltd@example.com".to_string(),
                 registration_number: "123124123".to_string(),
                 registration_date: "2024-01-01".to_string(),
@@ -270,7 +271,7 @@ mod tests {
             &CompanyUpdateBlockData {
                 name: None,
                 email: None,
-                postal_address: None,
+                postal_address: OptionalPostalAddress::new_empty(),
                 logo_file_upload_id: None,
             },
             &BcrKeys::new(),
@@ -295,7 +296,7 @@ mod tests {
                 name: "Hayek Ltd".to_string(),
                 country_of_registration: "AT".to_string(),
                 city_of_registration: "Vienna".to_string(),
-                postal_address: "some address 123".to_string(),
+                postal_address: PostalAddress::new_empty(),
                 email: "hayekltd@example.com".to_string(),
                 registration_number: "123124123".to_string(),
                 registration_date: "2024-01-01".to_string(),

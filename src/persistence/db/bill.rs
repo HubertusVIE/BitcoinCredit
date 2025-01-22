@@ -201,6 +201,7 @@ pub mod tests {
         },
         tests::tests::{get_bill_keys, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         util::{self, BcrKeys},
+        web::data::PostalAddress,
     };
     use chrono::Months;
     use surrealdb::{engine::any::Any, Surreal};
@@ -349,7 +350,7 @@ pub mod tests {
                         currency_code: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: 1731593928,
-                        signing_address: "some_address".to_string(),
+                        signing_address: PostalAddress::new_empty(),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     None,
@@ -405,7 +406,7 @@ pub mod tests {
                 payment_address: "1234paymentaddress".to_string(),
                 signatory: None,
                 signing_timestamp: now,
-                signing_address: "some_address".to_string(),
+                signing_address: PostalAddress::new_empty(),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,
@@ -441,7 +442,7 @@ pub mod tests {
                         payment_address: "1234paymentaddress".to_string(),
                         signatory: None,
                         signing_timestamp: now,
-                        signing_address: "some_address".to_string(),
+                        signing_address: PostalAddress::new_empty(),
                     },
                     &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                     None,
@@ -491,7 +492,7 @@ pub mod tests {
                 payment_address: "1234paymentaddress".to_string(),
                 signatory: None,
                 signing_timestamp: now_minus_one_month,
-                signing_address: "some_address".to_string(),
+                signing_address: PostalAddress::new_empty(),
             },
             &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
             None,

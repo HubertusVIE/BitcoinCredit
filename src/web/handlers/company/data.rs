@@ -1,3 +1,4 @@
+use crate::web::data::{OptionalPostalAddress, PostalAddress};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -5,7 +6,8 @@ pub struct CreateCompanyPayload {
     pub name: String,
     pub country_of_registration: String,
     pub city_of_registration: String,
-    pub postal_address: String,
+    #[serde(flatten)]
+    pub postal_address: PostalAddress,
     pub email: String,
     pub registration_number: String,
     pub registration_date: String,
@@ -18,7 +20,8 @@ pub struct EditCompanyPayload {
     pub id: String,
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: Option<String>,
+    #[serde(flatten)]
+    pub postal_address: OptionalPostalAddress,
     pub logo_file_upload_id: Option<String>,
 }
 

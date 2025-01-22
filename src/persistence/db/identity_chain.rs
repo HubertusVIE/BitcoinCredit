@@ -178,7 +178,7 @@ mod tests {
     use super::*;
     use crate::{
         blockchain::identity::IdentityUpdateBlockData, persistence::db::get_memory_db,
-        service::identity_service::Identity, util::BcrKeys,
+        service::identity_service::Identity, util::BcrKeys, web::data::OptionalPostalAddress,
     };
 
     async fn get_store() -> SurrealIdentityChainStore {
@@ -208,7 +208,7 @@ mod tests {
             &IdentityUpdateBlockData {
                 name: None,
                 email: None,
-                postal_address: None,
+                postal_address: OptionalPostalAddress::new_empty(),
             },
             &BcrKeys::new(),
             1731593928,

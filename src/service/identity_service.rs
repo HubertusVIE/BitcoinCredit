@@ -5,6 +5,7 @@ use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
 use crate::blockchain::identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData};
 use crate::blockchain::Blockchain;
 use crate::persistence::identity::IdentityChainStoreApi;
+use crate::web::data::{OptionalPostalAddress, PostalAddress};
 use async_trait::async_trait;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ pub trait IdentityServiceApi: Send + Sync {
         &self,
         name: Option<String>,
         email: Option<String>,
-        postal_address: Option<String>,
+        postal_address: OptionalPostalAddress,
         timestamp: u64,
     ) -> Result<()>;
     /// Gets the full local identity, including the key pair and node id
@@ -35,7 +36,7 @@ pub trait IdentityServiceApi: Send + Sync {
         city_of_birth: String,
         country_of_birth: String,
         email: String,
-        postal_address: String,
+        postal_address: PostalAddress,
         timestamp: u64,
     ) -> Result<()>;
     async fn get_seedphrase(&self) -> Result<String>;
@@ -74,7 +75,7 @@ impl IdentityServiceApi for IdentityService {
         &self,
         name: Option<String>,
         email: Option<String>,
-        postal_address: Option<String>,
+        postal_address: OptionalPostalAddress,
         timestamp: u64,
     ) -> Result<()> {
         let mut identity = self.store.get().await?;
@@ -94,11 +95,24 @@ impl IdentityServiceApi for IdentityService {
             }
         }
 
-        if let Some(ref postal_address_to_set) = postal_address {
-            if identity.postal_address != postal_address_to_set.trim() {
-                identity.postal_address = postal_address_to_set.trim().to_owned();
-                changed = true;
-            }
+        if let Some(ref postal_address_city_to_set) = postal_address.city {
+            identity.postal_address.city = postal_address_city_to_set.clone();
+            changed = true;
+        }
+
+        if let Some(ref postal_address_country_to_set) = postal_address.country {
+            identity.postal_address.country = postal_address_country_to_set.clone();
+            changed = true;
+        }
+
+        if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+            identity.postal_address.zip = postal_address_zip_to_set.clone();
+            changed = true;
+        }
+
+        if let Some(ref postal_address_address_to_set) = postal_address.address {
+            identity.postal_address.address = postal_address_address_to_set.clone();
+            changed = true;
         }
 
         if !changed {
@@ -140,7 +154,7 @@ impl IdentityServiceApi for IdentityService {
         city_of_birth: String,
         country_of_birth: String,
         email: String,
-        postal_address: String,
+        postal_address: PostalAddress,
         timestamp: u64,
     ) -> Result<()> {
         let keys = self.store.get_or_create_key_pair().await?;
@@ -194,7 +208,7 @@ pub struct Identity {
     pub city_of_birth: String,
     pub country_of_birth: String,
     pub email: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddress,
     pub nostr_relay: Option<String>,
 }
 
@@ -206,7 +220,7 @@ impl Identity {
             node_id: "".to_string(),
             date_of_birth: "".to_string(),
             city_of_birth: "".to_string(),
-            postal_address: "".to_string(),
+            postal_address: PostalAddress::new_empty(),
             email: "".to_string(),
             country_of_birth: "".to_string(),
             nostr_relay: None,
@@ -228,7 +242,8 @@ pub struct IdentityToReturn {
     pub city_of_birth: String,
     pub country_of_birth: String,
     pub email: String,
-    pub postal_address: String,
+    #[serde(flatten)]
+    pub postal_address: PostalAddress,
     pub nostr_relay: Option<String>,
 }
 
@@ -293,7 +308,7 @@ mod tests {
                 "city_of_birth".to_string(),
                 "country_of_birth".to_string(),
                 "email".to_string(),
-                "postal_address".to_string(),
+                PostalAddress::new_empty(),
                 1731593928,
             )
             .await;
@@ -327,7 +342,12 @@ mod tests {
 
         let service = get_service_with_chain_storage(storage, chain_storage);
         let res = service
-            .update_identity(Some("new_name".to_string()), None, None, 1731593928)
+            .update_identity(
+                Some("new_name".to_string()),
+                None,
+                OptionalPostalAddress::new_empty(),
+                1731593928,
+            )
             .await;
 
         assert!(res.is_ok());
@@ -348,7 +368,12 @@ mod tests {
 
         let service = get_service(storage);
         let res = service
-            .update_identity(Some("name".to_string()), None, None, 1731593928)
+            .update_identity(
+                Some("name".to_string()),
+                None,
+                OptionalPostalAddress::new_empty(),
+                1731593928,
+            )
             .await;
 
         assert!(res.is_ok());
@@ -384,7 +409,12 @@ mod tests {
 
         let service = get_service_with_chain_storage(storage, chain_storage);
         let res = service
-            .update_identity(Some("new_name".to_string()), None, None, 1731593928)
+            .update_identity(
+                Some("new_name".to_string()),
+                None,
+                OptionalPostalAddress::new_empty(),
+                1731593928,
+            )
             .await;
 
         assert!(res.is_err());

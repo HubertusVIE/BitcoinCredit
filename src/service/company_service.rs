@@ -11,6 +11,7 @@ use crate::blockchain::Blockchain;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::identity::IdentityChainStoreApi;
 use crate::util::BcrKeys;
+use crate::web::data::{OptionalPostalAddress, PostalAddress};
 use crate::{
     error,
     persistence::{file_upload::FileUploadStoreApi, identity::IdentityStoreApi, ContactStoreApi},
@@ -40,7 +41,7 @@ pub trait CompanyServiceApi: Send + Sync {
         name: String,
         country_of_registration: String,
         city_of_registration: String,
-        postal_address: String,
+        postal_address: PostalAddress,
         email: String,
         registration_number: String,
         registration_date: String,
@@ -55,7 +56,7 @@ pub trait CompanyServiceApi: Send + Sync {
         id: &str,
         name: Option<String>,
         email: Option<String>,
-        postal_address: Option<String>,
+        postal_address: OptionalPostalAddress,
         logo_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()>;
@@ -180,7 +181,7 @@ impl CompanyServiceApi for CompanyService {
         name: String,
         country_of_registration: String,
         city_of_registration: String,
-        postal_address: String,
+        postal_address: PostalAddress,
         email: String,
         registration_number: String,
         registration_date: String,
@@ -282,7 +283,7 @@ impl CompanyServiceApi for CompanyService {
         id: &str,
         name: Option<String>,
         email: Option<String>,
-        postal_address: Option<String>,
+        postal_address: OptionalPostalAddress,
         logo_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()> {
@@ -306,9 +307,23 @@ impl CompanyServiceApi for CompanyService {
         if let Some(ref email_to_set) = email {
             company.email = email_to_set.clone();
         }
-        if let Some(ref postal_address_to_set) = postal_address {
-            company.postal_address = postal_address_to_set.clone();
+
+        if let Some(ref postal_address_city_to_set) = postal_address.city {
+            company.postal_address.city = postal_address_city_to_set.clone();
         }
+
+        if let Some(ref postal_address_country_to_set) = postal_address.country {
+            company.postal_address.country = postal_address_country_to_set.clone();
+        }
+
+        if let Some(ref postal_address_zip_to_set) = postal_address.zip {
+            company.postal_address.zip = postal_address_zip_to_set.clone();
+        }
+
+        if let Some(ref postal_address_address_to_set) = postal_address.address {
+            company.postal_address.address = postal_address_address_to_set.clone();
+        }
+
         let logo_file = self
             .process_upload_file(
                 &logo_file_upload_id,
@@ -536,7 +551,8 @@ pub struct CompanyToReturn {
     pub name: String,
     pub country_of_registration: String,
     pub city_of_registration: String,
-    pub postal_address: String,
+    #[serde(flatten)]
+    pub postal_address: PostalAddress,
     pub email: String,
     pub registration_number: String,
     pub registration_date: String,
@@ -571,7 +587,7 @@ pub struct Company {
     pub name: String,
     pub country_of_registration: String,
     pub city_of_registration: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddress,
     pub email: String,
     pub registration_number: String,
     pub registration_date: String,
@@ -651,7 +667,7 @@ pub mod tests {
                     name: "some_name".to_string(),
                     country_of_registration: "AT".to_string(),
                     city_of_registration: "Vienna".to_string(),
-                    postal_address: "some address".to_string(),
+                    postal_address: PostalAddress::new_empty(),
                     email: "company@example.com".to_string(),
                     registration_number: "some_number".to_string(),
                     registration_date: "2012-01-01".to_string(),
@@ -897,7 +913,7 @@ pub mod tests {
                 "name".to_string(),
                 "AT".to_string(),
                 "Vienna".to_string(),
-                "some Address".to_string(),
+                PostalAddress::new_empty(),
                 "company@example.com".to_string(),
                 "some_number".to_string(),
                 "2012-01-01".to_string(),
@@ -962,7 +978,7 @@ pub mod tests {
                 "name".to_string(),
                 "AT".to_string(),
                 "Vienna".to_string(),
-                "some Address".to_string(),
+                PostalAddress::new_empty(),
                 "company@example.com".to_string(),
                 "some_number".to_string(),
                 "2012-01-01".to_string(),
@@ -1037,8 +1053,8 @@ pub mod tests {
             .edit_company(
                 "some_id",
                 Some("name".to_string()),
-                Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
+                OptionalPostalAddress::new_empty(),
                 Some("some_file_id".to_string()),
                 1731593928,
             )
@@ -1069,8 +1085,8 @@ pub mod tests {
             .edit_company(
                 "some_id",
                 Some("name".to_string()),
-                Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
+                OptionalPostalAddress::new_empty(),
                 None,
                 1731593928,
             )
@@ -1113,8 +1129,8 @@ pub mod tests {
             .edit_company(
                 "some_id",
                 Some("name".to_string()),
-                Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
+                OptionalPostalAddress::new_empty(),
                 None,
                 1731593928,
             )
@@ -1170,8 +1186,8 @@ pub mod tests {
             .edit_company(
                 "some_id",
                 Some("name".to_string()),
-                Some("some Address".to_string()),
                 Some("company@example.com".to_string()),
+                OptionalPostalAddress::new_empty(),
                 None,
                 1731593928,
             )

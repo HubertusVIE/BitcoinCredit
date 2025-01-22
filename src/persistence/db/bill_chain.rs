@@ -208,6 +208,7 @@ mod tests {
         service::contact_service::ContactType,
         tests::tests::get_bill_keys,
         util::BcrKeys,
+        web::data::PostalAddress,
     };
 
     async fn get_store() -> SurrealBillChainStore {
@@ -234,11 +235,11 @@ mod tests {
                     t: ContactType::Person,
                     node_id: "555555".to_owned(),
                     name: "some dude".to_owned(),
-                    postal_address: "address".to_owned(),
+                    postal_address: PostalAddress::new_empty(),
                 },
                 signatory: None,
                 signing_timestamp: 1731593928,
-                signing_address: "address".to_owned(),
+                signing_address: PostalAddress::new_empty(),
             },
             &BcrKeys::new(),
             None,

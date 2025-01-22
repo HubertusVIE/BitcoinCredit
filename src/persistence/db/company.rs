@@ -1,8 +1,7 @@
-use super::{FileDb, Result};
+use super::{FileDb, PostalAddressDb, Result};
 use crate::{
     persistence::{company::CompanyStoreApi, Error},
     service::company_service::{Company, CompanyKeys},
-    web::data::File,
 };
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -112,7 +111,7 @@ pub struct CompanyDb {
     pub name: String,
     pub country_of_registration: String,
     pub city_of_registration: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddressDb,
     pub email: String,
     pub registration_number: String,
     pub registration_date: String,
@@ -136,7 +135,7 @@ impl From<CompanyDb> for Company {
             name: value.name,
             country_of_registration: value.country_of_registration,
             city_of_registration: value.city_of_registration,
-            postal_address: value.postal_address,
+            postal_address: value.postal_address.into(),
             email: value.email,
             registration_number: value.registration_number,
             registration_date: value.registration_date,
@@ -154,7 +153,7 @@ impl From<&Company> for CompanyDb {
             name: value.name.clone(),
             country_of_registration: value.country_of_registration.clone(),
             city_of_registration: value.city_of_registration.clone(),
-            postal_address: value.postal_address.clone(),
+            postal_address: PostalAddressDb::from(&value.postal_address),
             email: value.email.clone(),
             registration_number: value.registration_number.clone(),
             registration_date: value.registration_date.clone(),
@@ -187,24 +186,6 @@ impl From<&CompanyKeys> for CompanyKeysDb {
     }
 }
 
-impl From<FileDb> for File {
-    fn from(value: FileDb) -> Self {
-        Self {
-            name: value.name,
-            hash: value.hash,
-        }
-    }
-}
-
-impl From<&File> for FileDb {
-    fn from(value: &File) -> Self {
-        Self {
-            name: value.name.clone(),
-            hash: value.hash.clone(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +193,7 @@ mod tests {
         persistence::db::get_memory_db,
         tests::tests::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
         util::BcrKeys,
+        web::data::PostalAddress,
     };
 
     async fn get_store() -> SurrealCompanyStore {
@@ -227,7 +209,7 @@ mod tests {
             name: "some_name".to_string(),
             country_of_registration: "AT".to_string(),
             city_of_registration: "Vienna".to_string(),
-            postal_address: "some address".to_string(),
+            postal_address: PostalAddress::new_empty(),
             email: "company@example.com".to_string(),
             registration_number: "some_number".to_string(),
             registration_date: "2012-01-01".to_string(),

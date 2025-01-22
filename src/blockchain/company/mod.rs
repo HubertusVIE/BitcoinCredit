@@ -3,7 +3,7 @@ use super::Result;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::service::company_service::{CompanyKeys, CompanyToReturn};
 use crate::util::{self, crypto, BcrKeys};
-use crate::web::data::File;
+use crate::web::data::{File, OptionalPostalAddress, PostalAddress};
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,7 @@ pub struct CompanyCreateBlockData {
     pub name: String,
     pub country_of_registration: String,
     pub city_of_registration: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddress,
     pub email: String,
     pub registration_number: String,
     pub registration_date: String,
@@ -98,7 +98,7 @@ impl From<CompanyToReturn> for CompanyCreateBlockData {
 pub struct CompanyUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: Option<String>,
+    pub postal_address: OptionalPostalAddress,
     pub logo_file_upload_id: Option<String>,
 }
 
@@ -507,7 +507,7 @@ mod tests {
             &CompanyUpdateBlockData {
                 name: Some("new_name".to_string()),
                 email: None,
-                postal_address: None,
+                postal_address: OptionalPostalAddress::new_empty(),
                 logo_file_upload_id: None,
             },
             &identity_keys,

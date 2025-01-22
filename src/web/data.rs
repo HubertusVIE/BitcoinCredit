@@ -2,6 +2,7 @@ use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rocket::fs::TempFile;
 use rocket::FromForm;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -94,7 +95,8 @@ pub struct AcceptBitcreditBillPayload {
 pub struct ChangeIdentityPayload {
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: Option<String>,
+    #[serde(flatten)]
+    pub postal_address: OptionalPostalAddress,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -104,7 +106,8 @@ pub struct IdentityPayload {
     pub city_of_birth: String,
     pub country_of_birth: String,
     pub email: String,
-    pub postal_address: String,
+    #[serde(flatten)]
+    pub postal_address: PostalAddress,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -114,7 +117,8 @@ pub struct NewContactPayload {
     pub node_id: String,
     pub name: String,
     pub email: String,
-    pub postal_address: String,
+    #[serde(flatten)]
+    pub postal_address: PostalAddress,
     pub date_of_birth_or_registration: Option<String>,
     pub country_of_birth_or_registration: Option<String>,
     pub city_of_birth_or_registration: Option<String>,
@@ -128,7 +132,8 @@ pub struct EditContactPayload {
     pub node_id: String,
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: Option<String>,
+    #[serde(flatten)]
+    pub postal_address: OptionalPostalAddress,
     pub avatar_file_upload_id: Option<String>,
 }
 
@@ -141,6 +146,67 @@ pub struct UploadFilesResponse {
 pub struct File {
     pub name: String,
     pub hash: String,
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema,
+)]
+pub struct OptionalPostalAddress {
+    pub country: Option<String>,
+    pub city: Option<String>,
+    pub zip: Option<String>,
+    pub address: Option<String>,
+}
+
+impl OptionalPostalAddress {
+    pub fn is_none(&self) -> bool {
+        self.country.is_none()
+            && self.city.is_none()
+            && self.zip.is_none()
+            && self.address.is_none()
+    }
+
+    #[cfg(test)]
+    pub fn new_empty() -> Self {
+        Self {
+            country: None,
+            city: None,
+            zip: None,
+            address: None,
+        }
+    }
+}
+
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema,
+)]
+pub struct PostalAddress {
+    pub country: String,
+    pub city: String,
+    pub zip: String,
+    pub address: String,
+}
+
+impl fmt::Display for PostalAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}, {} {}, {}",
+            self.address, self.zip, self.city, self.country
+        )
+    }
+}
+
+impl PostalAddress {
+    #[cfg(test)]
+    pub fn new_empty() -> Self {
+        Self {
+            country: "".to_string(),
+            city: "".to_string(),
+            zip: "".to_string(),
+            address: "".to_string(),
+        }
+    }
 }
 
 /// Response for a private key seeed backup

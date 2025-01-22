@@ -1524,7 +1524,7 @@ mod tests {
             identity_service::Identity,
         },
         tests::tests::{TEST_NODE_ID_SECP, TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
-        web::data::File,
+        web::data::{File, PostalAddress},
     };
     use blockchain::company::CompanyCreateBlockData;
     use futures::channel::mpsc::{self, Sender};
@@ -1541,7 +1541,7 @@ mod tests {
                     name: "some_name".to_string(),
                     country_of_registration: "AT".to_string(),
                     city_of_registration: "Vienna".to_string(),
-                    postal_address: "some address".to_string(),
+                    postal_address: PostalAddress::new_empty(),
                     email: "company@example.com".to_string(),
                     registration_number: "some_number".to_string(),
                     registration_date: "2012-01-01".to_string(),

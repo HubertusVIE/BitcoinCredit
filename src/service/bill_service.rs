@@ -59,13 +59,13 @@ pub enum Error {
     #[error("Caller is not drawee")]
     CallerIsNotDrawee,
 
-    /// error returned if the caller of an operation is not the payee, or endorsee, but would have to be for it
+    /// error returned if the caller of an operation is not the holder, but would have to be for it
     /// to be valid, e.g. requesting payment
-    #[error("Caller is not payee, or endorsee")]
-    CallerIsNotPayeeOrEndorsee,
+    #[error("Caller is not holder")]
+    CallerIsNotHolder,
 
     /// error returned if the bill is not currently an offer to sell waiting for payment
-    #[error("Caller is not payee, or endorsee")]
+    #[error("Bill is not offer to sell waiting for payment")]
     BillIsNotOfferToSellWaitingForPayment,
 
     /// error returned if the selling data of selling a bill does not match the waited for offer to
@@ -113,7 +113,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             Error::BillIsOfferedToSellAndWaitingForPayment => Status::BadRequest.respond_to(req),
             Error::BillSellDataInvalid => Status::BadRequest.respond_to(req),
             Error::CallerIsNotDrawee => Status::BadRequest.respond_to(req),
-            Error::CallerIsNotPayeeOrEndorsee => Status::BadRequest.respond_to(req),
+            Error::CallerIsNotHolder => Status::BadRequest.respond_to(req),
             Error::Io(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
@@ -1141,7 +1141,7 @@ impl BillServiceApi for BillService {
 
             return Ok(blockchain);
         }
-        Err(Error::CallerIsNotPayeeOrEndorsee)
+        Err(Error::CallerIsNotHolder)
     }
 
     async fn request_acceptance(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
@@ -1198,7 +1198,7 @@ impl BillServiceApi for BillService {
 
             return Ok(blockchain);
         }
-        Err(Error::CallerIsNotPayeeOrEndorsee)
+        Err(Error::CallerIsNotHolder)
     }
 
     async fn mint_bitcredit_bill(
@@ -1265,7 +1265,7 @@ impl BillServiceApi for BillService {
 
             return Ok(blockchain);
         }
-        Err(Error::CallerIsNotPayeeOrEndorsee)
+        Err(Error::CallerIsNotHolder)
     }
 
     async fn offer_to_sell_bitcredit_bill(
@@ -1334,7 +1334,7 @@ impl BillServiceApi for BillService {
 
             return Ok(blockchain);
         }
-        Err(Error::CallerIsNotPayeeOrEndorsee)
+        Err(Error::CallerIsNotHolder)
     }
 
     async fn sell_bitcredit_bill(
@@ -1409,7 +1409,7 @@ impl BillServiceApi for BillService {
 
                 return Ok(blockchain);
             } else {
-                return Err(Error::CallerIsNotPayeeOrEndorsee);
+                return Err(Error::CallerIsNotHolder);
             }
         }
         Err(Error::BillIsNotOfferToSellWaitingForPayment)
@@ -1475,7 +1475,7 @@ impl BillServiceApi for BillService {
 
             return Ok(blockchain);
         }
-        Err(Error::CallerIsNotPayeeOrEndorsee)
+        Err(Error::CallerIsNotHolder)
     }
 
     async fn check_bills_payment(&self) -> Result<()> {
@@ -1671,6 +1671,7 @@ pub mod tests {
             notification_service::MockNotificationServiceApi,
         },
         tests::tests::{TEST_PRIVATE_KEY_SECP, TEST_PUB_KEY_SECP},
+        web::data::PostalAddress,
     };
     use blockchain::{bill::block::BillIssueBlockData, identity::IdentityBlockchain};
     use core::str;
@@ -2189,7 +2190,7 @@ pub mod tests {
                     currency_code: "sat".to_string(),
                     signatory: None,
                     signing_timestamp: now,
-                    signing_address: "some_address".to_string(),
+                    signing_address: PostalAddress::new_empty(),
                 },
                 &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                 None,
@@ -2347,7 +2348,7 @@ pub mod tests {
                     payment_address: "1234paymentaddress".to_string(),
                     signatory: None,
                     signing_timestamp: now,
-                    signing_address: "some_address".to_string(),
+                    signing_address: PostalAddress::new_empty(),
                 },
                 &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                 None,
@@ -2418,7 +2419,7 @@ pub mod tests {
                     currency_code: "sat".to_string(),
                     signatory: None,
                     signing_timestamp: now,
-                    signing_address: "some_address".to_string(),
+                    signing_address: PostalAddress::new_empty(),
                 },
                 &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                 None,
@@ -3040,7 +3041,7 @@ pub mod tests {
                     payment_address: "1234paymentaddress".to_owned(),
                     signatory: None,
                     signing_timestamp: 1731593927,
-                    signing_address: "some address".to_owned(),
+                    signing_address: PostalAddress::new_empty(),
                 },
                 &BcrKeys::new(),
                 None,
@@ -3124,7 +3125,7 @@ pub mod tests {
                     payment_address: "1234paymentaddress".to_owned(),
                     signatory: None,
                     signing_timestamp: 1731593927,
-                    signing_address: "some address".to_owned(),
+                    signing_address: PostalAddress::new_empty(),
                 },
                 &BcrKeys::new(),
                 None,
@@ -3372,7 +3373,7 @@ pub mod tests {
                     payment_address: "1234paymentaddress".to_string(),
                     signatory: None,
                     signing_timestamp: now,
-                    signing_address: "some_address".to_string(),
+                    signing_address: PostalAddress::new_empty(),
                 },
                 &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                 None,
@@ -3624,7 +3625,7 @@ pub mod tests {
                     payment_address: "1234paymentaddress".to_string(),
                     signatory: None,
                     signing_timestamp: now,
-                    signing_address: "some_address".to_string(),
+                    signing_address: PostalAddress::new_empty(),
                 },
                 &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
                 None,

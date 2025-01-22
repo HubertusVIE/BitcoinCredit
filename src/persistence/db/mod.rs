@@ -1,4 +1,5 @@
 use super::Result;
+use crate::web::data::{File, PostalAddress};
 use log::error;
 use serde::{Deserialize, Serialize};
 use surrealdb::{
@@ -70,6 +71,74 @@ pub async fn get_memory_db(namespace: &str, database: &str) -> Result<Surreal<An
 pub struct FileDb {
     pub name: String,
     pub hash: String,
+}
+
+impl From<FileDb> for File {
+    fn from(value: FileDb) -> Self {
+        Self {
+            name: value.name,
+            hash: value.hash,
+        }
+    }
+}
+
+impl From<File> for FileDb {
+    fn from(value: File) -> Self {
+        Self {
+            name: value.name,
+            hash: value.hash,
+        }
+    }
+}
+
+impl From<&File> for FileDb {
+    fn from(value: &File) -> Self {
+        Self {
+            name: value.name.clone(),
+            hash: value.hash.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostalAddressDb {
+    pub country: String,
+    pub city: String,
+    pub zip: String,
+    pub address: String,
+}
+
+impl From<PostalAddressDb> for PostalAddress {
+    fn from(value: PostalAddressDb) -> Self {
+        Self {
+            country: value.country,
+            city: value.city,
+            zip: value.zip,
+            address: value.address,
+        }
+    }
+}
+
+impl From<PostalAddress> for PostalAddressDb {
+    fn from(value: PostalAddress) -> Self {
+        Self {
+            country: value.country,
+            city: value.city,
+            zip: value.zip,
+            address: value.address,
+        }
+    }
+}
+
+impl From<&PostalAddress> for PostalAddressDb {
+    fn from(value: &PostalAddress) -> Self {
+        Self {
+            country: value.country.clone(),
+            city: value.city.clone(),
+            zip: value.zip.clone(),
+            address: value.address.clone(),
+        }
+    }
 }
 
 #[cfg(test)]

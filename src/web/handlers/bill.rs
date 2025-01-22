@@ -97,9 +97,9 @@ pub async fn return_bills_list(
 pub async fn return_basic_bill(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
-    id: String,
+    id: &str,
 ) -> Result<Json<BitcreditBill>> {
-    let bill = state.bill_service.get_bill(&id).await?;
+    let bill = state.bill_service.get_bill(id).await?;
     Ok(Json(bill))
 }
 
@@ -107,9 +107,9 @@ pub async fn return_basic_bill(
 pub async fn return_chain_of_blocks(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
-    id: String,
+    id: &str,
 ) -> Result<Json<BillBlockchain>> {
-    let chain = state.bill_service.get_blockchain_for_bill(&id).await?;
+    let chain = state.bill_service.get_blockchain_for_bill(id).await?;
     Ok(Json(chain))
 }
 
@@ -117,9 +117,9 @@ pub async fn return_chain_of_blocks(
 pub async fn find_bill_in_dht(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
-    bill_id: String,
+    bill_id: &str,
 ) -> Result<Status> {
-    state.bill_service.find_bill_in_dht(&bill_id).await?;
+    state.bill_service.find_bill_in_dht(bill_id).await?;
     Ok(Status::Ok)
 }
 
@@ -139,12 +139,12 @@ pub async fn find_bill_in_dht(
 pub async fn return_bill(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
-    id: String,
+    id: &str,
 ) -> Result<Json<BitcreditBillToReturn>> {
     let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let full_bill = state
         .bill_service
-        .get_full_bill(&id, current_timestamp)
+        .get_full_bill(id, current_timestamp)
         .await?;
     Ok(Json(full_bill))
 }

@@ -3,6 +3,7 @@ use super::Result;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::service::identity_service::Identity;
 use crate::util::{self, crypto, BcrKeys};
+use crate::web::data::{OptionalPostalAddress, PostalAddress};
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -46,7 +47,7 @@ pub struct IdentityCreateBlockData {
     pub city_of_birth: String,
     pub country_of_birth: String,
     pub email: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddress,
     pub nostr_relay: Option<String>,
 }
 
@@ -68,7 +69,7 @@ impl From<Identity> for IdentityCreateBlockData {
 pub struct IdentityUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
-    pub postal_address: Option<String>,
+    pub postal_address: OptionalPostalAddress,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -373,7 +374,7 @@ mod tests {
             &IdentityUpdateBlockData {
                 name: Some("newname".to_string()),
                 email: None,
-                postal_address: None,
+                postal_address: OptionalPostalAddress::new_empty(),
             },
             &keys,
             1731593928,

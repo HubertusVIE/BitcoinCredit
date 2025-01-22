@@ -1,4 +1,4 @@
-use super::Result;
+use super::{PostalAddressDb, Result};
 use crate::{
     persistence::{identity::IdentityStoreApi, Error},
     service::identity_service::{Identity, IdentityWithAll},
@@ -123,7 +123,7 @@ pub struct IdentityDb {
     pub city_of_birth: String,
     pub country_of_birth: String,
     pub email: String,
-    pub postal_address: String,
+    pub postal_address: PostalAddressDb,
     pub nostr_relay: Option<String>,
 }
 
@@ -136,7 +136,7 @@ impl From<IdentityDb> for Identity {
             city_of_birth: identity.city_of_birth,
             country_of_birth: identity.country_of_birth,
             email: identity.email,
-            postal_address: identity.postal_address,
+            postal_address: identity.postal_address.into(),
             nostr_relay: identity.nostr_relay,
         }
     }
@@ -151,7 +151,7 @@ impl From<&Identity> for IdentityDb {
             city_of_birth: identity.city_of_birth.clone(),
             country_of_birth: identity.country_of_birth.clone(),
             email: identity.email.clone(),
-            postal_address: identity.postal_address.clone(),
+            postal_address: PostalAddressDb::from(&identity.postal_address),
             nostr_relay: identity.nostr_relay.clone(),
         }
     }
