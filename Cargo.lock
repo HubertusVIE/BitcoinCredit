@@ -960,7 +960,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -997,7 +997,7 @@ checksum = "33415e24172c1b7d6066f6d999545375ab8e1d95421d6784bdfff9496f292387"
 dependencies = [
  "bitcoin_hashes 0.12.0",
  "rand",
- "rand_core 0.4.2",
+ "rand_core 0.5.1",
  "serde",
  "unicode-normalization",
 ]
@@ -3235,7 +3235,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -3353,7 +3353,7 @@ dependencies = [
  "iana-time-zone-haiku",
  "js-sys",
  "wasm-bindgen",
- "windows-core 0.52.0",
+ "windows-core 0.51.1",
 ]
 
 [[package]]
@@ -4785,7 +4785,7 @@ dependencies = [
 [[package]]
 name = "moksha-core"
 version = "0.2.1"
-source = "git+https://github.com/mtbitcr/moksha#62bc8dc261d649ed4ffc28f9b676504e8d9d0623"
+source = "git+https://github.com/mtbitcr/moksha#e5fef93a63402cd06c22b0ef09825e4aca8fdc00"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4806,7 +4806,7 @@ dependencies = [
 [[package]]
 name = "moksha-mint"
 version = "0.2.1"
-source = "git+https://github.com/mtbitcr/moksha#62bc8dc261d649ed4ffc28f9b676504e8d9d0623"
+source = "git+https://github.com/mtbitcr/moksha#e5fef93a63402cd06c22b0ef09825e4aca8fdc00"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4844,7 +4844,7 @@ dependencies = [
 [[package]]
 name = "moksha-wallet"
 version = "0.2.1"
-source = "git+https://github.com/mtbitcr/moksha#62bc8dc261d649ed4ffc28f9b676504e8d9d0623"
+source = "git+https://github.com/mtbitcr/moksha#e5fef93a63402cd06c22b0ef09825e4aca8fdc00"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6200,7 +6200,7 @@ checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
  "heck 0.5.0",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "log",
  "multimap 0.10.0",
  "once_cell",
@@ -6233,7 +6233,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.87",
@@ -6450,12 +6450,6 @@ dependencies = [
  "ppv-lite86",
  "rand_core 0.6.4",
 ]
-
-[[package]]
-name = "rand_core"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c33a3c44ca05fa6f1807d8e6743f3824e8509beca625669633be0acbdf509dc"
 
 [[package]]
 name = "rand_core"
