@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_send_request_to_action_timed_out_does_not_send_non_rejectable_action() {
+    async fn test_send_request_to_action_rejected_does_not_send_non_rejectable_action() {
         let recipients = vec![
             get_identity_public_data("part1", "part1@example.com", None),
             get_identity_public_data("part2", "part2@example.com", None),
@@ -457,13 +457,13 @@ mod tests {
 
         let mut mock = MockNotificationJsonTransportApi::new();
 
-        // expect to send payment timeout event to all recipients
+        // expect to send payment recourse event to all recipients
         mock.expect_send()
             .withf(|_, e| e.event_type == EventType::BillPaymentRecourse)
             .returning(|_, _| Ok(()))
             .times(1);
 
-        // expect to send acceptance timeout event to all recipients
+        // expect to send acceptance recourse event to all recipients
         mock.expect_send()
             .withf(|_, e| e.event_type == EventType::BillAcceptanceRecourse)
             .returning(|_, _| Ok(()))
