@@ -21,8 +21,8 @@ use utoipa::ToSchema;
 #[borsh(use_discriminant = true)]
 pub enum BillType {
     PromissoryNote = 0, // Drawer pays to payee
-    ThreeParties = 1,   // Drawee pays to payee
-    SelfDrafted = 2,    // Drawee pays to drawer
+    SelfDrafted = 1,    // Drawee pays to drawer
+    ThreeParties = 2,   // Drawee pays to payee
 }
 
 impl TryFrom<u64> for BillType {
@@ -31,8 +31,8 @@ impl TryFrom<u64> for BillType {
     fn try_from(value: u64) -> std::result::Result<Self, Error> {
         match value {
             0 => Ok(BillType::PromissoryNote),
-            1 => Ok(BillType::ThreeParties),
-            2 => Ok(BillType::SelfDrafted),
+            1 => Ok(BillType::SelfDrafted),
+            2 => Ok(BillType::ThreeParties),
             _ => Err(Error::Validation(format!(
                 "Invalid bill type found: {value}"
             ))),
