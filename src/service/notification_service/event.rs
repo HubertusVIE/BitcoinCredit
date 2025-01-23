@@ -12,7 +12,11 @@ pub enum EventType {
     BillSigned,
     BillAccepted,
     BillAcceptanceRequested,
+    BillAcceptanceRejected,
+    BillAcceptanceTimeout,
     BillPaymentRequested,
+    BillPaymentRejected,
+    BillPaymentTimeout,
     BillSellOffered,
     BillPaid,
     BillEndorsed,
@@ -28,7 +32,11 @@ impl EventType {
             Self::BillSigned,
             Self::BillAccepted,
             Self::BillAcceptanceRequested,
+            Self::BillAcceptanceRejected,
+            Self::BillAcceptanceTimeout,
             Self::BillPaymentRequested,
+            Self::BillPaymentRejected,
+            Self::BillPaymentTimeout,
             Self::BillSellOffered,
             Self::BillPaid,
             Self::BillEndorsed,
@@ -47,6 +55,18 @@ pub enum ActionType {
     CheckBill,
     PayBill,
     CheckQuote,
+}
+
+impl ActionType {
+    /// Return a corresponding rejected event type for the action type
+    /// if the action has a rejected event type. If not, return None.
+    pub fn get_rejected_event_type(&self) -> Option<EventType> {
+        match self {
+            Self::ApproveBill => Some(EventType::BillAcceptanceRejected),
+            Self::PayBill => Some(EventType::BillPaymentRejected),
+            _ => None,
+        }
+    }
 }
 
 /// Can be used for all events that are just signalling an action
