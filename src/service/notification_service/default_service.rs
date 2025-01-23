@@ -39,7 +39,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             &bill.drawee.node_id,
             BillActionEventPayload {
                 bill_id: bill.id.clone(),
-                action_type: ActionType::ApproveBill,
+                action_type: ActionType::AcceptBill,
             },
         );
         let payee_event = Event::new(
@@ -84,7 +84,7 @@ impl NotificationServiceApi for DefaultNotificationService {
             &bill.drawee.node_id,
             BillActionEventPayload {
                 bill_id: bill.id.clone(),
-                action_type: ActionType::ApproveBill,
+                action_type: ActionType::AcceptBill,
             },
         );
         self.notification_transport
@@ -231,6 +231,28 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
+    async fn send_recourse_action_event(
+        &self,
+        bill_id: &str,
+        action: ActionType,
+        recipient: &IdentityPublicData,
+    ) -> Result<()> {
+        if let Some(event_type) = action.get_recourse_event_type() {
+            let event = Event::new(
+                event_type.to_owned(),
+                &recipient.node_id,
+                BillActionEventPayload {
+                    bill_id: bill_id.to_owned(),
+                    action_type: action,
+                },
+            );
+            self.notification_transport
+                .send(recipient, event.try_into()?)
+                .await?;
+        }
+        Ok(())
+    }
+
     async fn send_new_quote_event(&self, _bill: &BitcreditBill) -> Result<()> {
         // @TODO: How do we know the quoting participants
         Ok(())
@@ -320,7 +342,35 @@ mod tests {
         service
             .send_request_to_action_rejected_event(
                 "bill_id",
-                ActionType::ApproveBill,
+                ActionType::AcceptBill,
+                recipients.clone(),
+            )
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_to_action_timed_out_does_not_send_non_rejectable_action() {
+        let recipients = vec![
+            get_identity_public_data("part1", "part1@example.com", None),
+            get_identity_public_data("part2", "part2@example.com", None),
+            get_identity_public_data("part3", "part3@example.com", None),
+        ];
+
+        let mut mock = MockNotificationJsonTransportApi::new();
+
+        // expect to not send rejected event for non rejectable actions
+        mock.expect_send().never();
+
+        let service = DefaultNotificationService {
+            notification_transport: Box::new(mock),
+            notification_store: Arc::new(MockNotificationStoreApi::new()),
+        };
+
+        service
+            .send_request_to_action_rejected_event(
+                "bill_id",
+                ActionType::CheckBill,
                 recipients.clone(),
             )
             .await
@@ -366,9 +416,91 @@ mod tests {
         service
             .send_request_to_action_timed_out_event(
                 "bill_id",
-                ActionType::ApproveBill,
+                ActionType::AcceptBill,
                 recipients.clone(),
             )
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_to_action_timed_out_does_not_send_non_timeout_action() {
+        let recipients = vec![
+            get_identity_public_data("part1", "part1@example.com", None),
+            get_identity_public_data("part2", "part2@example.com", None),
+            get_identity_public_data("part3", "part3@example.com", None),
+        ];
+
+        let mut mock = MockNotificationJsonTransportApi::new();
+
+        // expect to never send timeout event on non expiring events
+        mock.expect_send().never();
+
+        let service = DefaultNotificationService {
+            notification_transport: Box::new(mock),
+            notification_store: Arc::new(MockNotificationStoreApi::new()),
+        };
+
+        service
+            .send_request_to_action_timed_out_event(
+                "bill_id",
+                ActionType::CheckBill,
+                recipients.clone(),
+            )
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_recourse_action_event() {
+        let recipient = get_identity_public_data("part1", "part1@example.com", None);
+
+        let mut mock = MockNotificationJsonTransportApi::new();
+
+        // expect to send payment timeout event to all recipients
+        mock.expect_send()
+            .withf(|_, e| e.event_type == EventType::BillPaymentRecourse)
+            .returning(|_, _| Ok(()))
+            .times(1);
+
+        // expect to send acceptance timeout event to all recipients
+        mock.expect_send()
+            .withf(|_, e| e.event_type == EventType::BillAcceptanceRecourse)
+            .returning(|_, _| Ok(()))
+            .times(1);
+
+        let service = DefaultNotificationService {
+            notification_transport: Box::new(mock),
+            notification_store: Arc::new(MockNotificationStoreApi::new()),
+        };
+
+        service
+            .send_recourse_action_event("bill_id", ActionType::PayBill, &recipient)
+            .await
+            .expect("failed to send event");
+
+        service
+            .send_recourse_action_event("bill_id", ActionType::AcceptBill, &recipient)
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_recourse_action_event_does_not_send_non_recurse_action() {
+        let recipient = get_identity_public_data("part1", "part1@example.com", None);
+
+        let mut mock = MockNotificationJsonTransportApi::new();
+
+        // expect not to send non recourse event
+        mock.expect_send().never();
+
+        let service = DefaultNotificationService {
+            notification_transport: Box::new(mock),
+            notification_store: Arc::new(MockNotificationStoreApi::new()),
+        };
+
+        service
+            .send_recourse_action_event("bill_id", ActionType::CheckBill, &recipient)
             .await
             .expect("failed to send event");
     }
@@ -388,7 +520,7 @@ mod tests {
                 let event: Event<BillActionEventPayload> = e.clone().try_into().unwrap();
                 valid_node_id
                     && valid_event_type
-                    && event.data.action_type == ActionType::ApproveBill
+                    && event.data.action_type == ActionType::AcceptBill
             })
             .returning(|_, _| Ok(()));
 
@@ -434,7 +566,7 @@ mod tests {
         let service = setup_service_expectation(
             "drawee",
             EventType::BillAcceptanceRequested,
-            ActionType::ApproveBill,
+            ActionType::AcceptBill,
         );
 
         service

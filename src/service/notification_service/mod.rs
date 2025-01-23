@@ -139,7 +139,7 @@ pub async fn create_nostr_consumer(
 #[async_trait]
 pub trait NotificationServiceApi: Send + Sync {
     /// Sent when: A bill is signed by: Drawer
-    /// Receiver: Payer, Action: ApproveBill
+    /// Receiver: Payer, Action: AcceptBill
     /// Receiver: Payee, Action: CheckBill
     async fn send_bill_is_signed_event(&self, bill: &BitcreditBill) -> Result<()>;
 
@@ -148,7 +148,7 @@ pub trait NotificationServiceApi: Send + Sync {
     async fn send_bill_is_accepted_event(&self, bill: &BitcreditBill) -> Result<()>;
 
     /// Sent when: A bill is requested to be accepted, Sent by: Holder
-    /// Receiver: Payer, Action: ApproveBill
+    /// Receiver: Payer, Action: AcceptBill
     async fn send_request_to_accept_event(&self, bill: &BitcreditBill) -> Result<()>;
 
     /// Sent when: A bill is requested to be paid, Sent by: Holder
@@ -176,7 +176,8 @@ pub trait NotificationServiceApi: Send + Sync {
     async fn send_bill_is_sold_event(&self, bill: &BitcreditBill) -> Result<()>;
 
     /// In case a participant rejects one of the 'request to' actions (e.g. request to accept,
-    /// request to pay) we send this event to all bill participants.
+    /// request to pay) we send this event to all bill participants. Will only send the event
+    /// if the given action can be a rejected action.
     /// Arguments:
     /// * bill_id: The id of the bill affected
     /// * rejected_action: The action that was rejected
@@ -189,7 +190,8 @@ pub trait NotificationServiceApi: Send + Sync {
     ) -> Result<()>;
 
     /// In case a participant did not perform an action (e.g. request to accept, request
-    /// to pay) in time we notify all bill participants about the timed out action.
+    /// to pay) in time we notify all bill participants about the timed out action. Will
+    /// only send the event if the given action can be a timed out action.
     /// Arguments:
     /// * bill_id: The id of the bill affected
     /// * timed_out_action: The action that has timed out
@@ -199,6 +201,21 @@ pub trait NotificationServiceApi: Send + Sync {
         bill_id: &str,
         timed_out_action: event::ActionType,
         recipients: Vec<IdentityPublicData>,
+    ) -> Result<()>;
+
+    /// In case an action was rejected or timed out a holder can request a recourse action
+    /// from another participant in the chain. Will only send the event if the given action
+    /// can be a recourse action.
+    /// Arguments:
+    /// * bill_id: The id of the bill affected
+    /// * action: The action that should be performed via recourse. This will also be the action
+    /// sent in the event given it can be a recourse action.
+    /// * recipient: The recourse recipient that should perform the action
+    async fn send_recourse_action_event(
+        &self,
+        bill_id: &str,
+        action: event::ActionType,
+        recipient: &IdentityPublicData,
     ) -> Result<()>;
 
     /// Sent when: A bill is requested to be minted, Sent by: Holder
