@@ -22,7 +22,7 @@ use url::Url;
 // this logic will be replaced soon
 #[tokio::main]
 pub async fn accept_mint_bitcredit(
-    amount: u64,
+    sum: u64,
     bill_id: String,
     node_id: String,
 ) -> PostMintQuoteBitcreditResponse {
@@ -43,7 +43,7 @@ pub async fn accept_mint_bitcredit(
         .await
         .expect("Could not create wallet");
 
-    let req = wallet.create_quote_bitcredit(&mint_url, bill_id_hex, node_id, amount);
+    let req = wallet.create_quote_bitcredit(&mint_url, bill_id_hex, node_id, sum);
 
     req.await.unwrap()
 }
@@ -107,16 +107,16 @@ pub async fn client_accept_bitcredit_quote(bill_id_hex: &str, bill_id_base58: &S
 
     let quote = get_quote_from_map(bill_id_base58).unwrap();
     let quote_id = quote.quote_id.clone();
-    let amount = quote.amount;
+    let sum = quote.sum;
 
     let mut token = "".to_string();
 
-    if !quote_id.is_empty() && amount > 0 {
+    if !quote_id.is_empty() && sum > 0 {
         let result = wallet
             .mint_tokens(
                 wallet_keyset,
                 &PaymentMethod::Bitcredit,
-                amount.into(),
+                sum.into(),
                 quote_id,
                 CurrencyUnit::CrSat,
             )
@@ -167,7 +167,7 @@ pub async fn request_to_mint_bitcredit(
     let quote: BitcreditEbillQuote = BitcreditEbillQuote {
         bill_id: payload.bill_id.clone(),
         quote_id: "".to_string(),
-        amount: 0,
+        sum: 0,
         mint_node_id: payload.mint_node.clone(),
         mint_url: mint_url.to_string().clone(),
         accepted: false,
@@ -264,7 +264,7 @@ pub fn add_bitcredit_quote_and_amount_in_quotes_map(
     let mut quotes: HashMap<String, BitcreditEbillQuote> = read_quotes_map();
     let mut quote = get_quote_from_map(&bill_id).unwrap();
 
-    quote.amount = response.amount;
+    quote.sum = response.amount;
     quote.quote_id = response.quote.clone();
 
     quotes.remove(&bill_id);

@@ -1,22 +1,18 @@
 use super::middleware::IdentityCheck;
-use crate::blockchain::bill::BillBlockchain;
 use crate::blockchain::Blockchain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
-use crate::util::{base58_encode, BcrKeys};
+use crate::util::{self, base58_encode, BcrKeys};
 use crate::web::data::{
-    AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey,
-    BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
-    OfferToSellBitcreditBillPayload, RequestToAcceptBitcreditBillPayload,
+    AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey, BillId,
+    BillNumbersToWordsForSum, BillType, BitcreditBillPayload, EndorseBitcreditBillPayload,
+    MintBitcreditBillPayload, OfferToSellBitcreditBillPayload, RequestToAcceptBitcreditBillPayload,
     RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, UploadBillFilesForm,
     UploadFilesResponse,
 };
 use crate::{external, service};
-use crate::{
-    service::bill_service::{BitcreditBill, BitcreditBillToReturn},
-    service::ServiceContext,
-};
+use crate::{service::bill_service::BitcreditBillToReturn, service::ServiceContext};
 use log::error;
 use rocket::form::Form;
 use rocket::http::{ContentType, Status};
@@ -84,8 +80,8 @@ pub async fn attachment(
         (status = 200, description = "List of bills", body = Vec<BitcreditBillToReturn>)
     )
 )]
-#[get("/return")]
-pub async fn return_bills_list(
+#[get("/list")]
+pub async fn list(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
 ) -> Result<Json<Vec<BitcreditBillToReturn>>> {
@@ -93,27 +89,19 @@ pub async fn return_bills_list(
     Ok(Json(bills))
 }
 
-#[get("/return/basic/<id>")]
-pub async fn return_basic_bill(
+#[get("/numbers_to_words_for_sum/<id>")]
+pub async fn numbers_to_words_for_sum(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
     id: &str,
-) -> Result<Json<BitcreditBill>> {
+) -> Result<Json<BillNumbersToWordsForSum>> {
     let bill = state.bill_service.get_bill(id).await?;
-    Ok(Json(bill))
+    let sum = bill.sum;
+    let sum_as_words = util::numbers_to_words::encode(&sum);
+    Ok(Json(BillNumbersToWordsForSum { sum, sum_as_words }))
 }
 
-#[get("/chain/return/<id>")]
-pub async fn return_chain_of_blocks(
-    _identity: IdentityCheck,
-    state: &State<ServiceContext>,
-    id: &str,
-) -> Result<Json<BillBlockchain>> {
-    let chain = state.bill_service.get_blockchain_for_bill(id).await?;
-    Ok(Json(chain))
-}
-
-#[get("/find/<bill_id>")]
+#[get("/dht/<bill_id>")]
 pub async fn find_bill_in_dht(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
@@ -125,7 +113,7 @@ pub async fn find_bill_in_dht(
 
 #[utoipa::path(
     tag = "Bills",
-    path = "bill/return/{id}",
+    path = "bill/{id}",
     description = "Get bill details by id",
     params(
         ("id" = String, Path, description = "Id of the bill to return")
@@ -135,16 +123,17 @@ pub async fn find_bill_in_dht(
         (status = 404, description = "Bill not found")
     )
 )]
-#[get("/return/<id>")]
-pub async fn return_bill(
+#[get("/detail/<id>")]
+pub async fn bill_detail(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
     id: &str,
 ) -> Result<Json<BitcreditBillToReturn>> {
     let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let identity = state.identity_service.get_identity().await?;
     let full_bill = state
         .bill_service
-        .get_full_bill(id, current_timestamp)
+        .get_full_bill(id, &identity, current_timestamp)
         .await?;
     Ok(Json(full_bill))
 }
@@ -167,7 +156,7 @@ pub async fn check_payment(state: &State<ServiceContext>) -> Result<Status> {
 }
 
 #[get("/dht")]
-pub async fn search_bill(
+pub async fn check_dht_for_bills(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
 ) -> Result<Status> {
@@ -214,8 +203,22 @@ pub async fn issue_bill(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
     bill_payload: Json<BitcreditBillPayload>,
-) -> Result<Status> {
+) -> Result<Json<BillId>> {
     let current_identity = state.get_current_identity().await;
+    let sum = util::currency::parse_sum(&bill_payload.sum)?;
+
+    if util::date::date_string_to_i64_timestamp(&bill_payload.issue_date, None).is_none() {
+        return Err(service::Error::Validation(String::from(
+            "invalid issue date",
+        )));
+    }
+
+    if util::date::date_string_to_i64_timestamp(&bill_payload.maturity_date, None).is_none() {
+        return Err(service::Error::Validation(String::from(
+            "invalid maturity date",
+        )));
+    }
+
     let (drawer_public_data, drawer_keys) = match current_identity.company {
         None => {
             let identity = state.identity_service.get_full_identity().await?;
@@ -236,106 +239,103 @@ pub async fn issue_bill(
         }
     };
 
-    let (public_data_drawee, public_data_payee) =
-        match (bill_payload.drawer_is_payee, bill_payload.drawer_is_drawee) {
-            // Drawer is drawee and payee
-            (true, true) => {
-                return Err(service::Error::Validation(String::from(
-                    "Drawer can't be Drawee and Payee at the same time",
-                )));
-            }
-            // Drawer is payee
-            (true, false) => {
-                let public_data_drawee = match state
-                    .contact_service
-                    .get_identity_by_node_id(&bill_payload.drawee)
-                    .await
-                {
-                    Ok(Some(drawee)) => drawee,
-                    Ok(None) | Err(_) => {
-                        return Err(service::Error::Validation(String::from(
-                            "Can not get drawee identity.",
-                        )));
-                    }
-                };
+    let bill_type = BillType::try_from(bill_payload.t)?;
 
-                let public_data_payee = drawer_public_data.clone();
-
-                (public_data_drawee, public_data_payee)
-            }
-            // Drawer is drawee
-            (false, true) => {
-                let public_data_drawee = drawer_public_data.clone();
-
-                let public_data_payee = match state
-                    .contact_service
-                    .get_identity_by_node_id(&bill_payload.payee)
-                    .await
-                {
-                    Ok(Some(drawee)) => drawee,
-                    Ok(None) | Err(_) => {
-                        return Err(service::Error::Validation(String::from(
-                            "Can not get payee identity.",
-                        )));
-                    }
-                };
-
-                (public_data_drawee, public_data_payee)
-            }
-            // Drawer is neither drawee nor payee
-            (false, false) => {
-                let public_data_drawee = match state
-                    .contact_service
-                    .get_identity_by_node_id(&bill_payload.drawee)
-                    .await
-                {
-                    Ok(Some(drawee)) => drawee,
-                    Ok(None) | Err(_) => {
-                        return Err(service::Error::Validation(String::from(
-                            "Can not get drawee identity.",
-                        )));
-                    }
-                };
-
-                let public_data_payee = match state
-                    .contact_service
-                    .get_identity_by_node_id(&bill_payload.payee)
-                    .await
-                {
-                    Ok(Some(drawee)) => drawee,
-                    Ok(None) | Err(_) => {
-                        return Err(service::Error::Validation(String::from(
-                            "Can not get payee identity.",
-                        )));
-                    }
-                };
-
-                (public_data_drawee, public_data_payee)
-            }
-        };
-
-    if public_data_drawee.node_id == public_data_payee.node_id {
+    if bill_payload.drawee == bill_payload.payee {
         return Err(service::Error::Validation(String::from(
-            "Drawee and payee can't be the same.",
+            "Drawer can't be Payee at the same time",
         )));
     }
+
+    let (public_data_drawee, public_data_payee) = match bill_type {
+        // Drawer is payee
+        BillType::SelfDrafted => {
+            let public_data_drawee = match state
+                .contact_service
+                .get_identity_by_node_id(&bill_payload.drawee)
+                .await
+            {
+                Ok(Some(drawee)) => drawee,
+                Ok(None) | Err(_) => {
+                    return Err(service::Error::Validation(String::from(
+                        "Can not get drawee identity.",
+                    )));
+                }
+            };
+
+            let public_data_payee = drawer_public_data.clone();
+
+            (public_data_drawee, public_data_payee)
+        }
+        // Drawer is drawee
+        BillType::PromissoryNote => {
+            let public_data_drawee = drawer_public_data.clone();
+
+            let public_data_payee = match state
+                .contact_service
+                .get_identity_by_node_id(&bill_payload.payee)
+                .await
+            {
+                Ok(Some(drawee)) => drawee,
+                Ok(None) | Err(_) => {
+                    return Err(service::Error::Validation(String::from(
+                        "Can not get payee identity.",
+                    )));
+                }
+            };
+
+            (public_data_drawee, public_data_payee)
+        }
+        // Drawer is neither drawee nor payee
+        BillType::ThreeParties => {
+            let public_data_drawee = match state
+                .contact_service
+                .get_identity_by_node_id(&bill_payload.drawee)
+                .await
+            {
+                Ok(Some(drawee)) => drawee,
+                Ok(None) | Err(_) => {
+                    return Err(service::Error::Validation(String::from(
+                        "Can not get drawee identity.",
+                    )));
+                }
+            };
+
+            let public_data_payee = match state
+                .contact_service
+                .get_identity_by_node_id(&bill_payload.payee)
+                .await
+            {
+                Ok(Some(drawee)) => drawee,
+                Ok(None) | Err(_) => {
+                    return Err(service::Error::Validation(String::from(
+                        "Can not get payee identity.",
+                    )));
+                }
+            };
+
+            (public_data_drawee, public_data_payee)
+        }
+    };
 
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let bill = state
         .bill_service
         .issue_new_bill(
-            bill_payload.bill_jurisdiction.to_owned(),
-            bill_payload.place_of_drawing.to_owned(),
-            bill_payload.amount_numbers.to_owned(),
-            bill_payload.place_of_payment.to_owned(),
+            bill_payload.country_of_issuing.to_owned(),
+            bill_payload.city_of_issuing.to_owned(),
+            bill_payload.issue_date.to_owned(),
             bill_payload.maturity_date.to_owned(),
-            bill_payload.currency_code.to_owned(),
-            drawer_public_data,
-            drawer_keys,
-            bill_payload.language.to_owned(),
             public_data_drawee,
             public_data_payee,
+            sum,
+            bill_payload.currency.to_owned(),
+            bill_payload.country_of_payment.to_owned(),
+            bill_payload.city_of_payment.to_owned(),
+            bill_payload.language.to_owned(),
             bill_payload.file_upload_id.to_owned(),
+            drawer_public_data,
+            drawer_keys,
             timestamp,
         )
         .await?;
@@ -359,7 +359,9 @@ pub async fn issue_bill(
             .await?;
     }
 
-    Ok(Status::Ok)
+    Ok(Json(BillId {
+        id: bill.id.clone(),
+    }))
 }
 
 #[put("/offer_to_sell", format = "json", data = "<offer_to_sell_payload>")]
@@ -381,6 +383,7 @@ pub async fn offer_to_sell_bill(
         }
     };
 
+    let sum = util::currency::parse_sum(&offer_to_sell_payload.sum)?;
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
     let chain = state
@@ -388,8 +391,8 @@ pub async fn offer_to_sell_bill(
         .offer_to_sell_bitcredit_bill(
             &offer_to_sell_payload.bill_id,
             public_data_buyer.clone(),
-            offer_to_sell_payload.amount_numbers,
-            &offer_to_sell_payload.currency_code,
+            sum,
+            &offer_to_sell_payload.currency,
             timestamp,
         )
         .await?;
@@ -470,7 +473,7 @@ pub async fn request_to_pay_bill(
         .bill_service
         .request_pay(
             &request_to_pay_bill_payload.bill_id,
-            &request_to_pay_bill_payload.currency_code,
+            &request_to_pay_bill_payload.currency,
             timestamp,
         )
         .await?;
@@ -579,12 +582,14 @@ pub async fn accept_mint_bill(
         .await?;
     let holder_node_id = bill.payee.node_id.clone();
 
+    let sum = util::currency::parse_sum(&accept_mint_bill_payload.sum)?;
+
     //TODO: calculate percent
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
     // thread, but this logic will be replaced soon
     thread::spawn(move || {
         accept_mint_bitcredit(
-            accept_mint_bill_payload.amount,
+            sum,
             accept_mint_bill_payload.bill_id.clone(),
             holder_node_id,
         )
@@ -603,6 +608,7 @@ pub async fn mint_bill(
     mint_bill_payload: Json<MintBitcreditBillPayload>,
 ) -> Result<Status> {
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let sum = util::currency::parse_sum(&mint_bill_payload.sum)?;
 
     let public_mint_node = match state
         .contact_service
@@ -621,8 +627,8 @@ pub async fn mint_bill(
         .bill_service
         .mint_bitcredit_bill(
             &mint_bill_payload.bill_id,
-            mint_bill_payload.amount_numbers,
-            &mint_bill_payload.currency_code,
+            sum,
+            &mint_bill_payload.currency,
             public_mint_node.clone(),
             timestamp,
         )

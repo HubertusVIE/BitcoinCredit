@@ -4,16 +4,17 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "bill_jurisdiction": "UK",
-  "place_of_drawing": "London",
-  "currency_code": "USD",
-  "amount_numbers": 10000,
-  "language": "en",
-  "drawee_name": "Docker1",
-  "payee_name": "Docker2",
-  "place_of_payment": "London",
-  "maturity_date": "2030-01-01",
-  "drawer_is_payee": false,
-  "drawer_is_drawee": true
+  "type": 0,
+  "country_of_issuing": "AT",
+  "city_of_issuing": "Vienna",
+  "issue_date": "2025-01-22",
+  "maturity_date": "2025-06-22",
+  "payee": "12D3KooWBN48JhNXAKhKxbUVM1YXRrHTfPYxjWiGpcKYGuR77cy3",
+  "payer": "12D3BooWBN48JhNXAKhKxbUVM1YXRrHTfPYxjWiGpcKYGuR77555",
+  "sum": "5000",
+  "currency": "BTC",
+  "country_of_payment": "UK",
+  "city_of_payment": "London",
+  "language": "en-UK"
 }
 

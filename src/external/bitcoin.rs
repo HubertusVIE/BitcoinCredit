@@ -45,11 +45,11 @@ pub trait BitcoinClientApi: Send + Sync {
     #[allow(dead_code)]
     fn get_first_transaction(&self, transactions: &Transactions) -> Option<Txid>;
 
-    async fn check_if_paid(&self, address: &str, amount: u64) -> Result<(bool, u64)>;
+    async fn check_if_paid(&self, address: &str, sum: u64) -> Result<(bool, u64)>;
 
     fn get_address_to_pay(&self, bill_public_key: &str, holder_public_key: &str) -> Result<String>;
 
-    fn generate_link_to_pay(&self, address: &str, amount: u64, message: &str) -> String;
+    fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String;
 
     fn get_combined_private_key(
         &self,
@@ -116,10 +116,10 @@ impl BitcoinClientApi for BitcoinClient {
         transactions.last().cloned()
     }
 
-    async fn check_if_paid(&self, address: &str, amount: u64) -> Result<(bool, u64)> {
+    async fn check_if_paid(&self, address: &str, sum: u64) -> Result<(bool, u64)> {
         let info_about_address = self.get_address_info(address).await?;
 
-        // the received and spent sum need to add up to the amount
+        // the received and spent sum need to add up to the sum
         let received_sum = info_about_address.chain_stats.funded_txo_sum; // balance on address
         let spent_sum = info_about_address.chain_stats.spent_txo_sum; // money already spent
 
@@ -127,8 +127,9 @@ impl BitcoinClientApi for BitcoinClient {
         let received_sum_mempool = info_about_address.mempool_stats.funded_txo_sum;
         let spent_sum_mempool = info_about_address.mempool_stats.spent_txo_sum;
 
-        let sum: u64 = received_sum + spent_sum + received_sum_mempool + spent_sum_mempool;
-        if amount >= sum {
+        let sum_chain_mempool: u64 =
+            received_sum + spent_sum + received_sum_mempool + spent_sum_mempool;
+        if sum >= sum_chain_mempool {
             Ok((true, received_sum + spent_sum)) // only return sum received on chain, so we don't
                                                  // return a sum if it's in mempool
         } else {
@@ -150,8 +151,8 @@ impl BitcoinClientApi for BitcoinClient {
         Ok(bitcoin::Address::p2pkh(pub_key_bill, CONFIG.bitcoin_network()).to_string())
     }
 
-    fn generate_link_to_pay(&self, address: &str, amount: u64, message: &str) -> String {
-        let link = format!("bitcoin:{}?amount={}&message={}", address, amount, message);
+    fn generate_link_to_pay(&self, address: &str, sum: u64, message: &str) -> String {
+        let link = format!("bitcoin:{}?amount={}&message={}", address, sum, message);
         link
     }
 

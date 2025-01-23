@@ -1,4 +1,5 @@
 pub mod crypto;
+pub mod currency;
 pub mod date;
 pub mod file;
 pub mod numbers_to_words;

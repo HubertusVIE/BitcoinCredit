@@ -95,7 +95,7 @@ impl BillBlockchain {
     }
 
     /// Checks if the last block is an offer to sell block, if it's deadline is still active and if so,
-    /// returns the buyer, seller and amount
+    /// returns the buyer, seller and sum
     pub fn is_last_offer_to_sell_block_waiting_for_payment(
         &self,
         bill_keys: &BillKeys,
@@ -121,8 +121,8 @@ impl BillBlockchain {
             Ok(WaitingForPayment::Yes(Box::new(PaymentInfo {
                 buyer: block_data_decrypted.buyer,
                 seller: block_data_decrypted.seller,
-                amount: block_data_decrypted.amount,
-                currency_code: block_data_decrypted.currency_code,
+                sum: block_data_decrypted.sum,
+                currency: block_data_decrypted.currency,
                 payment_address: block_data_decrypted.payment_address,
             })))
         } else {
@@ -213,8 +213,8 @@ mod tests {
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                amount: 5000,
-                currency_code: "sat".to_string(),
+                sum: 5000,
+                currency: "sat".to_string(),
                 payment_address: "1234".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -318,7 +318,7 @@ mod tests {
 
         assert!(result.is_ok());
         if let WaitingForPayment::Yes(info) = result.unwrap() {
-            assert_eq!(info.amount, 5000);
+            assert_eq!(info.sum, 5000);
             assert_eq!(info.buyer.node_id, node_id_last_endorsee);
         } else {
             panic!("wrong result");

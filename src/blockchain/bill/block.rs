@@ -44,17 +44,17 @@ pub struct BillBlockDataToHash {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillIssueBlockData {
     pub id: String,
-    pub bill_jurisdiction: String,
+    pub country_of_issuing: String,
+    pub city_of_issuing: String,
     pub drawee: BillIdentityBlockData,
     pub drawer: BillIdentityBlockData,
     pub payee: BillIdentityBlockData,
-    pub place_of_drawing: String,
-    pub currency_code: String,
-    pub amount_numbers: u64,
-    pub amounts_letters: String,
+    pub currency: String,
+    pub sum: u64,
     pub maturity_date: String,
-    pub date_of_issue: String,
-    pub place_of_payment: String,
+    pub issue_date: String,
+    pub country_of_payment: String,
+    pub city_of_payment: String,
     pub language: String,
     pub files: Vec<File>,
     pub signatory: Option<BillSignatoryBlockData>,
@@ -71,17 +71,17 @@ impl BillIssueBlockData {
         let signing_address = value.drawer.postal_address.clone();
         Self {
             id: value.id,
-            bill_jurisdiction: value.bill_jurisdiction,
+            country_of_issuing: value.country_of_issuing,
+            city_of_issuing: value.city_of_issuing,
             drawee: value.drawee.into(),
             drawer: value.drawer.into(),
             payee: value.payee.into(),
-            place_of_drawing: value.place_of_drawing,
-            currency_code: value.currency_code,
-            amount_numbers: value.amount_numbers,
-            amounts_letters: value.amounts_letters,
+            currency: value.currency,
+            sum: value.sum,
             maturity_date: value.maturity_date,
-            date_of_issue: value.date_of_issue,
-            place_of_payment: value.place_of_payment,
+            issue_date: value.issue_date,
+            country_of_payment: value.country_of_payment,
+            city_of_payment: value.city_of_payment,
             language: value.language,
             files: value.files,
             signatory,
@@ -102,7 +102,7 @@ pub struct BillAcceptBlockData {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct BillRequestToPayBlockData {
     pub requester: BillIdentityBlockData,
-    pub currency_code: String,
+    pub currency: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: PostalAddress, // address of the requester
@@ -120,8 +120,8 @@ pub struct BillRequestToAcceptBlockData {
 pub struct BillMintBlockData {
     pub endorser: BillIdentityBlockData,
     pub endorsee: BillIdentityBlockData,
-    pub currency_code: String,
-    pub amount: u64,
+    pub currency: String,
+    pub sum: u64,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: PostalAddress, // address of the endorser
@@ -131,8 +131,8 @@ pub struct BillMintBlockData {
 pub struct BillOfferToSellBlockData {
     pub seller: BillIdentityBlockData,
     pub buyer: BillIdentityBlockData,
-    pub currency_code: String,
-    pub amount: u64,
+    pub currency: String,
+    pub sum: u64,
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
@@ -143,8 +143,8 @@ pub struct BillOfferToSellBlockData {
 pub struct BillSellBlockData {
     pub seller: BillIdentityBlockData,
     pub buyer: BillIdentityBlockData,
-    pub currency_code: String,
-    pub amount: u64,
+    pub currency: String,
+    pub sum: u64,
     pub payment_address: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
@@ -644,7 +644,7 @@ impl BillBlock {
                 let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
                 Ok(format!(
                     "Bill issued by {} at {} in {}",
-                    bill.drawer.name, time_of_issue, bill.place_of_drawing
+                    bill.drawer.name, time_of_issue, bill.city_of_issuing
                 ))
             }
             Endorse => {
@@ -798,7 +798,7 @@ mod tests {
     #[test]
     fn get_history_label_issue() {
         let mut bill = BitcreditBill::new_empty();
-        bill.place_of_drawing = "Vienna".to_string();
+        bill.city_of_issuing = "Vienna".to_string();
         let mut drawer = IdentityPublicData::new_empty();
         drawer.name = "bill".to_string();
         bill.drawer = drawer.clone();
@@ -901,8 +901,8 @@ mod tests {
             &BillMintBlockData {
                 endorser: minter.clone().into(),
                 endorsee: mint.into(),
-                amount: 5000,
-                currency_code: "sat".to_string(),
+                sum: 5000,
+                currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: minter.postal_address,
@@ -938,8 +938,8 @@ mod tests {
             &BillMintBlockData {
                 endorser: minter.clone().into(),
                 endorsee: mint.into(),
-                amount: 5000,
-                currency_code: "sat".to_string(),
+                sum: 5000,
+                currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: minter.postal_address,
@@ -1098,7 +1098,7 @@ mod tests {
             &get_first_block(),
             &BillRequestToPayBlockData {
                 requester: requester.clone().into(),
-                currency_code: "sat".to_string(),
+                currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: requester.postal_address,
@@ -1131,7 +1131,7 @@ mod tests {
             &get_first_block(),
             &BillRequestToPayBlockData {
                 requester: requester.clone().into(),
-                currency_code: "sat".to_string(),
+                currency: "sat".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
                 signing_address: requester.postal_address,
@@ -1164,8 +1164,8 @@ mod tests {
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                amount: 5000,
-                currency_code: "sat".to_string(),
+                sum: 5000,
+                currency: "sat".to_string(),
                 payment_address: "1234".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -1205,8 +1205,8 @@ mod tests {
             &BillOfferToSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                amount: 5000,
-                currency_code: "sat".to_string(),
+                sum: 5000,
+                currency: "sat".to_string(),
                 payment_address: "1234".to_string(),
                 signatory: None,
                 signing_timestamp: 1731593928,
@@ -1240,8 +1240,8 @@ mod tests {
             &BillSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                amount: 5000,
-                currency_code: "sat".to_string(),
+                sum: 5000,
+                currency: "sat".to_string(),
                 payment_address: "1234".to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: buyer.node_id.clone(),
@@ -1284,8 +1284,8 @@ mod tests {
             &BillSellBlockData {
                 buyer: buyer.clone().into(),
                 seller: seller.clone().into(),
-                amount: 5000,
-                currency_code: "sat".to_string(),
+                sum: 5000,
+                currency: "sat".to_string(),
                 payment_address: "1234".to_string(),
                 signatory: Some(BillSignatoryBlockData {
                     node_id: buyer.node_id.clone(),

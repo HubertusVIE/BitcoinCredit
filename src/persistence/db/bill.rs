@@ -347,7 +347,7 @@ pub mod tests {
                                 .get_public_key(),
                         )
                         .into(),
-                        currency_code: "sat".to_string(),
+                        currency: "sat".to_string(),
                         signatory: None,
                         signing_timestamp: 1731593928,
                         signing_address: PostalAddress::new_empty(),
@@ -401,8 +401,8 @@ pub mod tests {
                 )
                 .into(),
                 buyer: IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key()).into(),
-                currency_code: "sat".to_string(),
-                amount: 15000,
+                currency: "sat".to_string(),
+                sum: 15000,
                 payment_address: "1234paymentaddress".to_string(),
                 signatory: None,
                 signing_timestamp: now,
@@ -437,8 +437,8 @@ pub mod tests {
                             BcrKeys::new().get_public_key(),
                         )
                         .into(),
-                        currency_code: "sat".to_string(),
-                        amount: 15000,
+                        currency: "sat".to_string(),
+                        sum: 15000,
                         payment_address: "1234paymentaddress".to_string(),
                         signatory: None,
                         signing_timestamp: now,
@@ -487,8 +487,8 @@ pub mod tests {
                 )
                 .into(),
                 buyer: IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key()).into(),
-                currency_code: "sat".to_string(),
-                amount: 15000,
+                currency: "sat".to_string(),
+                sum: 15000,
                 payment_address: "1234paymentaddress".to_string(),
                 signatory: None,
                 signing_timestamp: now_minus_one_month,

@@ -31,7 +31,6 @@ use crate::{error, CONFIG};
 use async_trait::async_trait;
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
-use chrono::Utc;
 use log::info;
 use rocket::{http::Status, response::Responder};
 use serde::{Deserialize, Serialize};
@@ -161,14 +160,12 @@ pub trait BillServiceApi: Send + Sync {
     async fn get_full_bill(
         &self,
         bill_id: &str,
+        identity: &Identity,
         current_timestamp: u64,
     ) -> Result<BitcreditBillToReturn>;
 
     /// Gets the bill for the given bill id
     async fn get_bill(&self, bill_id: &str) -> Result<BitcreditBill>;
-
-    /// Gets the blockchain for the given bill id
-    async fn get_blockchain_for_bill(&self, bill_id: &str) -> Result<BillBlockchain>;
 
     /// Try to get the given bill from the dht and saves it locally, if found
     async fn find_bill_in_dht(&self, bill_id: &str) -> Result<()>;
@@ -195,20 +192,23 @@ pub trait BillServiceApi: Send + Sync {
     ) -> Result<File>;
 
     /// issues a new bill
+    #[allow(clippy::too_many_arguments)]
     async fn issue_new_bill(
         &self,
-        bill_jurisdiction: String,
-        place_of_drawing: String,
-        amount_numbers: u64,
-        place_of_payment: String,
+        country_of_issuing: String,
+        city_of_issuing: String,
+        issue_date: String,
         maturity_date: String,
-        currency_code: String,
+        drawee: IdentityPublicData,
+        payee: IdentityPublicData,
+        sum: u64,
+        currency: String,
+        country_of_payment: String,
+        city_of_payment: String,
+        language: String,
+        file_upload_id: Option<String>,
         drawer_public_data: IdentityPublicData,
         drawer_keys: BcrKeys,
-        language: String,
-        public_data_drawee: IdentityPublicData,
-        public_data_payee: IdentityPublicData,
-        file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<BitcreditBill>;
 
@@ -234,7 +234,7 @@ pub trait BillServiceApi: Send + Sync {
     async fn request_pay(
         &self,
         bill_id: &str,
-        currency_code: &str,
+        currency: &str,
         timestamp: u64,
     ) -> Result<BillBlockchain>;
 
@@ -245,8 +245,8 @@ pub trait BillServiceApi: Send + Sync {
     async fn mint_bitcredit_bill(
         &self,
         bill_id: &str,
-        amount_numbers: u64,
-        currency_code: &str,
+        sum: u64,
+        currency: &str,
         mintnode: IdentityPublicData,
         timestamp: u64,
     ) -> Result<BillBlockchain>;
@@ -256,8 +256,8 @@ pub trait BillServiceApi: Send + Sync {
         &self,
         bill_id: &str,
         buyer: IdentityPublicData,
-        amount_numbers: u64,
-        currency_code: &str,
+        sum: u64,
+        currency: &str,
         timestamp: u64,
     ) -> Result<BillBlockchain>;
 
@@ -266,8 +266,8 @@ pub trait BillServiceApi: Send + Sync {
         &self,
         bill_id: &str,
         buyer: IdentityPublicData,
-        amount_numbers: u64,
-        currency_code: &str,
+        sum: u64,
+        currency: &str,
         payment_address: &str,
         timestamp: u64,
     ) -> Result<BillBlockchain>;
@@ -531,18 +531,18 @@ impl BillService {
 
         Ok(BitcreditBill {
             id: bill_first_version.id,
-            bill_jurisdiction: bill_first_version.bill_jurisdiction,
+            country_of_issuing: bill_first_version.country_of_issuing,
+            city_of_issuing: bill_first_version.city_of_issuing,
             drawee: drawee_contact,
             drawer: drawer_contact,
             payee: payee_contact,
             endorsee: endorsee_contact,
-            place_of_drawing: bill_first_version.place_of_drawing,
-            currency_code: bill_first_version.currency_code,
-            amount_numbers: bill_first_version.amount_numbers,
-            amounts_letters: bill_first_version.amounts_letters,
+            currency: bill_first_version.currency,
+            sum: bill_first_version.sum,
             maturity_date: bill_first_version.maturity_date,
-            date_of_issue: bill_first_version.date_of_issue,
-            place_of_payment: bill_first_version.place_of_payment,
+            issue_date: bill_first_version.issue_date,
+            country_of_payment: bill_first_version.country_of_payment,
+            city_of_payment: bill_first_version.city_of_payment,
             language: bill_first_version.language,
             files: bill_first_version.files,
         })
@@ -555,66 +555,13 @@ impl BillServiceApi for BillService {
         let mut res = vec![];
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
+        let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
 
         for bill_id in bill_ids {
-            let chain = self.blockchain_store.get_chain(&bill_id).await?;
-            let bill_keys = self.store.get_keys(&bill_id).await?;
             let bill = self
-                .get_last_version_bill(&chain, &bill_keys, &identity)
+                .get_full_bill(&bill_id, &identity, current_timestamp)
                 .await?;
-            let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
-            let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
-            let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
-            let requested_to_pay = chain.block_with_operation_code_exists(BillOpCode::RequestToPay);
-            let requested_to_accept =
-                chain.block_with_operation_code_exists(BillOpCode::RequestToAccept);
-
-            let holder_public_key = match bill.endorsee {
-                None => &bill.payee.node_id,
-                Some(ref endorsee) => &endorsee.node_id,
-            };
-            let address_to_pay = self
-                .bitcoin_client
-                .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
-            let mut paid = false;
-            if requested_to_pay {
-                paid = self.store.is_paid(&bill.id).await?;
-            }
-
-            let active_notification = self
-                .notification_service
-                .get_active_bill_notification(&bill.id)
-                .await;
-
-            res.push(BitcreditBillToReturn {
-                id: bill.id,
-                bill_jurisdiction: bill.bill_jurisdiction,
-                drawee: bill.drawee,
-                drawer: bill.drawer,
-                payee: bill.payee,
-                endorsee: bill.endorsee,
-                place_of_drawing: bill.place_of_drawing,
-                currency_code: bill.currency_code,
-                amount_numbers: bill.amount_numbers,
-                amounts_letters: bill.amounts_letters,
-                maturity_date: bill.maturity_date,
-                date_of_issue: bill.date_of_issue,
-                place_of_payment: bill.place_of_payment,
-                language: bill.language,
-                accepted,
-                endorsed,
-                waited_for_payment: false,
-                buyer: None,
-                seller: None,
-                requested_to_pay,
-                requested_to_accept,
-                paid,
-                link_to_pay: "".to_string(),
-                link_for_buy: "".to_string(),
-                address_to_pay,
-                chain_of_blocks: chain_to_return,
-                active_notification,
-            });
+            res.push(bill);
         }
 
         Ok(res)
@@ -656,37 +603,39 @@ impl BillServiceApi for BillService {
     async fn get_full_bill(
         &self,
         bill_id: &str,
+        identity: &Identity,
         current_timestamp: u64,
     ) -> Result<BitcreditBillToReturn> {
-        let identity = self.identity_store.get_full().await?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
-            .get_last_version_bill(&chain, &bill_keys, &identity.identity)
+            .get_last_version_bill(&chain, &bill_keys, identity)
             .await?;
+        let first_version_bill = chain.get_first_version_bill(&bill_keys)?;
+        let time_of_drawing = first_version_bill.signing_timestamp;
 
         let mut link_for_buy = "".to_string();
         let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
         let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
         let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
-        let waiting_for_payment =
+        let last_offer_to_sell_block_waiting_for_payment =
             chain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, current_timestamp)?;
-        let mut waited_for_payment = false;
+        let mut waiting_for_payment = false;
         let mut buyer = None;
         let mut seller = None;
-        if let WaitingForPayment::Yes(payment_info) = waiting_for_payment {
-            waited_for_payment = true;
+        if let WaitingForPayment::Yes(payment_info) = last_offer_to_sell_block_waiting_for_payment {
+            waiting_for_payment = true;
             buyer = Some(
                 self.extend_bill_chain_identity_data_from_contacts_or_identity(
                     payment_info.buyer.clone(),
-                    &identity.identity,
+                    identity,
                 )
                 .await,
             );
             seller = Some(
                 self.extend_bill_chain_identity_data_from_contacts_or_identity(
                     payment_info.seller.clone(),
-                    &identity.identity,
+                    identity,
                 )
                 .await,
             );
@@ -695,13 +644,8 @@ impl BillServiceApi for BillService {
                 .bitcoin_client
                 .get_address_to_pay(&bill_keys.public_key, &payment_info.seller.node_id)?;
 
-            if identity
-                .identity
-                .node_id
-                .to_string()
-                .eq(&payment_info.buyer.node_id)
+            if identity.node_id.to_string().eq(&payment_info.buyer.node_id)
                 || identity
-                    .identity
                     .node_id
                     .to_string()
                     .eq(&payment_info.seller.node_id)
@@ -709,7 +653,7 @@ impl BillServiceApi for BillService {
                 let message: String = format!("Payment in relation to a bill {}", &bill.id);
                 link_for_buy = self.bitcoin_client.generate_link_to_pay(
                     &address_to_pay,
-                    payment_info.amount,
+                    payment_info.sum,
                     &message,
                 );
             }
@@ -729,11 +673,9 @@ impl BillServiceApi for BillService {
             paid = self.store.is_paid(&bill.id).await?;
         }
         let message: String = format!("Payment in relation to a bill {}", bill.id.clone());
-        let link_to_pay = self.bitcoin_client.generate_link_to_pay(
-            &address_to_pay,
-            bill.amount_numbers,
-            &message,
-        );
+        let link_to_pay =
+            self.bitcoin_client
+                .generate_link_to_pay(&address_to_pay, bill.sum, &message);
 
         let active_notification = self
             .notification_service
@@ -742,24 +684,25 @@ impl BillServiceApi for BillService {
 
         Ok(BitcreditBillToReturn {
             id: bill.id,
-            bill_jurisdiction: bill.bill_jurisdiction,
+            time_of_drawing,
+            country_of_issuing: bill.country_of_issuing,
+            city_of_issuing: bill.city_of_issuing,
             drawee: bill.drawee,
             drawer: bill.drawer,
             payee: bill.payee,
             endorsee: bill.endorsee,
-            place_of_drawing: bill.place_of_drawing,
-            currency_code: bill.currency_code,
-            amount_numbers: bill.amount_numbers,
-            amounts_letters: bill.amounts_letters,
+            currency: bill.currency,
+            sum: util::currency::sum_to_string(bill.sum),
             maturity_date: bill.maturity_date,
-            date_of_issue: bill.date_of_issue,
-            place_of_payment: bill.place_of_payment,
+            issue_date: bill.issue_date,
+            country_of_payment: bill.country_of_payment,
+            city_of_payment: bill.city_of_payment,
             language: bill.language,
             accepted,
             endorsed,
             requested_to_pay,
             requested_to_accept,
-            waited_for_payment,
+            waiting_for_payment,
             buyer,
             seller,
             paid,
@@ -767,6 +710,7 @@ impl BillServiceApi for BillService {
             link_to_pay,
             address_to_pay,
             chain_of_blocks: chain_to_return,
+            files: bill.files,
             active_notification,
         })
     }
@@ -779,11 +723,6 @@ impl BillServiceApi for BillService {
             .get_last_version_bill(&chain, &bill_keys, &identity)
             .await?;
         Ok(bill)
-    }
-
-    async fn get_blockchain_for_bill(&self, bill_id: &str) -> Result<BillBlockchain> {
-        let chain = self.blockchain_store.get_chain(bill_id).await?;
-        Ok(chain)
     }
 
     async fn find_bill_in_dht(&self, bill_id: &str) -> Result<()> {
@@ -835,18 +774,20 @@ impl BillServiceApi for BillService {
 
     async fn issue_new_bill(
         &self,
-        bill_jurisdiction: String,
-        place_of_drawing: String,
-        amount_numbers: u64,
-        place_of_payment: String,
+        country_of_issuing: String,
+        city_of_issuing: String,
+        issue_date: String,
         maturity_date: String,
-        currency_code: String,
+        drawee: IdentityPublicData,
+        payee: IdentityPublicData,
+        sum: u64,
+        currency: String,
+        country_of_payment: String,
+        city_of_payment: String,
+        language: String,
+        file_upload_id: Option<String>,
         drawer_public_data: IdentityPublicData,
         drawer_keys: BcrKeys,
-        language: String,
-        public_data_drawee: IdentityPublicData,
-        public_data_payee: IdentityPublicData,
-        file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<BitcreditBill> {
         let keys = BcrKeys::new();
@@ -863,11 +804,6 @@ impl BillServiceApi for BillService {
                 },
             )
             .await?;
-
-        let amount_letters: String = util::numbers_to_words::encode(&amount_numbers);
-
-        let utc = Utc::now();
-        let date_of_issue = utc.naive_local().date().to_string();
 
         let mut bill_files: Vec<File> = vec![];
         if let Some(ref upload_id) = file_upload_id {
@@ -890,18 +826,18 @@ impl BillServiceApi for BillService {
 
         let bill = BitcreditBill {
             id: bill_id.clone(),
-            bill_jurisdiction,
-            place_of_drawing,
-            currency_code,
-            amount_numbers,
-            amounts_letters: amount_letters,
+            country_of_issuing,
+            city_of_issuing,
+            currency,
+            sum,
             maturity_date,
-            date_of_issue,
-            place_of_payment,
+            issue_date,
+            country_of_payment,
+            city_of_payment,
             language,
-            drawee: public_data_drawee,
+            drawee,
             drawer: drawer_public_data.clone(),
-            payee: public_data_payee,
+            payee,
             endorsee: None,
             files: bill_files,
         };
@@ -1084,7 +1020,7 @@ impl BillServiceApi for BillService {
     async fn request_pay(
         &self,
         bill_id: &str,
-        currency_code: &str,
+        currency: &str,
         timestamp: u64,
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
@@ -1111,7 +1047,7 @@ impl BillServiceApi for BillService {
                 previous_block,
                 &BillRequestToPayBlockData {
                     requester: IdentityPublicData::new(identity.identity.clone()).into(),
-                    currency_code: currency_code.to_owned(),
+                    currency: currency.to_owned(),
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
                     signing_address: identity.identity.postal_address.clone(),
@@ -1204,8 +1140,8 @@ impl BillServiceApi for BillService {
     async fn mint_bitcredit_bill(
         &self,
         bill_id: &str,
-        amount_numbers: u64,
-        currency_code: &str,
+        sum: u64,
+        currency: &str,
         mintnode: IdentityPublicData,
         timestamp: u64,
     ) -> Result<BillBlockchain> {
@@ -1234,8 +1170,8 @@ impl BillServiceApi for BillService {
                 &BillMintBlockData {
                     endorser: IdentityPublicData::new(identity.identity.clone()).into(),
                     endorsee: mintnode.into(),
-                    currency_code: currency_code.to_owned(),
-                    amount: amount_numbers,
+                    currency: currency.to_owned(),
+                    sum,
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
                     signing_address: identity.identity.postal_address.clone(),
@@ -1272,8 +1208,8 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &str,
         buyer: IdentityPublicData,
-        amount_numbers: u64,
-        currency_code: &str,
+        sum: u64,
+        currency: &str,
         timestamp: u64,
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
@@ -1305,8 +1241,8 @@ impl BillServiceApi for BillService {
                 &BillOfferToSellBlockData {
                     seller: IdentityPublicData::new(identity.identity.clone()).into(),
                     buyer: buyer.clone().into(),
-                    currency_code: currency_code.to_owned(),
-                    amount: amount_numbers,
+                    currency: currency.to_owned(),
+                    sum,
                     payment_address: address_to_pay,
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
@@ -1341,8 +1277,8 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &str,
         buyer: IdentityPublicData,
-        amount_numbers: u64,
-        currency_code: &str,
+        sum: u64,
+        currency: &str,
         payment_address: &str,
         timestamp: u64,
     ) -> Result<BillBlockchain> {
@@ -1357,8 +1293,8 @@ impl BillServiceApi for BillService {
         if let Ok(WaitingForPayment::Yes(payment_info)) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)
         {
-            if payment_info.amount != amount_numbers
-                || payment_info.currency_code != currency_code
+            if payment_info.sum != sum
+                || payment_info.currency != currency
                 || payment_info.payment_address != payment_address
                 || payment_info.buyer.node_id != buyer.node_id
                 || payment_info.seller.node_id != my_node_id
@@ -1377,8 +1313,8 @@ impl BillServiceApi for BillService {
                     &BillSellBlockData {
                         seller: IdentityPublicData::new(identity.identity.clone()).into(),
                         buyer: buyer.into(),
-                        currency_code: currency_code.to_owned(),
-                        amount: amount_numbers,
+                        currency: currency.to_owned(),
+                        sum,
                         payment_address: payment_address.to_owned(),
                         signatory: None, // company signatory
                         signing_timestamp: timestamp,
@@ -1506,7 +1442,7 @@ impl BillServiceApi for BillService {
                         .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
                     if let Ok((paid, sum)) = self
                         .bitcoin_client
-                        .check_if_paid(&address_to_pay, bill.amount_numbers)
+                        .check_if_paid(&address_to_pay, bill.sum)
                         .await
                     {
                         if paid && sum > 0 {
@@ -1535,7 +1471,7 @@ impl BillServiceApi for BillService {
                 // check if paid
                 if let Ok((paid, sum)) = self
                     .bitcoin_client
-                    .check_if_paid(&payment_info.payment_address, payment_info.amount)
+                    .check_if_paid(&payment_info.payment_address, payment_info.sum)
                     .await
                 {
                     if paid && sum > 0 {
@@ -1546,8 +1482,8 @@ impl BillServiceApi for BillService {
                                 &identity,
                             )
                             .await,
-                            payment_info.amount,
-                            &payment_info.currency_code,
+                            payment_info.sum,
+                            &payment_info.currency,
                             &payment_info.payment_address,
                             now,
                         )
@@ -1563,7 +1499,9 @@ impl BillServiceApi for BillService {
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct BitcreditBillToReturn {
     pub id: String,
-    pub bill_jurisdiction: String,
+    pub time_of_drawing: u64,
+    pub country_of_issuing: String,
+    pub city_of_issuing: String,
     /// The party obliged to pay a Bill
     pub drawee: IdentityPublicData,
     /// The party issuing a Bill
@@ -1571,27 +1509,26 @@ pub struct BitcreditBillToReturn {
     pub payee: IdentityPublicData,
     /// The person to whom the Payee or an Endorsee endorses a bill
     pub endorsee: Option<IdentityPublicData>,
-    pub place_of_drawing: String,
-    pub currency_code: String,
-    pub amount_numbers: u64,
-    pub amounts_letters: String,
+    pub currency: String,
+    pub sum: String,
     pub maturity_date: String,
-    pub date_of_issue: String,
-    /// Defaulting to the drawee’s id/ address.
-    pub place_of_payment: String,
+    pub issue_date: String,
+    pub country_of_payment: String,
+    pub city_of_payment: String,
     pub language: String,
     pub accepted: bool,
     pub endorsed: bool,
     pub requested_to_pay: bool,
     pub requested_to_accept: bool,
     pub paid: bool,
-    pub waited_for_payment: bool,
+    pub waiting_for_payment: bool,
     pub buyer: Option<IdentityPublicData>,
     pub seller: Option<IdentityPublicData>,
     pub link_for_buy: String,
     pub link_to_pay: String,
     pub address_to_pay: String,
     pub chain_of_blocks: BillBlockchainToReturn,
+    pub files: Vec<File>,
     /// The currently active notification for this bill if any
     pub active_notification: Option<Notification>,
 }
@@ -1600,7 +1537,7 @@ pub struct BitcreditBillToReturn {
 pub struct BitcreditEbillQuote {
     pub bill_id: String,
     pub quote_id: String,
-    pub amount: u64,
+    pub sum: u64,
     pub mint_node_id: String,
     pub mint_url: String,
     pub accepted: bool,
@@ -1610,7 +1547,8 @@ pub struct BitcreditEbillQuote {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone)]
 pub struct BitcreditBill {
     pub id: String,
-    pub bill_jurisdiction: String,
+    pub country_of_issuing: String,
+    pub city_of_issuing: String,
     // The party obliged to pay a Bill
     pub drawee: IdentityPublicData,
     // The party issuing a Bill
@@ -1618,15 +1556,12 @@ pub struct BitcreditBill {
     pub payee: IdentityPublicData,
     // The person to whom the Payee or an Endorsee endorses a bill
     pub endorsee: Option<IdentityPublicData>,
-    pub place_of_drawing: String,
-    pub currency_code: String,
-    //TODO: f64
-    pub amount_numbers: u64,
-    pub amounts_letters: String,
+    pub currency: String,
+    pub sum: u64,
     pub maturity_date: String,
-    pub date_of_issue: String,
-    // Defaulting to the drawee’s id/ address.
-    pub place_of_payment: String,
+    pub issue_date: String,
+    pub country_of_payment: String,
+    pub city_of_payment: String,
     pub language: String,
     pub files: Vec<File>,
 }
@@ -1637,18 +1572,18 @@ impl BitcreditBill {
     pub fn new_empty() -> Self {
         Self {
             id: "".to_string(),
-            bill_jurisdiction: "".to_string(),
+            country_of_issuing: "".to_string(),
+            city_of_issuing: "".to_string(),
             drawee: IdentityPublicData::new_empty(),
             drawer: IdentityPublicData::new_empty(),
             payee: IdentityPublicData::new_empty(),
             endorsee: None,
-            place_of_drawing: "".to_string(),
-            currency_code: "".to_string(),
-            amount_numbers: 0,
-            amounts_letters: "".to_string(),
+            currency: "".to_string(),
+            sum: 0,
             maturity_date: "".to_string(),
-            date_of_issue: "".to_string(),
-            place_of_payment: "".to_string(),
+            issue_date: "".to_string(),
+            city_of_payment: "".to_string(),
+            country_of_payment: "".to_string(),
             language: "".to_string(),
             files: vec![],
         }
@@ -1889,17 +1824,19 @@ pub mod tests {
         let bill = service
             .issue_new_bill(
                 String::from("UK"),
-                String::from("Vienna"),
-                100,
                 String::from("London"),
                 String::from("2030-01-01"),
-                String::from("sa"),
-                IdentityPublicData::new(drawer.identity),
-                drawer.key_pair,
-                String::from("en"),
+                String::from("2030-04-01"),
                 drawee,
                 payee,
+                100,
+                String::from("sat"),
+                String::from("AT"),
+                String::from("Vienna"),
+                String::from("en-UK"),
                 Some("1234".to_string()),
+                IdentityPublicData::new(drawer.identity),
+                drawer.key_pair,
                 1731593928,
             )
             .await
@@ -2187,7 +2124,7 @@ pub mod tests {
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
                     requester: IdentityPublicData::new(get_baseline_identity().identity).into(),
-                    currency_code: "sat".to_string(),
+                    currency: "sat".to_string(),
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: PostalAddress::new_empty(),
@@ -2265,7 +2202,7 @@ pub mod tests {
         let (
             mut storage,
             mut chain_storage,
-            mut identity_storage,
+            identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
@@ -2285,9 +2222,6 @@ pub mod tests {
         chain_storage
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-        identity_storage
-            .expect_get_full()
-            .returning(move || Ok(identity.clone()));
         notification_service
             .expect_get_active_bill_notification()
             .with(eq("some id"))
@@ -2304,11 +2238,13 @@ pub mod tests {
             contact_storage,
         );
 
-        let res = service.get_full_bill("some id", 1731593928).await;
+        let res = service
+            .get_full_bill("some id", &identity.identity, 1731593928)
+            .await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().id, "some id".to_string());
         assert_eq!(res.as_ref().unwrap().drawee.node_id, drawee_node_id);
-        assert!(!res.as_ref().unwrap().waited_for_payment);
+        assert!(!res.as_ref().unwrap().waiting_for_payment);
         assert!(!res.as_ref().unwrap().paid);
     }
 
@@ -2317,7 +2253,7 @@ pub mod tests {
         let (
             mut storage,
             mut chain_storage,
-            mut identity_storage,
+            identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
@@ -2343,8 +2279,8 @@ pub mod tests {
                 &BillOfferToSellBlockData {
                     seller: IdentityPublicData::new(get_baseline_identity().identity).into(),
                     buyer: IdentityPublicData::new_only_node_id(bill.drawee.node_id.clone()).into(),
-                    currency_code: "sat".to_string(),
-                    amount: 15000,
+                    currency: "sat".to_string(),
+                    sum: 15000,
                     payment_address: "1234paymentaddress".to_string(),
                     signatory: None,
                     signing_timestamp: now,
@@ -2359,9 +2295,6 @@ pub mod tests {
             assert!(chain.try_add_block(offer_to_sell_block));
             Ok(chain)
         });
-        identity_storage
-            .expect_get_full()
-            .returning(move || Ok(identity.clone()));
         notification_service
             .expect_get_active_bill_notification()
             .with(eq("some id"))
@@ -2378,11 +2311,13 @@ pub mod tests {
             contact_storage,
         );
 
-        let res = service.get_full_bill("some id", 1731593928).await;
+        let res = service
+            .get_full_bill("some id", &identity.identity, 1731593928)
+            .await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().id, "some id".to_string());
         assert_eq!(res.as_ref().unwrap().drawee.node_id, drawee_node_id);
-        assert!(res.as_ref().unwrap().waited_for_payment);
+        assert!(res.as_ref().unwrap().waiting_for_payment);
     }
 
     #[tokio::test]
@@ -2390,7 +2325,7 @@ pub mod tests {
         let (
             mut storage,
             mut chain_storage,
-            mut identity_storage,
+            identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
@@ -2416,7 +2351,7 @@ pub mod tests {
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
                     requester: IdentityPublicData::new(get_baseline_identity().identity).into(),
-                    currency_code: "sat".to_string(),
+                    currency: "sat".to_string(),
                     signatory: None,
                     signing_timestamp: now,
                     signing_address: PostalAddress::new_empty(),
@@ -2430,9 +2365,6 @@ pub mod tests {
             assert!(chain.try_add_block(offer_to_sell_block));
             Ok(chain)
         });
-        identity_storage
-            .expect_get_full()
-            .returning(move || Ok(identity.clone()));
         notification_service
             .expect_get_active_bill_notification()
             .with(eq("some id"))
@@ -2449,12 +2381,14 @@ pub mod tests {
             contact_storage,
         );
 
-        let res = service.get_full_bill("some id", 1731593928).await;
+        let res = service
+            .get_full_bill("some id", &identity.identity, 1731593928)
+            .await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().id, "some id".to_string());
         assert_eq!(res.as_ref().unwrap().drawee.node_id, drawee_node_id);
         assert!(res.as_ref().unwrap().paid);
-        assert!(!res.as_ref().unwrap().waited_for_payment);
+        assert!(!res.as_ref().unwrap().waiting_for_payment);
     }
 
     #[tokio::test]
@@ -3036,8 +2970,8 @@ pub mod tests {
                 &BillOfferToSellBlockData {
                     seller: bill.payee.clone().into(),
                     buyer: buyer_clone.clone().into(),
-                    currency_code: "sat".to_owned(),
-                    amount: 15000,
+                    currency: "sat".to_owned(),
+                    sum: 15000,
                     payment_address: "1234paymentaddress".to_owned(),
                     signatory: None,
                     signing_timestamp: 1731593927,
@@ -3120,8 +3054,8 @@ pub mod tests {
                 &BillOfferToSellBlockData {
                     seller: bill.payee.clone().into(),
                     buyer: bill.payee.clone().into(), // buyer is seller, which is invalid
-                    currency_code: "sat".to_owned(),
-                    amount: 10000, // different amount
+                    currency: "sat".to_owned(),
+                    sum: 10000, // different sum
                     payment_address: "1234paymentaddress".to_owned(),
                     signatory: None,
                     signing_timestamp: 1731593927,
@@ -3368,8 +3302,8 @@ pub mod tests {
                     seller: IdentityPublicData::new(get_baseline_identity().identity).into(),
                     buyer: IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key())
                         .into(),
-                    currency_code: "sat".to_string(),
-                    amount: 15000,
+                    currency: "sat".to_string(),
+                    sum: 15000,
                     payment_address: "1234paymentaddress".to_string(),
                     signatory: None,
                     signing_timestamp: now,
@@ -3620,8 +3554,8 @@ pub mod tests {
                 &BillOfferToSellBlockData {
                     seller: IdentityPublicData::new(get_baseline_identity().identity).into(),
                     buyer: IdentityPublicData::new_only_node_id(buyer_node_id.clone()).into(),
-                    currency_code: "sat".to_string(),
-                    amount: 15000,
+                    currency: "sat".to_string(),
+                    sum: 15000,
                     payment_address: "1234paymentaddress".to_string(),
                     signatory: None,
                     signing_timestamp: now,

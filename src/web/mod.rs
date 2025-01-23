@@ -98,28 +98,27 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .mount(
             "/bill",
             routes![
-                handlers::bill::holder,
-                handlers::bill::attachment,
                 handlers::bill::issue_bill,
+                handlers::bill::bill_detail,
+                handlers::bill::list,
+                handlers::bill::attachment,
                 handlers::bill::upload_files,
                 handlers::bill::endorse_bill,
-                handlers::bill::search_bill,
                 handlers::bill::request_to_accept_bill,
                 handlers::bill::accept_bill,
                 handlers::bill::request_to_pay_bill,
-                handlers::bill::return_bill,
-                handlers::bill::return_chain_of_blocks,
-                handlers::bill::return_basic_bill,
                 handlers::bill::offer_to_sell_bill,
                 handlers::bill::mint_bill,
                 handlers::bill::accept_mint_bill,
-                handlers::bill::find_bill_in_dht,
                 handlers::bill::request_to_mint_bill,
-                handlers::bill::bitcoin_key,
                 handlers::bill::check_payment,
+                handlers::bill::bitcoin_key,
+                handlers::bill::numbers_to_words_for_sum,
+                handlers::bill::find_bill_in_dht,
+                handlers::bill::check_dht_for_bills,
+                handlers::bill::holder,
             ],
         )
-        .mount("/bills", routes![handlers::bill::return_bills_list,])
         .mount(
             "/quote",
             routes![

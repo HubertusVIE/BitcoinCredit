@@ -1,3 +1,4 @@
+use crate::service::Error;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rocket::fs::TempFile;
 use rocket::FromForm;
@@ -5,19 +6,55 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
 
+#[repr(u8)]
+#[derive(
+    Debug,
+    Clone,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    PartialEq,
+    Eq,
+    ToSchema,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[borsh(use_discriminant = true)]
+pub enum BillType {
+    PromissoryNote = 0, // Drawer pays to payee
+    ThreeParties = 1,   // Drawee pays to payee
+    SelfDrafted = 2,    // Drawee pays to drawer
+}
+
+impl TryFrom<u64> for BillType {
+    type Error = Error;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Error> {
+        match value {
+            0 => Ok(BillType::PromissoryNote),
+            1 => Ok(BillType::ThreeParties),
+            2 => Ok(BillType::SelfDrafted),
+            _ => Err(Error::Validation(format!(
+                "Invalid bill type found: {value}"
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BitcreditBillPayload {
-    pub bill_jurisdiction: String,
-    pub place_of_drawing: String,
-    pub currency_code: String,
-    pub amount_numbers: u64,
-    pub language: String,
-    pub drawee: String,
-    pub payee: String,
-    pub place_of_payment: String,
+    #[serde(rename = "type")]
+    pub t: u64,
+    pub country_of_issuing: String,
+    pub city_of_issuing: String,
+    pub issue_date: String,
     pub maturity_date: String,
-    pub drawer_is_payee: bool,
-    pub drawer_is_drawee: bool,
+    pub payee: String,
+    pub drawee: String,
+    pub sum: String,
+    pub currency: String,
+    pub country_of_payment: String,
+    pub city_of_payment: String,
+    pub language: String,
     pub file_upload_id: Option<String>,
 }
 
@@ -32,6 +69,17 @@ pub struct UploadFileForm<'r> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct BillId {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BillNumbersToWordsForSum {
+    pub sum: u64,
+    pub sum_as_words: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EndorseBitcreditBillPayload {
     pub endorsee: String,
     pub bill_id: String,
@@ -41,13 +89,13 @@ pub struct EndorseBitcreditBillPayload {
 pub struct MintBitcreditBillPayload {
     pub mint_node: String,
     pub bill_id: String,
-    pub amount_numbers: u64,
-    pub currency_code: String,
+    pub sum: String,
+    pub currency: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AcceptMintBitcreditBillPayload {
-    pub amount: u64,
+    pub sum: String,
     pub bill_id: String,
 }
 
@@ -61,8 +109,8 @@ pub struct RequestToMintBitcreditBillPayload {
 pub struct OfferToSellBitcreditBillPayload {
     pub buyer: String,
     pub bill_id: String,
-    pub amount_numbers: u64,
-    pub currency_code: String,
+    pub sum: String,
+    pub currency: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -83,7 +131,7 @@ pub struct SwitchIdentity {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestToPayBitcreditBillPayload {
     pub bill_id: String,
-    pub currency_code: String,
+    pub currency: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -142,7 +190,9 @@ pub struct UploadFilesResponse {
     pub file_upload_id: String,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema,
+)]
 pub struct File {
     pub name: String,
     pub hash: String,

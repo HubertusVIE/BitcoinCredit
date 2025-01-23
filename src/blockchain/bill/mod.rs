@@ -36,8 +36,8 @@ pub enum WaitingForPayment {
 pub struct PaymentInfo {
     pub buyer: BillIdentityBlockData,
     pub seller: BillIdentityBlockData,
-    pub amount: u64,
-    pub currency_code: String,
+    pub sum: u64,
+    pub currency: String,
     pub payment_address: String,
 }
 
