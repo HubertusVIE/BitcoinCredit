@@ -1,13 +1,15 @@
 use super::Result;
-use crate::CONFIG;
 use crate::{persistence::identity::IdentityStoreApi, util::BcrKeys};
+use crate::{util, CONFIG};
 
 use crate::blockchain::identity::{IdentityBlock, IdentityBlockchain, IdentityUpdateBlockData};
 use crate::blockchain::Blockchain;
+use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::IdentityChainStoreApi;
-use crate::web::data::{OptionalPostalAddress, PostalAddress};
+use crate::web::data::{File, OptionalPostalAddress};
 use async_trait::async_trait;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use utoipa::ToSchema;
@@ -20,6 +22,7 @@ pub trait IdentityServiceApi: Send + Sync {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        profile_picture_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()>;
     /// Gets the full local identity, including the key pair and node id
@@ -28,20 +31,31 @@ pub trait IdentityServiceApi: Send + Sync {
     async fn get_identity(&self) -> Result<Identity>;
     /// Checks if the identity has been created
     async fn identity_exists(&self) -> bool;
-    /// Creates the identity and returns it with it's key pair and node id
+    /// Creates the identity
     async fn create_identity(
         &self,
         name: String,
-        date_of_birth: String,
-        city_of_birth: String,
-        country_of_birth: String,
         email: String,
-        postal_address: PostalAddress,
+        postal_address: OptionalPostalAddress,
+        date_of_birth: Option<String>,
+        country_of_birth: Option<String>,
+        city_of_birth: Option<String>,
+        identification_number: Option<String>,
+        profile_picture_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()>;
     async fn get_seedphrase(&self) -> Result<String>;
     /// Recovers the private keys in the identity from a seed phrase
     async fn recover_from_seedphrase(&self, seed: &str) -> Result<()>;
+
+    /// opens and decrypts the attached file from the identity
+    async fn open_and_decrypt_file(
+        &self,
+        id: &str,
+        file_name: &str,
+        private_key: &str,
+    ) -> Result<Vec<u8>>;
 }
 
 /// The identity service is responsible for managing the local identity and syncing it
@@ -49,18 +63,62 @@ pub trait IdentityServiceApi: Send + Sync {
 #[derive(Clone)]
 pub struct IdentityService {
     store: Arc<dyn IdentityStoreApi>,
+    file_upload_store: Arc<dyn FileUploadStoreApi>,
     blockchain_store: Arc<dyn IdentityChainStoreApi>,
 }
 
 impl IdentityService {
     pub fn new(
         store: Arc<dyn IdentityStoreApi>,
+        file_upload_store: Arc<dyn FileUploadStoreApi>,
         blockchain_store: Arc<dyn IdentityChainStoreApi>,
     ) -> Self {
         Self {
             store,
+            file_upload_store,
             blockchain_store,
         }
+    }
+
+    async fn process_upload_file(
+        &self,
+        upload_id: &Option<String>,
+        id: &str,
+        public_key: &str,
+    ) -> Result<Option<File>> {
+        if let Some(upload_id) = upload_id {
+            let files = self
+                .file_upload_store
+                .read_temp_upload_files(upload_id)
+                .await?;
+            if !files.is_empty() {
+                let (file_name, file_bytes) = &files[0];
+                let file = self
+                    .encrypt_and_save_uploaded_file(file_name, file_bytes, id, public_key)
+                    .await?;
+                return Ok(Some(file));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn encrypt_and_save_uploaded_file(
+        &self,
+        file_name: &str,
+        file_bytes: &[u8],
+        node_id: &str,
+        public_key: &str,
+    ) -> Result<File> {
+        let file_hash = util::sha256_hash(file_bytes);
+        let encrypted = util::crypto::encrypt_ecies(file_bytes, public_key)?;
+        self.file_upload_store
+            .save_attached_file(&encrypted, node_id, file_name)
+            .await?;
+        info!("Saved identity file {file_name} with hash {file_hash} for identity {node_id}");
+        Ok(File {
+            name: file_name.to_owned(),
+            hash: file_hash,
+        })
     }
 }
 
@@ -76,6 +134,7 @@ impl IdentityServiceApi for IdentityService {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        profile_picture_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()> {
         let mut identity = self.store.get().await?;
@@ -95,15 +154,41 @@ impl IdentityServiceApi for IdentityService {
             }
         }
 
-        if let Some(ref postal_address_city_to_set) = postal_address.city {
-            identity.postal_address.city = postal_address_city_to_set.clone();
-            changed = true;
-        }
+        match identity.postal_address.country {
+            Some(_) => {
+                if let Some(ref postal_address_country_to_set) = postal_address.country {
+                    identity.postal_address.country = Some(postal_address_country_to_set.clone());
+                    changed = true;
+                } else {
+                    identity.postal_address.country = None;
+                    changed = true;
+                }
+            }
+            None => {
+                if let Some(ref postal_address_country_to_set) = postal_address.country {
+                    identity.postal_address.country = Some(postal_address_country_to_set.clone());
+                    changed = true;
+                }
+            }
+        };
 
-        if let Some(ref postal_address_country_to_set) = postal_address.country {
-            identity.postal_address.country = postal_address_country_to_set.clone();
-            changed = true;
-        }
+        match identity.postal_address.city {
+            Some(_) => {
+                if let Some(ref postal_address_city_to_set) = postal_address.city {
+                    identity.postal_address.city = Some(postal_address_city_to_set.clone());
+                    changed = true;
+                } else {
+                    identity.postal_address.city = None;
+                    changed = true;
+                }
+            }
+            None => {
+                if let Some(ref postal_address_city_to_set) = postal_address.city {
+                    identity.postal_address.city = Some(postal_address_city_to_set.clone());
+                    changed = true;
+                }
+            }
+        };
 
         match identity.postal_address.zip {
             Some(_) => {
@@ -123,16 +208,37 @@ impl IdentityServiceApi for IdentityService {
             }
         };
 
-        if let Some(ref postal_address_address_to_set) = postal_address.address {
-            identity.postal_address.address = postal_address_address_to_set.clone();
-            changed = true;
-        }
+        match identity.postal_address.address {
+            Some(_) => {
+                if let Some(ref postal_address_address_to_set) = postal_address.address {
+                    identity.postal_address.address = Some(postal_address_address_to_set.clone());
+                    changed = true;
+                } else {
+                    identity.postal_address.address = None;
+                    changed = true;
+                }
+            }
+            None => {
+                if let Some(ref postal_address_address_to_set) = postal_address.address {
+                    identity.postal_address.address = Some(postal_address_address_to_set.clone());
+                    changed = true;
+                }
+            }
+        };
 
-        if !changed {
+        if !changed && profile_picture_file_upload_id.is_none() {
             return Ok(());
         }
 
         let keys = self.store.get_key_pair().await?;
+        let profile_picture_file = self
+            .process_upload_file(
+                &profile_picture_file_upload_id,
+                &identity.node_id,
+                &keys.get_public_key(),
+            )
+            .await?;
+        identity.profile_picture_file = profile_picture_file.clone();
 
         let previous_block = self.blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_update(
@@ -141,6 +247,7 @@ impl IdentityServiceApi for IdentityService {
                 name,
                 email,
                 postal_address,
+                profile_picture_file,
             },
             &keys,
             timestamp,
@@ -163,24 +270,46 @@ impl IdentityServiceApi for IdentityService {
     async fn create_identity(
         &self,
         name: String,
-        date_of_birth: String,
-        city_of_birth: String,
-        country_of_birth: String,
         email: String,
-        postal_address: PostalAddress,
+        postal_address: OptionalPostalAddress,
+        date_of_birth: Option<String>,
+        country_of_birth: Option<String>,
+        city_of_birth: Option<String>,
+        identification_number: Option<String>,
+        profile_picture_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()> {
         let keys = self.store.get_or_create_key_pair().await?;
         let node_id = keys.get_public_key();
 
+        let profile_picture_file = self
+            .process_upload_file(
+                &profile_picture_file_upload_id,
+                &node_id,
+                &keys.get_public_key(),
+            )
+            .await?;
+
+        let identity_document_file = self
+            .process_upload_file(
+                &identity_document_file_upload_id,
+                &node_id,
+                &keys.get_public_key(),
+            )
+            .await?;
+
         let identity = Identity {
             node_id: node_id.clone(),
             name,
-            date_of_birth,
-            city_of_birth,
-            country_of_birth,
             email,
             postal_address,
+            date_of_birth,
+            country_of_birth,
+            city_of_birth,
+            identification_number,
+            profile_picture_file,
+            identity_document_file,
             nostr_relay: Some(CONFIG.nostr_relay.to_owned()),
         };
 
@@ -205,6 +334,20 @@ impl IdentityServiceApi for IdentityService {
         let res = self.store.get_seedphrase().await?;
         Ok(res)
     }
+
+    async fn open_and_decrypt_file(
+        &self,
+        id: &str,
+        file_name: &str,
+        private_key: &str,
+    ) -> Result<Vec<u8>> {
+        let read_file = self
+            .file_upload_store
+            .open_attached_file(id, file_name)
+            .await?;
+        let decrypted = util::crypto::decrypt_ecies(&read_file, private_key)?;
+        Ok(decrypted)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -215,28 +358,34 @@ pub struct IdentityWithAll {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Identity {
-    pub name: String,
     pub node_id: String,
-    pub date_of_birth: String,
-    pub city_of_birth: String,
-    pub country_of_birth: String,
+    pub name: String,
     pub email: String,
-    pub postal_address: PostalAddress,
+    pub postal_address: OptionalPostalAddress,
+    pub date_of_birth: Option<String>,
+    pub country_of_birth: Option<String>,
+    pub city_of_birth: Option<String>,
+    pub identification_number: Option<String>,
     pub nostr_relay: Option<String>,
+    pub profile_picture_file: Option<File>,
+    pub identity_document_file: Option<File>,
 }
 
 impl Identity {
     #[cfg(test)]
     pub fn new_empty() -> Self {
         Self {
-            name: "".to_string(),
             node_id: "".to_string(),
-            date_of_birth: "".to_string(),
-            city_of_birth: "".to_string(),
-            postal_address: PostalAddress::new_empty(),
+            name: "".to_string(),
             email: "".to_string(),
-            country_of_birth: "".to_string(),
+            postal_address: OptionalPostalAddress::new_empty(),
+            date_of_birth: None,
+            country_of_birth: None,
+            city_of_birth: None,
+            identification_number: None,
             nostr_relay: None,
+            profile_picture_file: None,
+            identity_document_file: None,
         }
     }
 
@@ -247,31 +396,37 @@ impl Identity {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct IdentityToReturn {
-    pub name: String,
     pub node_id: String,
+    pub name: String,
+    pub email: String,
     pub bitcoin_public_key: String,
     pub npub: String,
-    pub date_of_birth: String,
-    pub city_of_birth: String,
-    pub country_of_birth: String,
-    pub email: String,
     #[serde(flatten)]
-    pub postal_address: PostalAddress,
+    pub postal_address: OptionalPostalAddress,
+    pub date_of_birth: Option<String>,
+    pub country_of_birth: Option<String>,
+    pub city_of_birth: Option<String>,
+    pub identification_number: Option<String>,
+    pub profile_picture_file: Option<File>,
+    pub identity_document_file: Option<File>,
     pub nostr_relay: Option<String>,
 }
 
 impl IdentityToReturn {
     pub fn from(identity: Identity, keys: BcrKeys) -> Result<Self> {
         Ok(Self {
-            name: identity.name,
             node_id: identity.node_id.clone(),
+            name: identity.name,
+            email: identity.email,
             bitcoin_public_key: identity.node_id.clone(),
             npub: keys.get_nostr_npub()?,
-            date_of_birth: identity.date_of_birth,
-            city_of_birth: identity.city_of_birth,
-            country_of_birth: identity.country_of_birth,
-            email: identity.email,
             postal_address: identity.postal_address,
+            date_of_birth: identity.date_of_birth,
+            country_of_birth: identity.country_of_birth,
+            city_of_birth: identity.city_of_birth,
+            identification_number: identity.identification_number,
+            profile_picture_file: identity.profile_picture_file,
+            identity_document_file: identity.identity_document_file,
             nostr_relay: identity.nostr_relay,
         })
     }
@@ -282,6 +437,7 @@ mod tests {
     use super::*;
     use crate::persistence::{
         self,
+        file_upload::MockFileUploadStoreApi,
         identity::{MockIdentityChainStoreApi, MockIdentityStoreApi},
     };
     use mockall::predicate::eq;
@@ -289,6 +445,7 @@ mod tests {
     fn get_service(mock_storage: MockIdentityStoreApi) -> IdentityService {
         IdentityService::new(
             Arc::new(mock_storage),
+            Arc::new(MockFileUploadStoreApi::new()),
             Arc::new(MockIdentityChainStoreApi::new()),
         )
     }
@@ -297,7 +454,11 @@ mod tests {
         mock_storage: MockIdentityStoreApi,
         mock_chain_storage: MockIdentityChainStoreApi,
     ) -> IdentityService {
-        IdentityService::new(Arc::new(mock_storage), Arc::new(mock_chain_storage))
+        IdentityService::new(
+            Arc::new(mock_storage),
+            Arc::new(MockFileUploadStoreApi::new()),
+            Arc::new(mock_chain_storage),
+        )
     }
 
     #[tokio::test]
@@ -317,11 +478,14 @@ mod tests {
         let res = service
             .create_identity(
                 "name".to_string(),
-                "date_of_birth".to_string(),
-                "city_of_birth".to_string(),
-                "country_of_birth".to_string(),
                 "email".to_string(),
-                PostalAddress::new_empty(),
+                OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 1731593928,
             )
             .await;
@@ -359,6 +523,7 @@ mod tests {
                 Some("new_name".to_string()),
                 None,
                 OptionalPostalAddress::new_empty(),
+                None,
                 1731593928,
             )
             .await;
@@ -385,6 +550,7 @@ mod tests {
                 Some("name".to_string()),
                 None,
                 OptionalPostalAddress::new_empty(),
+                None,
                 1731593928,
             )
             .await;
@@ -426,6 +592,7 @@ mod tests {
                 Some("new_name".to_string()),
                 None,
                 OptionalPostalAddress::new_empty(),
+                None,
                 1731593928,
             )
             .await;

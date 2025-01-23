@@ -329,8 +329,8 @@ mod tests {
     fn get_all_nodes_from_bill_baseline() {
         let mut bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
-        bill.drawer = IdentityPublicData::new(identity.identity.clone());
-        bill.drawee = IdentityPublicData::new(identity.identity.clone());
+        bill.drawer = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        bill.drawee = IdentityPublicData::new(identity.identity.clone()).unwrap();
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
 
         let mut chain = BillBlockchain::new(

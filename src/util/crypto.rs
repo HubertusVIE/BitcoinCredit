@@ -153,6 +153,13 @@ impl BcrKeys {
     }
 }
 
+pub fn validate_pub_key(pub_key: &str) -> Result<()> {
+    match PublicKey::from_str(pub_key) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Number of words to use when generating BIP39 seed phrases
 const BIP39_WORD_COUNT: usize = 12;
 

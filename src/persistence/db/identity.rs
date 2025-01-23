@@ -1,4 +1,4 @@
-use super::{PostalAddressDb, Result};
+use super::{FileDb, OptionalPostalAddressDb, Result};
 use crate::{
     persistence::{identity::IdentityStoreApi, Error},
     service::identity_service::{Identity, IdentityWithAll},
@@ -117,27 +117,33 @@ impl IdentityStoreApi for SurrealIdentityStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityDb {
-    pub name: String,
     pub node_id: String,
-    pub date_of_birth: String,
-    pub city_of_birth: String,
-    pub country_of_birth: String,
+    pub name: String,
     pub email: String,
-    pub postal_address: PostalAddressDb,
+    pub postal_address: OptionalPostalAddressDb,
+    pub date_of_birth: Option<String>,
+    pub country_of_birth: Option<String>,
+    pub city_of_birth: Option<String>,
+    pub identification_number: Option<String>,
     pub nostr_relay: Option<String>,
+    pub profile_picture_file: Option<FileDb>,
+    pub identity_document_file: Option<FileDb>,
 }
 
 impl From<IdentityDb> for Identity {
     fn from(identity: IdentityDb) -> Self {
         Self {
-            name: identity.name,
             node_id: identity.node_id,
-            date_of_birth: identity.date_of_birth,
-            city_of_birth: identity.city_of_birth,
-            country_of_birth: identity.country_of_birth,
+            name: identity.name,
             email: identity.email,
             postal_address: identity.postal_address.into(),
+            date_of_birth: identity.date_of_birth,
+            country_of_birth: identity.country_of_birth,
+            city_of_birth: identity.city_of_birth,
+            identification_number: identity.identification_number,
             nostr_relay: identity.nostr_relay,
+            profile_picture_file: identity.profile_picture_file.map(|f| f.into()),
+            identity_document_file: identity.identity_document_file.map(|f| f.into()),
         }
     }
 }
@@ -145,14 +151,17 @@ impl From<IdentityDb> for Identity {
 impl From<&Identity> for IdentityDb {
     fn from(identity: &Identity) -> Self {
         Self {
-            name: identity.name.clone(),
             node_id: identity.node_id.clone(),
-            date_of_birth: identity.date_of_birth.clone(),
-            city_of_birth: identity.city_of_birth.clone(),
-            country_of_birth: identity.country_of_birth.clone(),
+            name: identity.name.clone(),
             email: identity.email.clone(),
-            postal_address: PostalAddressDb::from(&identity.postal_address),
+            postal_address: OptionalPostalAddressDb::from(&identity.postal_address),
+            date_of_birth: identity.date_of_birth.clone(),
+            country_of_birth: identity.country_of_birth.clone(),
+            city_of_birth: identity.city_of_birth.clone(),
+            identification_number: identity.identification_number.clone(),
             nostr_relay: identity.nostr_relay.clone(),
+            profile_picture_file: identity.profile_picture_file.clone().map(|f| (&f).into()),
+            identity_document_file: identity.identity_document_file.clone().map(|f| (&f).into()),
         }
     }
 }

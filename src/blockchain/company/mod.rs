@@ -99,7 +99,7 @@ pub struct CompanyUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
-    pub logo_file_upload_id: Option<String>,
+    pub logo_file: Option<File>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -508,7 +508,7 @@ mod tests {
                 name: Some("new_name".to_string()),
                 email: None,
                 postal_address: OptionalPostalAddress::new_empty(),
-                logo_file_upload_id: None,
+                logo_file: None,
             },
             &identity_keys,
             &company_keys,

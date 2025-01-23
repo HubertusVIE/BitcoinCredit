@@ -1,3 +1,4 @@
+use super::build_validation_response;
 use super::company_service::CompanyKeys;
 use super::contact_service::{ContactType, IdentityPublicData};
 use super::identity_service::Identity;
@@ -101,6 +102,10 @@ pub enum Error {
 
     #[error("io error {0}")]
     Io(#[from] std::io::Error),
+
+    /// errors that stem from validation
+    #[error("Validation Error: {0}")]
+    Validation(String),
 }
 
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
@@ -117,6 +122,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
+            Error::Validation(msg) => build_validation_response(msg),
             Error::Persistence(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
@@ -957,7 +963,16 @@ impl BillServiceApi for BillService {
 
     async fn accept_bill(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
+        let identity_public_data = match IdentityPublicData::new(identity.identity.clone()) {
+            Some(identity_public_data) => identity_public_data,
+            None => {
+                return Err(Error::Validation(String::from(
+                    "Signer is not a valid BillSigner - no postal address set",
+                )));
+            }
+        };
         let my_node_id = identity.identity.node_id.clone();
+
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -986,10 +1001,10 @@ impl BillServiceApi for BillService {
             bill_id.to_owned(),
             previous_block,
             &BillAcceptBlockData {
-                accepter: IdentityPublicData::new(identity.identity.clone()).into(),
+                accepter: identity_public_data.clone().into(),
                 signatory: None,
                 signing_timestamp: timestamp,
-                signing_address: identity.identity.postal_address.clone(),
+                signing_address: identity_public_data.postal_address.clone(),
             },
             &identity.key_pair,
             None, // company keys
@@ -1024,7 +1039,16 @@ impl BillServiceApi for BillService {
         timestamp: u64,
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
+        let identity_public_data = match IdentityPublicData::new(identity.identity.clone()) {
+            Some(identity_public_data) => identity_public_data,
+            None => {
+                return Err(Error::Validation(String::from(
+                    "Signer is not a valid BillSigner - no postal address set",
+                )));
+            }
+        };
         let my_node_id = identity.identity.node_id.clone();
+
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -1046,11 +1070,11 @@ impl BillServiceApi for BillService {
                 bill_id.to_owned(),
                 previous_block,
                 &BillRequestToPayBlockData {
-                    requester: IdentityPublicData::new(identity.identity.clone()).into(),
+                    requester: identity_public_data.clone().into(),
                     currency: currency.to_owned(),
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
-                    signing_address: identity.identity.postal_address.clone(),
+                    signing_address: identity_public_data.postal_address.clone(),
                 },
                 &identity.key_pair,
                 None, // company keys
@@ -1082,7 +1106,16 @@ impl BillServiceApi for BillService {
 
     async fn request_acceptance(&self, bill_id: &str, timestamp: u64) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
+        let identity_public_data = match IdentityPublicData::new(identity.identity.clone()) {
+            Some(identity_public_data) => identity_public_data,
+            None => {
+                return Err(Error::Validation(String::from(
+                    "Signer is not a valid BillSigner - no postal address set",
+                )));
+            }
+        };
         let my_node_id = identity.identity.node_id.clone();
+
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -1104,10 +1137,10 @@ impl BillServiceApi for BillService {
                 bill_id.to_owned(),
                 previous_block,
                 &BillRequestToAcceptBlockData {
-                    requester: IdentityPublicData::new(identity.identity.clone()).into(),
+                    requester: identity_public_data.clone().into(),
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
-                    signing_address: identity.identity.postal_address.clone(),
+                    signing_address: identity_public_data.postal_address.clone(),
                 },
                 &identity.key_pair,
                 None, // company keys
@@ -1146,7 +1179,16 @@ impl BillServiceApi for BillService {
         timestamp: u64,
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
+        let identity_public_data = match IdentityPublicData::new(identity.identity.clone()) {
+            Some(identity_public_data) => identity_public_data,
+            None => {
+                return Err(Error::Validation(String::from(
+                    "Signer is not a valid BillSigner - no postal address set",
+                )));
+            }
+        };
         let my_node_id = identity.identity.node_id.clone();
+
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -1168,13 +1210,13 @@ impl BillServiceApi for BillService {
                 bill_id.to_owned(),
                 previous_block,
                 &BillMintBlockData {
-                    endorser: IdentityPublicData::new(identity.identity.clone()).into(),
+                    endorser: identity_public_data.clone().into(),
                     endorsee: mintnode.into(),
                     currency: currency.to_owned(),
                     sum,
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
-                    signing_address: identity.identity.postal_address.clone(),
+                    signing_address: identity_public_data.postal_address.clone(),
                 },
                 &identity.key_pair,
                 None, // company keys
@@ -1213,7 +1255,16 @@ impl BillServiceApi for BillService {
         timestamp: u64,
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
+        let identity_public_data = match IdentityPublicData::new(identity.identity.clone()) {
+            Some(identity_public_data) => identity_public_data,
+            None => {
+                return Err(Error::Validation(String::from(
+                    "Signer is not a valid BillSigner - no postal address set",
+                )));
+            }
+        };
         let my_node_id = identity.identity.node_id.clone();
+
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -1239,14 +1290,14 @@ impl BillServiceApi for BillService {
                 bill_id.to_owned(),
                 previous_block,
                 &BillOfferToSellBlockData {
-                    seller: IdentityPublicData::new(identity.identity.clone()).into(),
+                    seller: identity_public_data.clone().into(),
                     buyer: buyer.clone().into(),
                     currency: currency.to_owned(),
                     sum,
                     payment_address: address_to_pay,
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
-                    signing_address: identity.identity.postal_address.clone(),
+                    signing_address: identity_public_data.postal_address.clone(),
                 },
                 &identity.key_pair,
                 None, // company keys
@@ -1283,7 +1334,16 @@ impl BillServiceApi for BillService {
         timestamp: u64,
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
+        let identity_public_data = match IdentityPublicData::new(identity.identity.clone()) {
+            Some(identity_public_data) => identity_public_data,
+            None => {
+                return Err(Error::Validation(String::from(
+                    "Signer is not a valid BillSigner - no postal address set",
+                )));
+            }
+        };
         let my_node_id = identity.identity.node_id.clone();
+
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
@@ -1311,14 +1371,14 @@ impl BillServiceApi for BillService {
                     bill_id.to_owned(),
                     previous_block,
                     &BillSellBlockData {
-                        seller: IdentityPublicData::new(identity.identity.clone()).into(),
+                        seller: identity_public_data.clone().into(),
                         buyer: buyer.into(),
                         currency: currency.to_owned(),
                         sum,
                         payment_address: payment_address.to_owned(),
                         signatory: None, // company signatory
                         signing_timestamp: timestamp,
-                        signing_address: identity.identity.postal_address.clone(),
+                        signing_address: identity_public_data.postal_address.clone(),
                     },
                     &identity.key_pair,
                     None, // company keys
@@ -1358,7 +1418,16 @@ impl BillServiceApi for BillService {
         timestamp: u64,
     ) -> Result<BillBlockchain> {
         let identity = self.identity_store.get_full().await?;
+        let identity_public_data = match IdentityPublicData::new(identity.identity.clone()) {
+            Some(identity_public_data) => identity_public_data,
+            None => {
+                return Err(Error::Validation(String::from(
+                    "Signer is not a valid BillSigner - no postal address set",
+                )));
+            }
+        };
         let my_node_id = identity.identity.node_id.clone();
+
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -1380,11 +1449,11 @@ impl BillServiceApi for BillService {
                 bill_id.to_owned(),
                 previous_block,
                 &BillEndorseBlockData {
-                    endorser: IdentityPublicData::new(identity.identity.clone()).into(),
+                    endorser: identity_public_data.clone().into(),
                     endorsee: endorsee.into(),
                     signatory: None, // company signatory
                     signing_timestamp: timestamp,
-                    signing_address: identity.identity.postal_address.clone(),
+                    signing_address: identity_public_data.postal_address.clone(),
                 },
                 &identity.key_pair,
                 None, // company keys
@@ -1629,6 +1698,9 @@ pub mod tests {
         let mut identity = Identity::new_empty();
         identity.name = "drawer".to_owned();
         identity.node_id = keys.get_public_key();
+        identity.postal_address.country = Some("AT".to_owned());
+        identity.postal_address.city = Some("Vienna".to_owned());
+        identity.postal_address.address = Some("Hayekweg 5".to_owned());
         IdentityWithAll {
             identity,
             key_pair: keys,
@@ -1835,7 +1907,7 @@ pub mod tests {
                 String::from("Vienna"),
                 String::from("en-UK"),
                 Some("1234".to_string()),
-                IdentityPublicData::new(drawer.identity),
+                IdentityPublicData::new(drawer.identity).unwrap(),
                 drawer.key_pair,
                 1731593928,
             )
@@ -2103,7 +2175,7 @@ pub mod tests {
             contact_storage,
         ) = get_storages();
         let mut bill = get_baseline_bill("1234");
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity);
+        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
 
         let mut notification_service = MockNotificationServiceApi::new();
 
@@ -2123,7 +2195,9 @@ pub mod tests {
                 "1234".to_string(),
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
-                    requester: IdentityPublicData::new(get_baseline_identity().identity).into(),
+                    requester: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
                     currency: "sat".to_string(),
                     signatory: None,
                     signing_timestamp: now,
@@ -2277,7 +2351,9 @@ pub mod tests {
                 "1234".to_string(),
                 chain.get_latest_block(),
                 &BillOfferToSellBlockData {
-                    seller: IdentityPublicData::new(get_baseline_identity().identity).into(),
+                    seller: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
                     buyer: IdentityPublicData::new_only_node_id(bill.drawee.node_id.clone()).into(),
                     currency: "sat".to_string(),
                     sum: 15000,
@@ -2350,7 +2426,9 @@ pub mod tests {
                 "1234".to_string(),
                 chain.get_latest_block(),
                 &BillRequestToPayBlockData {
-                    requester: IdentityPublicData::new(get_baseline_identity().identity).into(),
+                    requester: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
                     currency: "sat".to_string(),
                     signatory: None,
                     signing_timestamp: now,
@@ -2441,6 +2519,60 @@ pub mod tests {
         assert!(res.is_ok());
         assert!(res.as_ref().unwrap().blocks().len() == 2);
         assert!(res.unwrap().blocks()[1].op_code == BillOpCode::Accept);
+    }
+
+    #[tokio::test]
+    async fn accept_bill_fails_if_signer_is_not_bill_signer() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+        ) = get_storages();
+        let mut identity = get_baseline_identity();
+        identity.identity.postal_address.country = None;
+        identity.identity.postal_address.city = None;
+        identity.identity.postal_address.address = None;
+
+        let mut bill = get_baseline_bill("some id");
+        bill.drawee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        chain_storage
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+        identity_storage
+            .expect_get_full()
+            .returning(move || Ok(identity.clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        // Should send bill accepted event
+        notification_service
+            .expect_send_bill_is_accepted_event()
+            .returning(|_| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+        );
+
+        let res = service.accept_bill("some id", 1731593928).await;
+        assert!(res.is_err());
     }
 
     #[tokio::test]
@@ -3299,7 +3431,9 @@ pub mod tests {
                 "1234".to_string(),
                 chain.get_latest_block(),
                 &BillOfferToSellBlockData {
-                    seller: IdentityPublicData::new(get_baseline_identity().identity).into(),
+                    seller: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
                     buyer: IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key())
                         .into(),
                     currency: "sat".to_string(),
@@ -3533,7 +3667,7 @@ pub mod tests {
         ) = get_storages();
 
         let mut bill = get_baseline_bill("1234");
-        bill.payee = IdentityPublicData::new(get_baseline_identity().identity);
+        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
 
         storage
             .expect_get_bill_ids_waiting_for_sell_payment()
@@ -3552,7 +3686,9 @@ pub mod tests {
                 "1234".to_string(),
                 chain.get_latest_block(),
                 &BillOfferToSellBlockData {
-                    seller: IdentityPublicData::new(get_baseline_identity().identity).into(),
+                    seller: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
                     buyer: IdentityPublicData::new_only_node_id(buyer_node_id.clone()).into(),
                     currency: "sat".to_string(),
                     sum: 15000,

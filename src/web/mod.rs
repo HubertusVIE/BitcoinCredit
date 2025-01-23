@@ -66,6 +66,8 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::identity::switch,
                 handlers::identity::get_seed_phrase,
                 handlers::identity::recover_from_seed_phrase,
+                handlers::identity::get_file,
+                handlers::identity::upload_file,
             ],
         )
         .mount("/bitcredit", FileServer::from("frontend_build"))

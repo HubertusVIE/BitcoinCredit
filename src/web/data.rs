@@ -145,17 +145,21 @@ pub struct ChangeIdentityPayload {
     pub email: Option<String>,
     #[serde(flatten)]
     pub postal_address: OptionalPostalAddress,
+    pub profile_picture_file_upload_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct IdentityPayload {
+pub struct NewIdentityPayload {
     pub name: String,
-    pub date_of_birth: String,
-    pub city_of_birth: String,
-    pub country_of_birth: String,
     pub email: String,
     #[serde(flatten)]
-    pub postal_address: PostalAddress,
+    pub postal_address: OptionalPostalAddress,
+    pub date_of_birth: Option<String>,
+    pub country_of_birth: Option<String>,
+    pub city_of_birth: Option<String>,
+    pub identification_number: Option<String>,
+    pub profile_picture_file_upload_id: Option<String>,
+    pub identity_document_file_upload_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -191,7 +195,7 @@ pub struct UploadFilesResponse {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema,
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, ToSchema,
 )]
 pub struct File {
     pub name: String,
@@ -214,6 +218,22 @@ impl OptionalPostalAddress {
             && self.city.is_none()
             && self.zip.is_none()
             && self.address.is_none()
+    }
+
+    pub fn is_fully_set(&self) -> bool {
+        self.country.is_some() && self.city.is_some() && self.address.is_some()
+    }
+
+    pub fn to_full_postal_address(&self) -> Option<PostalAddress> {
+        if self.is_fully_set() {
+            return Some(PostalAddress {
+                country: self.country.clone().expect("checked above"),
+                city: self.city.clone().expect("checked above"),
+                zip: self.zip.clone(),
+                address: self.address.clone().expect("checked above"),
+            });
+        }
+        None
     }
 
     #[cfg(test)]

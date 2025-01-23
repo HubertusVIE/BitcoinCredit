@@ -272,7 +272,7 @@ mod tests {
                 name: None,
                 email: None,
                 postal_address: OptionalPostalAddress::new_empty(),
-                logo_file_upload_id: None,
+                logo_file: None,
             },
             &BcrKeys::new(),
             &get_company_keys(),

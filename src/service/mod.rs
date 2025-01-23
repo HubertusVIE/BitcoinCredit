@@ -223,8 +223,11 @@ pub async fn create_service_context(
         db.company_chain_store.clone(),
         db.contact_store.clone(),
     );
-    let identity_service =
-        IdentityService::new(db.identity_store.clone(), db.identity_chain_store.clone());
+    let identity_service = IdentityService::new(
+        db.identity_store.clone(),
+        db.file_upload_store.clone(),
+        db.identity_chain_store.clone(),
+    );
 
     let company_service = CompanyService::new(
         db.company_store,

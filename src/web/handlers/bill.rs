@@ -222,10 +222,14 @@ pub async fn issue_bill(
     let (drawer_public_data, drawer_keys) = match current_identity.company {
         None => {
             let identity = state.identity_service.get_full_identity().await?;
-            (
-                IdentityPublicData::new(identity.identity),
-                identity.key_pair,
-            )
+            match IdentityPublicData::new(identity.identity) {
+                Some(identity_public_data) => (identity_public_data, identity.key_pair),
+                None => {
+                    return Err(service::Error::Validation(String::from(
+                        "Drawer is not a bill issuer - does not have a postal address set",
+                    )));
+                }
+            }
         }
         Some(company_node_id) => {
             let (company, keys) = state

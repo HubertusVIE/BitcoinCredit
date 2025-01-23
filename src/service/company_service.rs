@@ -356,7 +356,7 @@ impl CompanyServiceApi for CompanyService {
                 &full_identity.key_pair.get_public_key(),
             )
             .await?;
-        company.logo_file = logo_file;
+        company.logo_file = logo_file.clone();
 
         self.store.update(id, &company).await?;
 
@@ -368,7 +368,7 @@ impl CompanyServiceApi for CompanyService {
                 name,
                 email,
                 postal_address,
-                logo_file_upload_id: logo_file_upload_id.clone(),
+                logo_file,
             },
             &full_identity.key_pair,
             &company_keys,

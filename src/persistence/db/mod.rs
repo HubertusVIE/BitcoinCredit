@@ -1,5 +1,5 @@
 use super::Result;
-use crate::web::data::{File, PostalAddress};
+use crate::web::data::{File, OptionalPostalAddress, PostalAddress};
 use log::error;
 use serde::{Deserialize, Serialize};
 use surrealdb::{
@@ -96,6 +96,47 @@ impl From<&File> for FileDb {
         Self {
             name: value.name.clone(),
             hash: value.hash.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptionalPostalAddressDb {
+    pub country: Option<String>,
+    pub city: Option<String>,
+    pub zip: Option<String>,
+    pub address: Option<String>,
+}
+
+impl From<OptionalPostalAddressDb> for OptionalPostalAddress {
+    fn from(value: OptionalPostalAddressDb) -> Self {
+        Self {
+            country: value.country,
+            city: value.city,
+            zip: value.zip,
+            address: value.address,
+        }
+    }
+}
+
+impl From<OptionalPostalAddress> for OptionalPostalAddressDb {
+    fn from(value: OptionalPostalAddress) -> Self {
+        Self {
+            country: value.country,
+            city: value.city,
+            zip: value.zip,
+            address: value.address,
+        }
+    }
+}
+
+impl From<&OptionalPostalAddress> for OptionalPostalAddressDb {
+    fn from(value: &OptionalPostalAddress) -> Self {
+        Self {
+            country: value.country.clone(),
+            city: value.city.clone(),
+            zip: value.zip.clone(),
+            address: value.address.clone(),
         }
     }
 }

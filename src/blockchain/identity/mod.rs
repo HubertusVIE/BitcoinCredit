@@ -3,7 +3,7 @@ use super::Result;
 use super::{Block, Blockchain, FIRST_BLOCK_ID};
 use crate::service::identity_service::Identity;
 use crate::util::{self, crypto, BcrKeys};
-use crate::web::data::{OptionalPostalAddress, PostalAddress};
+use crate::web::data::{File, OptionalPostalAddress};
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -42,25 +42,33 @@ pub struct IdentityBlock {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct IdentityCreateBlockData {
+    pub node_id: String,
     pub name: String,
-    pub date_of_birth: String,
-    pub city_of_birth: String,
-    pub country_of_birth: String,
     pub email: String,
-    pub postal_address: PostalAddress,
+    pub postal_address: OptionalPostalAddress,
+    pub date_of_birth: Option<String>,
+    pub city_of_birth: Option<String>,
+    pub country_of_birth: Option<String>,
+    pub identification_number: Option<String>,
     pub nostr_relay: Option<String>,
+    pub profile_picture_file: Option<File>,
+    pub identity_document_file: Option<File>,
 }
 
 impl From<Identity> for IdentityCreateBlockData {
     fn from(value: Identity) -> Self {
         Self {
+            node_id: value.node_id,
             name: value.name,
-            date_of_birth: value.date_of_birth,
-            city_of_birth: value.city_of_birth,
-            country_of_birth: value.country_of_birth,
             email: value.email,
+            date_of_birth: value.date_of_birth,
+            country_of_birth: value.country_of_birth,
+            city_of_birth: value.city_of_birth,
             postal_address: value.postal_address,
+            identification_number: value.identification_number,
             nostr_relay: value.nostr_relay,
+            profile_picture_file: value.profile_picture_file,
+            identity_document_file: value.identity_document_file,
         }
     }
 }
@@ -70,6 +78,7 @@ pub struct IdentityUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
+    pub profile_picture_file: Option<File>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -375,6 +384,7 @@ mod tests {
                 name: Some("newname".to_string()),
                 email: None,
                 postal_address: OptionalPostalAddress::new_empty(),
+                profile_picture_file: None,
             },
             &keys,
             1731593928,

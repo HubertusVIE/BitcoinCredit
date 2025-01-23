@@ -250,6 +250,12 @@ impl ContactServiceApi for ContactService {
         avatar_file_upload_id: Option<String>,
         proof_document_file_upload_id: Option<String>,
     ) -> Result<Contact> {
+        if util::crypto::validate_pub_key(node_id).is_err() {
+            return Err(super::Error::Validation(format!(
+                "Not a valid secp256k1 key: {node_id}",
+            )));
+        }
+
         let identity_public_key = self.identity_store.get_key_pair().await?.get_public_key();
         let avatar_file = self
             .process_upload_file(&avatar_file_upload_id, node_id, &identity_public_key)
@@ -401,14 +407,17 @@ impl From<Company> for IdentityPublicData {
 }
 
 impl IdentityPublicData {
-    pub fn new(identity: Identity) -> Self {
-        Self {
-            t: ContactType::Person,
-            node_id: identity.node_id,
-            name: identity.name,
-            postal_address: identity.postal_address,
-            email: Some(identity.email),
-            nostr_relay: identity.nostr_relay,
+    pub fn new(identity: Identity) -> Option<Self> {
+        match identity.postal_address.to_full_postal_address() {
+            Some(postal_address) => Some(Self {
+                t: ContactType::Person,
+                node_id: identity.node_id,
+                name: identity.name,
+                postal_address,
+                email: Some(identity.email),
+                nostr_relay: identity.nostr_relay,
+            }),
+            None => None,
         }
     }
 

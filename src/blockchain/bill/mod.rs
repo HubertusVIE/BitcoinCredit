@@ -115,6 +115,9 @@ pub mod tests {
         let mut identity = Identity::new_empty();
         identity.node_id = keys.get_public_key();
         identity.name = "drawer".to_owned();
+        identity.postal_address.country = Some("AT".to_owned());
+        identity.postal_address.city = Some("Vienna".to_owned());
+        identity.postal_address.address = Some("Hayekweg 5".to_owned());
         IdentityWithAll {
             identity,
             key_pair: keys,

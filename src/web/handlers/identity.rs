@@ -1,21 +1,74 @@
 use super::middleware::IdentityCheck;
 use crate::external;
 use crate::service::Result;
-use crate::web::data::{ChangeIdentityPayload, IdentityPayload, SeedPhrase, SwitchIdentity};
+use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
+use crate::web::data::{
+    ChangeIdentityPayload, NewIdentityPayload, SeedPhrase, SwitchIdentity, UploadFileForm,
+    UploadFilesResponse,
+};
 use crate::{service::identity_service::IdentityToReturn, service::ServiceContext};
-use rocket::http::Status;
+use rocket::form::Form;
+use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
 
+#[get("/file/<file_name>")]
+pub async fn get_file(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    file_name: &str,
+) -> Result<(ContentType, Vec<u8>)> {
+    let identity = state.identity_service.get_full_identity().await?;
+    let private_key = identity.key_pair.get_private_key_string();
+    let id = identity.identity.node_id;
+
+    let file_bytes = state
+        .identity_service
+        .open_and_decrypt_file(&id, file_name, &private_key)
+        .await?;
+
+    let content_type = match detect_content_type_for_bytes(&file_bytes) {
+        None => None,
+        Some(t) => ContentType::parse_flexible(&t),
+    }
+    .ok_or(crate::service::Error::Validation(String::from(
+        "Content Type of the requested file could not be determined",
+    )))?;
+
+    Ok((content_type, file_bytes))
+}
+
+#[post("/upload_file", data = "<file_upload_form>")]
+pub async fn upload_file(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    file_upload_form: Form<UploadFileForm<'_>>,
+) -> Result<Json<UploadFilesResponse>> {
+    let file = &file_upload_form.file;
+    let upload_file_handler: &dyn UploadFileHandler = file as &dyn UploadFileHandler;
+
+    state
+        .file_upload_service
+        .validate_attached_file(upload_file_handler)
+        .await?;
+
+    let file_upload_response = state
+        .file_upload_service
+        .upload_files(vec![upload_file_handler])
+        .await?;
+
+    Ok(Json(file_upload_response))
+}
+
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/return",
+    path = "/identity/detail",
     description = "Returns the current identity",
     responses(
         (status = 200, description = "The current identity data", body = IdentityToReturn)
     ),
 )]
-#[get("/return")]
+#[get("/detail")]
 pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<IdentityToReturn>> {
     let my_identity = if !state.identity_service.identity_exists().await {
         return Err(crate::service::Error::NotFound);
@@ -33,12 +86,12 @@ pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<Ident
     responses(
         (status = 200, description = "The identity has been created")
     ),
-    request_body(description = "The data to create an identity with", content((IdentityPayload)))
+    request_body(description = "The data to create an identity with", content((NewIdentityPayload)))
 )]
 #[post("/create", format = "json", data = "<identity_payload>")]
 pub async fn create_identity(
     state: &State<ServiceContext>,
-    identity_payload: Json<IdentityPayload>,
+    identity_payload: Json<NewIdentityPayload>,
 ) -> Result<Status> {
     let identity = identity_payload.into_inner();
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
@@ -46,11 +99,14 @@ pub async fn create_identity(
         .identity_service
         .create_identity(
             identity.name,
-            identity.date_of_birth,
-            identity.city_of_birth,
-            identity.country_of_birth,
             identity.email,
             identity.postal_address,
+            identity.date_of_birth,
+            identity.country_of_birth,
+            identity.city_of_birth,
+            identity.identification_number,
+            identity.profile_picture_file_upload_id,
+            identity.identity_document_file_upload_id,
             timestamp,
         )
         .await?;
@@ -76,6 +132,7 @@ pub async fn change_identity(
     if identity_payload.name.is_none()
         && identity_payload.email.is_none()
         && identity_payload.postal_address.is_none()
+        && identity_payload.profile_picture_file_upload_id.is_none()
     {
         return Ok(Status::Ok);
     }
@@ -86,6 +143,7 @@ pub async fn change_identity(
             identity_payload.name,
             identity_payload.email,
             identity_payload.postal_address,
+            identity_payload.profile_picture_file_upload_id,
             timestamp,
         )
         .await?;

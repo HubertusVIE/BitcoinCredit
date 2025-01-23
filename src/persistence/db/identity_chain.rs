@@ -209,6 +209,7 @@ mod tests {
                 name: None,
                 email: None,
                 postal_address: OptionalPostalAddress::new_empty(),
+                profile_picture_file: None,
             },
             &BcrKeys::new(),
             1731593928,
