@@ -67,6 +67,16 @@ impl ActionType {
             _ => None,
         }
     }
+
+    /// Return a corresponding timeout event type for the action type
+    /// if the action has a timeout event type. If not, return None.
+    pub fn get_timeout_event_type(&self) -> Option<EventType> {
+        match self {
+            Self::ApproveBill => Some(EventType::BillAcceptanceTimeout),
+            Self::PayBill => Some(EventType::BillPaymentTimeout),
+            _ => None,
+        }
+    }
 }
 
 /// Can be used for all events that are just signalling an action

@@ -210,6 +210,27 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
+    async fn send_request_to_action_timed_out_event(
+        &self,
+        bill_id: &str,
+        timed_out_action: ActionType,
+        recipients: Vec<IdentityPublicData>,
+    ) -> Result<()> {
+        if let Some(event_type) = timed_out_action.get_timeout_event_type() {
+            let payload = BillActionEventPayload {
+                bill_id: bill_id.to_owned(),
+                action_type: ActionType::CheckBill,
+            };
+            for recipient in recipients {
+                let event = Event::new(event_type.to_owned(), &recipient.node_id, payload.clone());
+                self.notification_transport
+                    .send(&recipient, event.try_into()?)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
     async fn send_new_quote_event(&self, _bill: &BitcreditBill) -> Result<()> {
         // @TODO: How do we know the quoting participants
         Ok(())
@@ -298,6 +319,52 @@ mod tests {
 
         service
             .send_request_to_action_rejected_event(
+                "bill_id",
+                ActionType::ApproveBill,
+                recipients.clone(),
+            )
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_request_to_action_timed_out_event() {
+        let recipients = vec![
+            get_identity_public_data("part1", "part1@example.com", None),
+            get_identity_public_data("part2", "part2@example.com", None),
+            get_identity_public_data("part3", "part3@example.com", None),
+        ];
+
+        let mut mock = MockNotificationJsonTransportApi::new();
+
+        // expect to send payment timeout event to all recipients
+        mock.expect_send()
+            .withf(|_, e| e.event_type == EventType::BillPaymentTimeout)
+            .returning(|_, _| Ok(()))
+            .times(3);
+
+        // expect to send acceptance timeout event to all recipients
+        mock.expect_send()
+            .withf(|_, e| e.event_type == EventType::BillAcceptanceTimeout)
+            .returning(|_, _| Ok(()))
+            .times(3);
+
+        let service = DefaultNotificationService {
+            notification_transport: Box::new(mock),
+            notification_store: Arc::new(MockNotificationStoreApi::new()),
+        };
+
+        service
+            .send_request_to_action_timed_out_event(
+                "bill_id",
+                ActionType::PayBill,
+                recipients.clone(),
+            )
+            .await
+            .expect("failed to send event");
+
+        service
+            .send_request_to_action_timed_out_event(
                 "bill_id",
                 ActionType::ApproveBill,
                 recipients.clone(),

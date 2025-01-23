@@ -177,10 +177,27 @@ pub trait NotificationServiceApi: Send + Sync {
 
     /// In case a participant rejects one of the 'request to' actions (e.g. request to accept,
     /// request to pay) we send this event to all bill participants.
+    /// Arguments:
+    /// * bill_id: The id of the bill affected
+    /// * rejected_action: The action that was rejected
+    /// * recipients: The list of recipients that should receive the notification
     async fn send_request_to_action_rejected_event(
         &self,
         bill_id: &str,
         rejected_action: event::ActionType,
+        recipients: Vec<IdentityPublicData>,
+    ) -> Result<()>;
+
+    /// In case a participant did not perform an action (e.g. request to accept, request
+    /// to pay) in time we notify all bill participants about the timed out action.
+    /// Arguments:
+    /// * bill_id: The id of the bill affected
+    /// * timed_out_action: The action that has timed out
+    /// * recipients: The list of recipients that should receive the notification
+    async fn send_request_to_action_timed_out_event(
+        &self,
+        bill_id: &str,
+        timed_out_action: event::ActionType,
         recipients: Vec<IdentityPublicData>,
     ) -> Result<()>;
 
