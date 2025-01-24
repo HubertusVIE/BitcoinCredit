@@ -26,4 +26,18 @@ pub trait NotificationStoreApi: Send + Sync {
     /// deletes a notification from the database
     #[allow(unused)]
     async fn delete(&self, notification_id: &str) -> Result<()>;
+    /// marks a notification with specific type as sent for the current block of given bill
+    async fn set_bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        notification_type: &str,
+    ) -> Result<()>;
+    /// lookup whether a notification has been sent for the given bill and block height
+    async fn bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        notification_type: &str,
+    ) -> Result<bool>;
 }

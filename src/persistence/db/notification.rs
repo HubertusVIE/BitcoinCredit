@@ -7,7 +7,7 @@ use surrealdb::{engine::any::Any, sql::Thing, Surreal};
 use crate::{
     persistence::notification::NotificationStoreApi,
     service::notification_service::{Notification, NotificationType},
-    util::date::DateTimeUtc,
+    util::date::{now, DateTimeUtc},
 };
 
 #[derive(Clone)]
@@ -17,6 +17,7 @@ pub struct SurrealNotificationStore {
 
 impl SurrealNotificationStore {
     const TABLE: &'static str = "notifications";
+    const SENT_TABLE: &'static str = "sent_notifications";
 
     pub fn new(db: Surreal<Any>) -> Self {
         Self { db }
@@ -94,6 +95,41 @@ impl NotificationStoreApi for SurrealNotificationStore {
         let _: Option<NotificationDb> = self.db.delete((Self::TABLE, notification_id)).await?;
         Ok(())
     }
+
+    async fn set_bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        notification_type: &str,
+    ) -> Result<()> {
+        let db = SentBlockNotificationDb {
+            notification_type: NotificationType::Bill,
+            reference_id: bill_id.to_owned(),
+            block_height,
+            event_type: notification_type.to_owned(),
+            datetime: now(),
+        };
+        let _: Vec<SentBlockNotificationDb> = self.db.insert(Self::SENT_TABLE).content(db).await?;
+        Ok(())
+    }
+
+    async fn bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        notification_type: &str,
+    ) -> Result<bool> {
+        let res: Option<SentBlockNotificationDb> = self.db
+            .query("SELECT * FROM type::table($table) WHERE notification_type = $notification_type AND reference_id = $reference_id AND block_height = $block_height AND event_type = $event_type limit 1")
+            .bind(("table", Self::SENT_TABLE))
+            .bind(("notification_type", NotificationType::Bill))
+            .bind(("reference_id", bill_id.to_owned()))
+            .bind(("block_height", block_height))
+            .bind(("event_type", notification_type.to_owned()))
+            .await?
+            .take(0)?;
+        Ok(res.is_some())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +175,19 @@ impl From<Notification> for NotificationDb {
     }
 }
 
+/// Tracks sending of notifications for a blockchain based resource.
+/// The block height is used to track the block in which the notification was sent.
+/// The same notification can be sent multiple times, but only if the underlying
+/// resource has added new blocks to the chain.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SentBlockNotificationDb {
+    pub notification_type: NotificationType,
+    pub reference_id: String,
+    pub block_height: i32,
+    pub event_type: String,
+    pub datetime: DateTimeUtc,
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -153,6 +202,44 @@ mod tests {
             .await
             .expect("could not create memory db");
         SurrealNotificationStore::new(db)
+    }
+
+    #[tokio::test]
+    async fn test_notification_sent_returns_false_for_non_existing() {
+        let store = get_store().await;
+        let sent = store
+            .bill_notification_sent("bill_id", 1, "notification_type")
+            .await
+            .expect("could not check if notification was sent");
+        assert!(!sent);
+    }
+
+    #[tokio::test]
+    async fn test_notification_sent_returns_true_for_existing() {
+        let store = get_store().await;
+        store
+            .set_bill_notification_sent("bill_id", 1, "notification_type")
+            .await
+            .expect("could not set notification as sent");
+        let sent = store
+            .bill_notification_sent("bill_id", 1, "notification_type")
+            .await
+            .expect("could not check if notification was sent");
+        assert!(sent);
+    }
+
+    #[tokio::test]
+    async fn test_notification_sent_returns_false_for_different_notification_type() {
+        let store = get_store().await;
+        store
+            .set_bill_notification_sent("bill_id", 1, "notification_type")
+            .await
+            .expect("could not set notification as sent");
+        let sent = store
+            .bill_notification_sent("bill_id", 1, "different_notification_type")
+            .await
+            .expect("could not check if notification was sent");
+        assert!(!sent);
     }
 
     #[tokio::test]
