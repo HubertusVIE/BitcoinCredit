@@ -26,7 +26,11 @@ impl SurrealCompanyStore {
 #[async_trait]
 impl CompanyStoreApi for SurrealCompanyStore {
     async fn search(&self, search_term: &str) -> Result<Vec<Company>> {
-        let results: Vec<CompanyDb> = self.db.query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term").bind((DB_TABLE, Self::DATA_TABLE)).bind((DB_SEARCH_TERM, search_term.to_owned())).await?.take(0)?;
+        let results: Vec<CompanyDb> = self.db
+            .query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term")
+            .bind((DB_TABLE, Self::DATA_TABLE))
+            .bind((DB_SEARCH_TERM, search_term.to_owned())).await?
+            .take(0)?;
         Ok(results.into_iter().map(|c| c.into()).collect())
     }
 
