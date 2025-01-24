@@ -12,6 +12,9 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait CompanyStoreApi: Send + Sync {
+    /// Searches the company for the search term
+    async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
+
     /// Checks if the given company exists
     async fn exists(&self, id: &str) -> bool;
 

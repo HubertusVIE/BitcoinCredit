@@ -24,6 +24,7 @@ use utoipa::OpenApi;
         handlers::identity::switch,
         handlers::identity::get_seed_phrase,
         handlers::identity::recover_from_seed_phrase,
+        handlers::search,
     )
 )]
 pub struct ApiDocs;

@@ -1,5 +1,6 @@
 use super::{FileDb, PostalAddressDb, Result};
 use crate::{
+    constants::{DB_SEARCH_TERM, DB_TABLE},
     persistence::{company::CompanyStoreApi, Error},
     service::company_service::{Company, CompanyKeys},
 };
@@ -24,6 +25,11 @@ impl SurrealCompanyStore {
 
 #[async_trait]
 impl CompanyStoreApi for SurrealCompanyStore {
+    async fn search(&self, search_term: &str) -> Result<Vec<Company>> {
+        let results: Vec<CompanyDb> = self.db.query("SELECT * from type::table($table) WHERE string::lowercase(name) CONTAINS $search_term").bind((DB_TABLE, Self::DATA_TABLE)).bind((DB_SEARCH_TERM, search_term.to_owned())).await?.take(0)?;
+        Ok(results.into_iter().map(|c| c.into()).collect())
+    }
+
     async fn exists(&self, id: &str) -> bool {
         self.get(id).await.map(|_| true).unwrap_or(false)
             && self.get_key_pair(id).await.map(|_| true).unwrap_or(false)

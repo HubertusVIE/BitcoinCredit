@@ -1622,7 +1622,7 @@ mod tests {
 
     fn get_valid_company_chain(company_id: &str) -> CompanyBlockchain {
         let (id, (company, company_keys)) = get_baseline_company_data(company_id);
-        let to_return = CompanyToReturn::from(id, company, company_keys.clone());
+        let to_return = CompanyToReturn::from(id, company);
 
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),

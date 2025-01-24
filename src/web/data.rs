@@ -1,10 +1,20 @@
-use crate::service::Error;
+use crate::service::{
+    bill_service::LightBitcreditBillToReturn, company_service::CompanyToReturn,
+    contact_service::Contact, Error,
+};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rocket::fs::TempFile;
 use rocket::FromForm;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GeneralSearchResponse {
+    pub bills: Vec<LightBitcreditBillToReturn>,
+    pub contacts: Vec<Contact>,
+    pub companies: Vec<CompanyToReturn>,
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BillsResponse<T: Serialize> {
@@ -19,6 +29,25 @@ pub struct ContactsResponse<T: Serialize> {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CompaniesResponse<T: Serialize> {
     pub companies: Vec<T>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GeneralSearchFilterPayload {
+    pub filter: GeneralSearchFilter,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum GeneralSearchFilterItemType {
+    Company,
+    Bill,
+    Contact,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GeneralSearchFilter {
+    pub search_term: String,
+    pub currency: String,
+    pub item_types: Vec<GeneralSearchFilterItemType>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -58,6 +58,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .mount("/exit", routes![handlers::exit])
         .mount("/currencies", routes![handlers::currencies])
         .mount("/overview", routes![handlers::overview])
+        .mount("/search", routes![handlers::search])
         .mount(
             "/identity",
             routes![

@@ -21,6 +21,8 @@ use log::info;
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait ContactServiceApi: Send + Sync {
+    /// Searches contacts for the search term
+    async fn search(&self, search_term: &str) -> Result<Vec<Contact>>;
     /// Returns all contacts in short form
     async fn get_contacts(&self) -> Result<Vec<Contact>>;
 
@@ -137,6 +139,11 @@ impl ContactService {
 
 #[async_trait]
 impl ContactServiceApi for ContactService {
+    async fn search(&self, search_term: &str) -> Result<Vec<Contact>> {
+        let contacts = self.store.search(search_term).await?;
+        Ok(contacts)
+    }
+
     async fn get_contacts(&self) -> Result<Vec<Contact>> {
         let contact_map = self.store.get_map().await?;
         let contact_list: Vec<Contact> = contact_map.into_values().collect();
@@ -342,7 +349,7 @@ impl TryFrom<u64> for ContactType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Contact {
     #[serde(rename = "type")]
     pub t: ContactType,
@@ -383,11 +390,15 @@ pub struct IdentityPublicData {
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct LightIdentityPublicData {
     pub name: String,
+    pub node_id: String,
 }
 
 impl From<IdentityPublicData> for LightIdentityPublicData {
     fn from(value: IdentityPublicData) -> Self {
-        Self { name: value.name }
+        Self {
+            name: value.name,
+            node_id: value.node_id,
+        }
     }
 }
 

@@ -1,12 +1,12 @@
 use super::data::{
-    BalanceResponse, CurrenciesResponse, CurrencyResponse, OverviewBalanceResponse,
-    OverviewResponse,
+    BalanceResponse, CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload,
+    GeneralSearchResponse, OverviewBalanceResponse, OverviewResponse,
 };
 use crate::{
     constants::VALID_CURRENCIES,
     service::{Error, Result, ServiceContext},
 };
-use rocket::{get, serde::json::Json, Shutdown, State};
+use rocket::{get, post, serde::json::Json, Shutdown, State};
 
 pub mod bill;
 pub mod company;
@@ -62,4 +62,29 @@ pub async fn overview(
             },
         },
     }))
+}
+
+#[utoipa::path(
+    tag = "General Search",
+    path = "/search",
+    description = "Search bills, contacts and companies",
+    responses(
+        (status = 200, description = "Search Result", body = GeneralSearchResponse)
+    )
+)]
+#[post("/", format = "json", data = "<search_filter>")]
+pub async fn search(
+    state: &State<ServiceContext>,
+    search_filter: Json<GeneralSearchFilterPayload>,
+) -> Result<Json<GeneralSearchResponse>> {
+    let result = state
+        .search_service
+        .search(
+            &search_filter.filter.search_term,
+            &search_filter.filter.currency,
+            &search_filter.filter.item_types,
+        )
+        .await?;
+
+    Ok(Json(result))
 }

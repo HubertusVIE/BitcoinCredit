@@ -4,6 +4,7 @@ pub mod contact_service;
 pub mod file_upload_service;
 pub mod identity_service;
 pub mod notification_service;
+pub mod search_service;
 
 use super::{dht::Client, Config};
 use crate::external::bitcoin::BitcoinClient;
@@ -25,6 +26,7 @@ use notification_service::{
 use rocket::http::ContentType;
 use rocket::Response;
 use rocket::{http::Status, response::Responder};
+use search_service::{SearchService, SearchServiceApi};
 use std::io::Cursor;
 use std::sync::Arc;
 use thiserror::Error;
@@ -143,6 +145,7 @@ pub struct ServiceContext {
     pub config: Config,
     dht_client: Client,
     pub contact_service: Arc<dyn ContactServiceApi>,
+    pub search_service: Arc<dyn SearchServiceApi>,
     pub bill_service: Arc<dyn BillServiceApi>,
     pub identity_service: Arc<dyn IdentityServiceApi>,
     pub company_service: Arc<dyn CompanyServiceApi>,
@@ -250,10 +253,17 @@ pub async fn create_service_context(
     )
     .await?;
 
+    let search_service = SearchService::new(
+        Arc::new(bill_service.clone()),
+        contact_service.clone(),
+        Arc::new(company_service.clone()),
+    );
+
     Ok(ServiceContext {
         config,
         dht_client: client,
         contact_service,
+        search_service: Arc::new(search_service),
         bill_service: Arc::new(bill_service),
         identity_service: Arc::new(identity_service),
         company_service: Arc::new(company_service),
