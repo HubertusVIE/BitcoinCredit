@@ -34,7 +34,7 @@ impl BillActionEventHandler {
             EventType::BillSigned => "Bill has been signed".to_string(),
             EventType::BillAccepted => "Bill has been accepted".to_string(),
             EventType::BillAcceptanceRequested => "Bill should be accepted".to_string(),
-            EventType::BillAcceptanceRejected => "Bill has been rejected".to_string(),
+            EventType::BillAcceptanceRejected => "Bill acceptance has been rejected".to_string(),
             EventType::BillAcceptanceTimeout => "Bill acceptance has taken too long".to_string(),
             EventType::BillAcceptanceRecourse => "Bill in recourse should be accepted".to_string(),
             EventType::BillPaymentRequested => "Bill should be paid".to_string(),
