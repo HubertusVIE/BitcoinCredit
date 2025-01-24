@@ -380,6 +380,17 @@ pub struct IdentityPublicData {
     pub nostr_relay: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct LightIdentityPublicData {
+    pub name: String,
+}
+
+impl From<IdentityPublicData> for LightIdentityPublicData {
+    fn from(value: IdentityPublicData) -> Self {
+        Self { name: value.name }
+    }
+}
+
 impl From<Contact> for IdentityPublicData {
     fn from(value: Contact) -> Self {
         Self {

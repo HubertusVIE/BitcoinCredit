@@ -4,7 +4,7 @@ use crate::{
     external,
     service::{self, company_service::CompanyToReturn, Result, ServiceContext},
     util::file::{detect_content_type_for_bytes, UploadFileHandler},
-    web::data::{UploadFileForm, UploadFilesResponse},
+    web::data::{CompaniesResponse, UploadFileForm, UploadFilesResponse},
 };
 use data::{AddSignatoryPayload, CreateCompanyPayload, EditCompanyPayload, RemoveSignatoryPayload};
 use rocket::{
@@ -28,9 +28,11 @@ pub async fn check_companies_in_dht(
 }
 
 #[get("/list")]
-pub async fn list(state: &State<ServiceContext>) -> Result<Json<Vec<CompanyToReturn>>> {
+pub async fn list(
+    state: &State<ServiceContext>,
+) -> Result<Json<CompaniesResponse<CompanyToReturn>>> {
     let companies = state.company_service.get_list_of_companies().await?;
-    Ok(Json(companies))
+    Ok(Json(CompaniesResponse { companies }))
 }
 
 #[get("/file/<id>/<file_name>")]

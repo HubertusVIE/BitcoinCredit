@@ -1,6 +1,6 @@
 use super::build_validation_response;
 use super::company_service::CompanyKeys;
-use super::contact_service::{ContactType, IdentityPublicData};
+use super::contact_service::{ContactType, IdentityPublicData, LightIdentityPublicData};
 use super::identity_service::Identity;
 use super::notification_service::{self, Notification, NotificationServiceApi};
 use crate::blockchain::bill::block::{
@@ -22,7 +22,7 @@ use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::persistence::ContactStoreApi;
 use crate::util::BcrKeys;
-use crate::web::data::{BillCombinedBitcoinKey, File};
+use crate::web::data::{BillCombinedBitcoinKey, BillsFilterRole, File};
 use crate::{dht, external, persistence, util};
 use crate::{
     dht::{Client, GossipsubEvent, GossipsubEventId},
@@ -153,6 +153,19 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
 
 #[async_trait]
 pub trait BillServiceApi: Send + Sync {
+    /// Get bill balances
+    async fn get_bill_balances(&self, currency: &str) -> Result<BillsBalanceOverview>;
+
+    /// Search for bills
+    async fn search_bills(
+        &self,
+        currency: &str,
+        search_term: &Option<String>,
+        date_range_from: Option<u64>,
+        date_range_to: Option<u64>,
+        role: &BillsFilterRole,
+    ) -> Result<Vec<LightBitcreditBillToReturn>>;
+
     /// Gets all bills
     async fn get_bills(&self) -> Result<Vec<BitcreditBillToReturn>>;
 
@@ -557,6 +570,110 @@ impl BillService {
 
 #[async_trait]
 impl BillServiceApi for BillService {
+    async fn get_bill_balances(&self, _currency: &str) -> Result<BillsBalanceOverview> {
+        let my_node_id = self.identity_store.get().await?.node_id;
+        let bills = self.get_bills().await?;
+
+        let mut payer_sum = 0;
+        let mut payee_sum = 0;
+        let mut contingent_sum = 0;
+
+        for bill in bills {
+            if let Ok(sum) = util::currency::parse_sum(&bill.sum) {
+                if let Some(bill_role) = bill.get_bill_role_for_node_id(&my_node_id) {
+                    match bill_role {
+                        BillRole::Payee => payee_sum += sum,
+                        BillRole::Payer => payer_sum += sum,
+                        BillRole::Contingent => contingent_sum += sum,
+                    };
+                }
+            }
+        }
+
+        Ok(BillsBalanceOverview {
+            payee: BillsBalance {
+                sum: util::currency::sum_to_string(payee_sum),
+            },
+            payer: BillsBalance {
+                sum: util::currency::sum_to_string(payer_sum),
+            },
+            contingent: BillsBalance {
+                sum: util::currency::sum_to_string(contingent_sum),
+            },
+        })
+    }
+
+    async fn search_bills(
+        &self,
+        _currency: &str,
+        search_term: &Option<String>,
+        date_range_from: Option<u64>,
+        date_range_to: Option<u64>,
+        role: &BillsFilterRole,
+    ) -> Result<Vec<LightBitcreditBillToReturn>> {
+        let bills = self.get_bills().await?;
+        let my_node_id = self.identity_store.get().await?.node_id;
+        let mut result = vec![];
+
+        // for now we do the search here - with the quick-fetch table, we can search in surrealDB
+        // directly
+        for bill in bills {
+            // if the bill wasn't issued between from and to, we kick them out
+            if let Some(issue_date_ts) =
+                util::date::date_string_to_i64_timestamp(&bill.issue_date, None)
+            {
+                if let Some(from) = date_range_from {
+                    if from > issue_date_ts as u64 {
+                        continue;
+                    }
+                }
+                if let Some(to) = date_range_to {
+                    if to < issue_date_ts as u64 {
+                        continue;
+                    }
+                }
+            }
+
+            let bill_role = match bill.get_bill_role_for_node_id(&my_node_id) {
+                Some(bill_role) => bill_role,
+                None => continue, // node is not in bill - don't add
+            };
+
+            match role {
+                BillsFilterRole::All => (), // we take all
+                BillsFilterRole::Payer => {
+                    if bill_role != BillRole::Payer {
+                        // payer selected, but node not payer
+                        continue;
+                    }
+                }
+                BillsFilterRole::Payee => {
+                    if bill_role != BillRole::Payee {
+                        // payee selected, but node not payee
+                        continue;
+                    }
+                }
+                BillsFilterRole::Contingent => {
+                    if bill_role != BillRole::Contingent {
+                        // contingent selected, but node not
+                        // contingent
+                        continue;
+                    }
+                }
+            };
+
+            if let Some(st) = search_term {
+                if !bill.search_bill_for_search_term(st) {
+                    continue;
+                }
+            }
+
+            result.push(bill.into());
+        }
+
+        Ok(result)
+    }
+
     async fn get_bills(&self) -> Result<Vec<BitcreditBillToReturn>> {
         let mut res = vec![];
         let bill_ids = self.store.get_ids().await?;
@@ -619,6 +736,7 @@ impl BillServiceApi for BillService {
             .await?;
         let first_version_bill = chain.get_first_version_bill(&bill_keys)?;
         let time_of_drawing = first_version_bill.signing_timestamp;
+        let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
 
         let mut link_for_buy = "".to_string();
         let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
@@ -718,6 +836,7 @@ impl BillServiceApi for BillService {
             chain_of_blocks: chain_to_return,
             files: bill.files,
             active_notification,
+            bill_participants,
         })
     }
 
@@ -1566,6 +1685,52 @@ impl BillServiceApi for BillService {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct BillsBalanceOverview {
+    pub payee: BillsBalance,
+    pub payer: BillsBalance,
+    pub contingent: BillsBalance,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct BillsBalance {
+    pub sum: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BillRole {
+    Payee,
+    Payer,
+    Contingent,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
+pub struct LightBitcreditBillToReturn {
+    pub id: String,
+    pub drawee: LightIdentityPublicData,
+    pub drawer: LightIdentityPublicData,
+    pub payee: LightIdentityPublicData,
+    pub endorsee: Option<LightIdentityPublicData>,
+    pub sum: String,
+    pub currency: String,
+    pub issue_date: String,
+}
+
+impl From<BitcreditBillToReturn> for LightBitcreditBillToReturn {
+    fn from(value: BitcreditBillToReturn) -> Self {
+        Self {
+            id: value.id,
+            drawee: value.drawee.into(),
+            drawer: value.drawer.into(),
+            payee: value.payee.into(),
+            endorsee: value.endorsee.map(|v| v.into()),
+            sum: value.sum,
+            currency: value.currency,
+            issue_date: value.issue_date,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct BitcreditBillToReturn {
     pub id: String,
     pub time_of_drawing: u64,
@@ -1600,6 +1765,70 @@ pub struct BitcreditBillToReturn {
     pub files: Vec<File>,
     /// The currently active notification for this bill if any
     pub active_notification: Option<Notification>,
+    pub bill_participants: Vec<String>,
+}
+
+impl BitcreditBillToReturn {
+    /// Returns the role of the given node_id in the bill, or None if the node_id is not a
+    /// participant in the bill
+    pub fn get_bill_role_for_node_id(&self, node_id: &str) -> Option<BillRole> {
+        // Node id is not part of the bill
+        if !self.bill_participants.iter().any(|bp| bp == node_id) {
+            return None;
+        }
+
+        // Node id is the payer
+        if self.drawee.node_id == *node_id {
+            return Some(BillRole::Payer);
+        }
+
+        // Node id is payee / endorsee
+        if self.payee.node_id == *node_id
+            || self.endorsee.as_ref().map(|e| e.node_id.as_str()) == Some(node_id)
+        {
+            return Some(BillRole::Payee);
+        }
+
+        // Node id is part of the bill, but neither payer, nor payee - they are part of the risk
+        // chain
+        Some(BillRole::Contingent)
+    }
+
+    // Search in the participants for the search term
+    pub fn search_bill_for_search_term(&self, search_term: &str) -> bool {
+        let search_term_lc = search_term.to_lowercase();
+        if self.payee.name.to_lowercase().contains(&search_term_lc) {
+            return true;
+        }
+
+        if self.drawer.name.to_lowercase().contains(&search_term_lc) {
+            return true;
+        }
+
+        if self.drawee.name.to_lowercase().contains(&search_term_lc) {
+            return true;
+        }
+
+        if let Some(ref endorsee) = self.endorsee {
+            if endorsee.name.to_lowercase().contains(&search_term_lc) {
+                return true;
+            }
+        }
+
+        if let Some(ref buyer) = self.buyer {
+            if buyer.name.to_lowercase().contains(&search_term_lc) {
+                return true;
+            }
+        }
+
+        if let Some(ref seller) = self.seller {
+            if seller.name.to_lowercase().contains(&search_term_lc) {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 #[derive(Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone)]
@@ -1840,6 +2069,210 @@ pub mod tests {
             company_chain_store,
             contact_store,
         )
+    }
+
+    #[tokio::test]
+    async fn get_bill_balances_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+
+        let mut bill1 = get_baseline_bill("1234");
+        bill1.sum = 1000;
+        bill1.drawee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
+        let mut bill2 = get_baseline_bill("4321");
+        bill2.sum = 2000;
+        bill2.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill2.payee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
+        let mut bill3 = get_baseline_bill("9999");
+        bill3.sum = 20000;
+        bill3.drawer = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
+        bill3.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill3.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        storage.expect_get_ids().returning(|| {
+            Ok(vec![
+                String::from("1234"),
+                String::from("4321"),
+                String::from("9999"),
+            ])
+        });
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "1234")
+            .returning(move |_| Ok(get_genesis_chain(Some(bill1.clone()))));
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "4321")
+            .returning(move |_| Ok(get_genesis_chain(Some(bill2.clone()))));
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "9999")
+            .returning(move |_| Ok(get_genesis_chain(Some(bill3.clone()))));
+        identity_storage
+            .expect_get()
+            .returning(move || Ok(identity.identity.clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        notification_service
+            .expect_get_active_bill_notification()
+            .returning(|_| None);
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+        );
+        let res = service.get_bill_balances("sat").await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().payer.sum, "1000".to_string());
+        assert_eq!(res.as_ref().unwrap().payee.sum, "2000".to_string());
+        assert_eq!(res.as_ref().unwrap().contingent.sum, "20000".to_string());
+    }
+
+    #[tokio::test]
+    async fn get_search_bill() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+
+        let mut bill1 = get_baseline_bill("1234");
+        bill1.issue_date = "2020-05-01".to_string();
+        bill1.sum = 1000;
+        bill1.drawee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
+        let mut bill2 = get_baseline_bill("4321");
+        bill2.issue_date = "2030-05-01".to_string();
+        bill2.sum = 2000;
+        bill2.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill2.payee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
+        bill2.payee.name = "hayek".to_string();
+        let mut bill3 = get_baseline_bill("9999");
+        bill3.issue_date = "2030-05-01".to_string();
+        bill3.sum = 20000;
+        bill3.drawer = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
+        bill3.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill3.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        storage.expect_get_ids().returning(|| {
+            Ok(vec![
+                String::from("1234"),
+                String::from("4321"),
+                String::from("9999"),
+            ])
+        });
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "1234")
+            .returning(move |_| Ok(get_genesis_chain(Some(bill1.clone()))));
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "4321")
+            .returning(move |_| Ok(get_genesis_chain(Some(bill2.clone()))));
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "9999")
+            .returning(move |_| Ok(get_genesis_chain(Some(bill3.clone()))));
+        identity_storage
+            .expect_get()
+            .returning(move || Ok(identity.identity.clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        notification_service
+            .expect_get_active_bill_notification()
+            .returning(|_| None);
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+        );
+        let res_all = service
+            .search_bills("sat", &None, None, None, &BillsFilterRole::All)
+            .await;
+        assert!(res_all.is_ok());
+        assert_eq!(res_all.as_ref().unwrap().len(), 3);
+
+        let res_term = service
+            .search_bills(
+                "sat",
+                &Some(String::from("hayek")),
+                None,
+                None,
+                &BillsFilterRole::All,
+            )
+            .await;
+        assert!(res_term.is_ok());
+        assert_eq!(res_term.as_ref().unwrap().len(), 1);
+
+        let from_ts = util::date::date_string_to_i64_timestamp("2030-05-01", None).unwrap();
+        let to_ts = util::date::date_string_to_i64_timestamp("2030-05-30", None).unwrap();
+        let res_fromto = service
+            .search_bills(
+                "sat",
+                &None,
+                Some(from_ts as u64),
+                Some(to_ts as u64),
+                &BillsFilterRole::All,
+            )
+            .await;
+        assert!(res_fromto.is_ok());
+        assert_eq!(res_fromto.as_ref().unwrap().len(), 2);
+
+        let res_role = service
+            .search_bills("sat", &None, None, None, &BillsFilterRole::Payer)
+            .await;
+        assert!(res_role.is_ok());
+        assert_eq!(res_role.as_ref().unwrap().len(), 1);
+
+        let res_comb = service
+            .search_bills(
+                "sat",
+                &Some(String::from("hayek")),
+                Some(from_ts as u64),
+                Some(to_ts as u64),
+                &BillsFilterRole::Payee,
+            )
+            .await;
+        assert!(res_comb.is_ok());
+        assert_eq!(res_comb.as_ref().unwrap().len(), 1);
     }
 
     #[tokio::test]

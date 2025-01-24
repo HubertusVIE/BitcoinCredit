@@ -1,5 +1,5 @@
 use crate::constants::{DEFAULT_DATE_FORMAT, DEFAULT_DATE_TIME_FORMAT};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 
 pub type DateTimeUtc = DateTime<Utc>;
 
@@ -16,6 +16,16 @@ pub fn seconds(timestamp: u64) -> DateTimeUtc {
         Some(dt) => dt,
         None => panic!("invalid timestamp"),
     }
+}
+
+pub fn end_of_day_as_timestamp(timestamp: u64) -> Option<i64> {
+    let dt = seconds(timestamp);
+    let date = dt.date_naive();
+    let end_of_day_time =
+        NaiveTime::from_hms_micro_opt(23, 59, 59, 999_999).expect("is a valid time");
+    let date_time = date.and_time(end_of_day_time);
+    let date_utc = Utc.from_utc_datetime(&date_time);
+    Some(date_utc.timestamp())
 }
 
 pub fn date_string_to_i64_timestamp(date_str: &str, format_str: Option<&str>) -> Option<i64> {
@@ -61,6 +71,16 @@ mod tests {
             "now date was {} seconds smaller than expected",
             (timestamp - now)
         );
+    }
+
+    #[test]
+    fn test_end_of_day() {
+        let ts = Utc
+            .with_ymd_and_hms(2025, 1, 15, 0, 0, 0)
+            .unwrap()
+            .timestamp();
+        let end_of_day = end_of_day_as_timestamp(ts as u64).unwrap();
+        assert!(end_of_day > ts,);
     }
 
     #[test]
