@@ -173,9 +173,7 @@ impl CompanyServiceApi for CompanyService {
 
     async fn get_company_and_keys_by_id(&self, id: &str) -> Result<(Company, CompanyKeys)> {
         if !self.store.exists(id).await {
-            return Err(super::Error::Validation(format!(
-                "No company with id: {id} found",
-            )));
+            return Err(crate::service::Error::NotFound);
         }
         let company = self.store.get(id).await?;
         let keys = self.store.get_key_pair(id).await?;

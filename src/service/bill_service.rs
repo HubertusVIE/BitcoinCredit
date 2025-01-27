@@ -23,6 +23,7 @@ use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::persistence::ContactStoreApi;
 use crate::util::BcrKeys;
 use crate::web::data::{BillCombinedBitcoinKey, BillsFilterRole, File};
+use crate::web::ErrorResponse;
 use crate::{dht, external, persistence, util};
 use crate::{
     dht::{Client, GossipsubEvent, GossipsubEventId},
@@ -33,8 +34,11 @@ use async_trait::async_trait;
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::info;
+use rocket::http::ContentType;
+use rocket::Response;
 use rocket::{http::Status, response::Responder};
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::sync::Arc;
 use thiserror::Error;
 use utoipa::ToSchema;
@@ -49,6 +53,10 @@ pub enum Error {
     /// caller
     #[error("Caller can not request combined bitcoin key for bill")]
     CannotReturnCombinedBitcoinKeyForBill,
+
+    /// errors that currently return early http status code Status::NotFound
+    #[error("not found")]
+    NotFound,
 
     /// error returned if a bill was already accepted and is attempted to be accepted again
     #[error("Bill was already accepted")]
@@ -123,6 +131,15 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
                 Status::InternalServerError.respond_to(req)
             }
             Error::Validation(msg) => build_validation_response(msg),
+            Error::NotFound => {
+                let body =
+                    ErrorResponse::new("not_found", "not found".to_string(), 404).to_json_string();
+                Response::build()
+                    .status(Status::NotFound)
+                    .header(ContentType::JSON)
+                    .sized_body(body.len(), Cursor::new(body))
+                    .ok()
+            }
             Error::Persistence(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
@@ -175,8 +192,8 @@ pub trait BillServiceApi: Send + Sync {
         bill_id: &str,
     ) -> Result<BillCombinedBitcoinKey>;
 
-    /// Gets the full bill for the given bill id
-    async fn get_full_bill(
+    /// Gets the detail for the given bill id
+    async fn get_detail(
         &self,
         bill_id: &str,
         identity: &Identity,
@@ -566,6 +583,123 @@ impl BillService {
             files: bill_first_version.files,
         })
     }
+
+    async fn get_full_bill(
+        &self,
+        bill_id: &str,
+        identity: &Identity,
+        current_timestamp: u64,
+    ) -> Result<BitcreditBillToReturn> {
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let bill = self
+            .get_last_version_bill(&chain, &bill_keys, identity)
+            .await?;
+        let first_version_bill = chain.get_first_version_bill(&bill_keys)?;
+        let time_of_drawing = first_version_bill.signing_timestamp;
+        let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
+
+        let mut link_for_buy = "".to_string();
+        let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
+        let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
+        let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
+        let last_offer_to_sell_block_waiting_for_payment =
+            chain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, current_timestamp)?;
+        let mut waiting_for_payment = false;
+        let mut buyer = None;
+        let mut seller = None;
+        if let WaitingForPayment::Yes(payment_info) = last_offer_to_sell_block_waiting_for_payment {
+            waiting_for_payment = true;
+            buyer = Some(
+                self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                    payment_info.buyer.clone(),
+                    identity,
+                )
+                .await,
+            );
+            seller = Some(
+                self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                    payment_info.seller.clone(),
+                    identity,
+                )
+                .await,
+            );
+
+            let address_to_pay = self
+                .bitcoin_client
+                .get_address_to_pay(&bill_keys.public_key, &payment_info.seller.node_id)?;
+
+            if identity.node_id.to_string().eq(&payment_info.buyer.node_id)
+                || identity
+                    .node_id
+                    .to_string()
+                    .eq(&payment_info.seller.node_id)
+            {
+                let message: String = format!("Payment in relation to a bill {}", &bill.id);
+                link_for_buy = self.bitcoin_client.generate_link_to_pay(
+                    &address_to_pay,
+                    payment_info.sum,
+                    &message,
+                );
+            }
+        }
+        let requested_to_pay = chain.block_with_operation_code_exists(BillOpCode::RequestToPay);
+        let requested_to_accept =
+            chain.block_with_operation_code_exists(BillOpCode::RequestToAccept);
+        let holder_public_key = match bill.endorsee {
+            None => &bill.payee.node_id,
+            Some(ref endorsee) => &endorsee.node_id,
+        };
+        let address_to_pay = self
+            .bitcoin_client
+            .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
+        let mut paid = false;
+        if requested_to_pay {
+            paid = self.store.is_paid(&bill.id).await?;
+        }
+        let message: String = format!("Payment in relation to a bill {}", bill.id.clone());
+        let link_to_pay =
+            self.bitcoin_client
+                .generate_link_to_pay(&address_to_pay, bill.sum, &message);
+
+        let active_notification = self
+            .notification_service
+            .get_active_bill_notification(&bill.id)
+            .await;
+
+        Ok(BitcreditBillToReturn {
+            id: bill.id,
+            time_of_drawing,
+            country_of_issuing: bill.country_of_issuing,
+            city_of_issuing: bill.city_of_issuing,
+            drawee: bill.drawee,
+            drawer: bill.drawer,
+            payee: bill.payee,
+            endorsee: bill.endorsee,
+            currency: bill.currency,
+            sum: util::currency::sum_to_string(bill.sum),
+            maturity_date: bill.maturity_date,
+            issue_date: bill.issue_date,
+            country_of_payment: bill.country_of_payment,
+            city_of_payment: bill.city_of_payment,
+            language: bill.language,
+            accepted,
+            endorsed,
+            requested_to_pay,
+            requested_to_accept,
+            waiting_for_payment,
+            buyer,
+            seller,
+            paid,
+            link_for_buy,
+            link_to_pay,
+            address_to_pay,
+            chain_of_blocks: chain_to_return,
+            files: bill.files,
+            active_notification,
+            bill_participants,
+        })
+    }
 }
 
 #[async_trait]
@@ -723,121 +857,19 @@ impl BillServiceApi for BillService {
         Err(Error::CannotReturnCombinedBitcoinKeyForBill)
     }
 
-    async fn get_full_bill(
+    async fn get_detail(
         &self,
         bill_id: &str,
         identity: &Identity,
         current_timestamp: u64,
     ) -> Result<BitcreditBillToReturn> {
-        let chain = self.blockchain_store.get_chain(bill_id).await?;
-        let bill_keys = self.store.get_keys(bill_id).await?;
-        let bill = self
-            .get_last_version_bill(&chain, &bill_keys, identity)
+        if !self.store.exists(bill_id).await {
+            return Err(Error::NotFound);
+        }
+        let res = self
+            .get_full_bill(bill_id, identity, current_timestamp)
             .await?;
-        let first_version_bill = chain.get_first_version_bill(&bill_keys)?;
-        let time_of_drawing = first_version_bill.signing_timestamp;
-        let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
-
-        let mut link_for_buy = "".to_string();
-        let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
-        let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
-        let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
-        let last_offer_to_sell_block_waiting_for_payment =
-            chain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, current_timestamp)?;
-        let mut waiting_for_payment = false;
-        let mut buyer = None;
-        let mut seller = None;
-        if let WaitingForPayment::Yes(payment_info) = last_offer_to_sell_block_waiting_for_payment {
-            waiting_for_payment = true;
-            buyer = Some(
-                self.extend_bill_chain_identity_data_from_contacts_or_identity(
-                    payment_info.buyer.clone(),
-                    identity,
-                )
-                .await,
-            );
-            seller = Some(
-                self.extend_bill_chain_identity_data_from_contacts_or_identity(
-                    payment_info.seller.clone(),
-                    identity,
-                )
-                .await,
-            );
-
-            let address_to_pay = self
-                .bitcoin_client
-                .get_address_to_pay(&bill_keys.public_key, &payment_info.seller.node_id)?;
-
-            if identity.node_id.to_string().eq(&payment_info.buyer.node_id)
-                || identity
-                    .node_id
-                    .to_string()
-                    .eq(&payment_info.seller.node_id)
-            {
-                let message: String = format!("Payment in relation to a bill {}", &bill.id);
-                link_for_buy = self.bitcoin_client.generate_link_to_pay(
-                    &address_to_pay,
-                    payment_info.sum,
-                    &message,
-                );
-            }
-        }
-        let requested_to_pay = chain.block_with_operation_code_exists(BillOpCode::RequestToPay);
-        let requested_to_accept =
-            chain.block_with_operation_code_exists(BillOpCode::RequestToAccept);
-        let holder_public_key = match bill.endorsee {
-            None => &bill.payee.node_id,
-            Some(ref endorsee) => &endorsee.node_id,
-        };
-        let address_to_pay = self
-            .bitcoin_client
-            .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
-        let mut paid = false;
-        if requested_to_pay {
-            paid = self.store.is_paid(&bill.id).await?;
-        }
-        let message: String = format!("Payment in relation to a bill {}", bill.id.clone());
-        let link_to_pay =
-            self.bitcoin_client
-                .generate_link_to_pay(&address_to_pay, bill.sum, &message);
-
-        let active_notification = self
-            .notification_service
-            .get_active_bill_notification(&bill.id)
-            .await;
-
-        Ok(BitcreditBillToReturn {
-            id: bill.id,
-            time_of_drawing,
-            country_of_issuing: bill.country_of_issuing,
-            city_of_issuing: bill.city_of_issuing,
-            drawee: bill.drawee,
-            drawer: bill.drawer,
-            payee: bill.payee,
-            endorsee: bill.endorsee,
-            currency: bill.currency,
-            sum: util::currency::sum_to_string(bill.sum),
-            maturity_date: bill.maturity_date,
-            issue_date: bill.issue_date,
-            country_of_payment: bill.country_of_payment,
-            city_of_payment: bill.city_of_payment,
-            language: bill.language,
-            accepted,
-            endorsed,
-            requested_to_pay,
-            requested_to_accept,
-            waiting_for_payment,
-            buyer,
-            seller,
-            paid,
-            link_for_buy,
-            link_to_pay,
-            address_to_pay,
-            chain_of_blocks: chain_to_return,
-            files: bill.files,
-            active_notification,
-            bill_participants,
-        })
+        Ok(res)
     }
 
     async fn get_bill(&self, bill_id: &str) -> Result<BitcreditBill> {
@@ -2705,7 +2737,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn get_full_bill_baseline() {
+    async fn get_detail_bill_baseline() {
         let (
             mut storage,
             mut chain_storage,
@@ -2726,6 +2758,7 @@ pub mod tests {
                 public_key: TEST_PUB_KEY_SECP.to_owned(),
             })
         });
+        storage.expect_exists().returning(|_| true);
         chain_storage
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2756,7 +2789,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn get_full_bill_waiting_for_offer_to_sell() {
+    async fn get_detail_waiting_for_offer_to_sell() {
         let (
             mut storage,
             mut chain_storage,
@@ -2771,6 +2804,7 @@ pub mod tests {
         let mut bill = get_baseline_bill("some id");
         bill.drawee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
+        storage.expect_exists().returning(|_| true);
         storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
@@ -2830,7 +2864,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn get_full_bill_req_to_pay() {
+    async fn get_detail_bill_req_to_pay() {
         let (
             mut storage,
             mut chain_storage,
@@ -2845,6 +2879,7 @@ pub mod tests {
         let mut bill = get_baseline_bill("some id");
         bill.drawee = IdentityPublicData::new_only_node_id(identity.identity.node_id.clone());
         let drawee_node_id = bill.drawee.node_id.clone();
+        storage.expect_exists().returning(|_| true);
         storage.expect_get_keys().returning(|_| {
             Ok(BillKeys {
                 private_key: TEST_PRIVATE_KEY_SECP.to_owned(),

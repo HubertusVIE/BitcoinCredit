@@ -37,7 +37,7 @@ pub async fn holder(
     Ok(Json(am_i_holder))
 }
 
-#[get("/bitcoin-key/<id>")]
+#[get("/bitcoin_key/<id>")]
 pub async fn bitcoin_key(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
@@ -191,11 +191,11 @@ pub async fn bill_detail(
 ) -> Result<Json<BitcreditBillToReturn>> {
     let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let identity = state.identity_service.get_identity().await?;
-    let full_bill = state
+    let bill_detail = state
         .bill_service
-        .get_full_bill(id, &identity, current_timestamp)
+        .get_detail(id, &identity, current_timestamp)
         .await?;
-    Ok(Json(full_bill))
+    Ok(Json(bill_detail))
 }
 
 #[get("/check_payment")]
@@ -404,15 +404,21 @@ pub async fn issue_bill(
         )
         .await?;
 
-    state
-        .bill_service
-        .propagate_bill(
-            &bill.id,
-            &bill.drawer.node_id,
-            &bill.drawee.node_id,
-            &bill.payee.node_id,
-        )
-        .await?;
+    let bill_service_clone = state.bill_service.clone();
+    let bill_clone = bill.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_bill(
+                &bill_clone.id,
+                &bill_clone.drawer.node_id,
+                &bill_clone.drawee.node_id,
+                &bill_clone.payee.node_id,
+            )
+            .await
+        {
+            error!("Error propagating bill on DHT: {e}");
+        }
+    });
 
     // If we're the drawee, we immediately accept the bill
     if bill.drawer == bill.drawee {
@@ -461,18 +467,25 @@ pub async fn offer_to_sell_bill(
         )
         .await?;
 
-    state
-        .bill_service
-        .propagate_block(&offer_to_sell_payload.bill_id, chain.get_latest_block())
-        .await?;
+    let bill_service_clone = state.bill_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&offer_to_sell_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
 
-    state
-        .bill_service
-        .propagate_bill_for_node(
-            &offer_to_sell_payload.bill_id,
-            &public_data_buyer.node_id.to_string(),
-        )
-        .await?;
+        if let Err(e) = bill_service_clone
+            .propagate_bill_for_node(
+                &offer_to_sell_payload.bill_id,
+                &public_data_buyer.node_id.to_string(),
+            )
+            .await
+        {
+            error!("Error propagating bill for node on DHT: {e}");
+        }
+    });
     Ok(Status::Ok)
 }
 
@@ -506,18 +519,25 @@ pub async fn endorse_bill(
         )
         .await?;
 
-    state
-        .bill_service
-        .propagate_block(&endorse_bill_payload.bill_id, chain.get_latest_block())
-        .await?;
+    let bill_service_clone = state.bill_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&endorse_bill_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
 
-    state
-        .bill_service
-        .propagate_bill_for_node(
-            &endorse_bill_payload.bill_id,
-            &public_data_endorsee.node_id.to_string(),
-        )
-        .await?;
+        if let Err(e) = bill_service_clone
+            .propagate_bill_for_node(
+                &endorse_bill_payload.bill_id,
+                &public_data_endorsee.node_id.to_string(),
+            )
+            .await
+        {
+            error!("Error propagating bill for node on DHT: {e}");
+        }
+    });
     Ok(Status::Ok)
 }
 
@@ -542,13 +562,18 @@ pub async fn request_to_pay_bill(
         )
         .await?;
 
-    state
-        .bill_service
-        .propagate_block(
-            &request_to_pay_bill_payload.bill_id,
-            chain.get_latest_block(),
-        )
-        .await?;
+    let bill_service_clone = state.bill_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(
+                &request_to_pay_bill_payload.bill_id,
+                chain.get_latest_block(),
+            )
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
     Ok(Status::Ok)
 }
 
@@ -568,13 +593,20 @@ pub async fn request_to_accept_bill(
         .bill_service
         .request_acceptance(&request_to_accept_bill_payload.bill_id, timestamp)
         .await?;
-    state
-        .bill_service
-        .propagate_block(
-            &request_to_accept_bill_payload.bill_id,
-            chain.get_latest_block(),
-        )
-        .await?;
+
+    let bill_service_clone = state.bill_service.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(
+                &request_to_accept_bill_payload.bill_id,
+                chain.get_latest_block(),
+            )
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
     Ok(Status::Ok)
 }
 
@@ -589,10 +621,16 @@ pub async fn accept_bill(
         .bill_service
         .accept_bill(&accept_bill_payload.bill_id, timestamp)
         .await?;
-    state
-        .bill_service
-        .propagate_block(&accept_bill_payload.bill_id, chain.get_latest_block())
-        .await?;
+
+    let bill_service_clone = state.bill_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&accept_bill_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
     Ok(Status::Ok)
 }
 
@@ -698,18 +736,25 @@ pub async fn mint_bill(
         )
         .await?;
 
-    state
-        .bill_service
-        .propagate_block(&mint_bill_payload.bill_id, chain.get_latest_block())
-        .await?;
+    let bill_service_clone = state.bill_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&mint_bill_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
 
-    state
-        .bill_service
-        .propagate_bill_for_node(
-            &mint_bill_payload.bill_id,
-            &public_mint_node.node_id.to_string(),
-        )
-        .await?;
+        if let Err(e) = bill_service_clone
+            .propagate_bill_for_node(
+                &mint_bill_payload.bill_id,
+                &public_mint_node.node_id.to_string(),
+            )
+            .await
+        {
+            error!("Error propagating bill for node on DHT: {e}");
+        }
+    });
 
     Ok(Status::Ok)
 }
