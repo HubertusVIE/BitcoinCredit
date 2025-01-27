@@ -586,55 +586,6 @@ impl Client {
         format!("{BILLS_PREFIX}{node_id}")
     }
 
-    /// Checks the bill record for the local node, adding missing bills and starts providing them, if necessary
-    pub async fn update_bills_table(&mut self, node_id: &str) -> Result<()> {
-        let node_request = self.node_request_for_bills(node_id);
-
-        let bill_ids = self.bill_store.get_ids().await?;
-        match self.get_record(node_request.clone()).await {
-            Err(_) => {
-                let mut new_record = Vec::with_capacity(bill_ids.len());
-                for bill_id in bill_ids {
-                    new_record.push(bill_id.clone());
-                    self.start_providing_bill(&bill_id).await?;
-                }
-                if !new_record.is_empty() {
-                    self.put_record(node_request.clone(), to_vec(&new_record)?)
-                        .await?;
-                }
-            }
-            Ok(bills_record) => {
-                let value = bills_record.value;
-                if !value.is_empty() {
-                    let record_in_dht: Vec<String> = from_slice(&value)?;
-                    let mut new_record = record_in_dht.clone();
-
-                    for bill_id in bill_ids {
-                        if !record_in_dht.contains(&bill_id) {
-                            new_record.push(bill_id.clone());
-                            self.start_providing_bill(&bill_id).await?;
-                        }
-                    }
-                    if !record_in_dht.eq(&new_record) {
-                        self.put_record(node_request.clone(), to_vec(&new_record)?)
-                            .await?;
-                    }
-                } else {
-                    let mut new_record = Vec::with_capacity(bill_ids.len());
-                    for bill_id in bill_ids {
-                        new_record.push(bill_id.clone());
-                        self.start_providing_bill(&bill_id).await?;
-                    }
-                    if !new_record.is_empty() {
-                        self.put_record(node_request.clone(), to_vec(&new_record)?)
-                            .await?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Starts providing all locally available bills
     pub async fn start_providing_bills(&mut self) -> Result<()> {
         let bills = self.bill_store.get_ids().await?;
@@ -686,43 +637,70 @@ impl Client {
     /// Checks the DHT for new bills, fetching the bill data, keys and files for them
     pub async fn check_new_bills(&mut self) -> Result<()> {
         let local_node_id = self.identity_store.get().await?.node_id;
-        let node_request = self.node_request_for_bills(&local_node_id);
-        if let Ok(list_bills_for_node) = self.get_record(node_request.clone()).await {
-            let bills_for_node = list_bills_for_node.value;
+        let private_key = self
+            .identity_store
+            .get_key_pair()
+            .await?
+            .get_private_key_string();
 
-            if bills_for_node.is_empty() {
-                return Ok(());
-            }
+        // for personal identity
+        self.check_new_bills_for_node_id(&local_node_id, &private_key)
+            .await;
 
-            let bills: Vec<String> = from_slice(&bills_for_node)?;
-            for bill_id in bills {
-                if self.bill_store.exists(&bill_id).await {
-                    continue;
-                }
-                if let Err(e) = self
-                    .get_bill_data_from_the_network(&bill_id, &local_node_id)
-                    .await
-                {
-                    error!("Could not get bill data from network for {bill_id}: {e}");
-                    continue;
-                };
-                self.start_providing_bill(&bill_id).await?;
-                self.subscribe_to_bill_topic(&bill_id).await?;
+        // for company identities
+        if let Ok(local_companies) = self.company_store.get_all().await {
+            for (company_id, (_company, company_keys)) in local_companies {
+                self.check_new_bills_for_node_id(&company_id, &company_keys.private_key)
+                    .await;
             }
         }
         Ok(())
+    }
+
+    async fn check_new_bills_for_node_id(&mut self, node_id: &str, private_key: &str) {
+        info!("checking network for new bills for node id: {node_id}");
+        let node_request = self.node_request_for_bills(node_id);
+        if let Ok(list_bills_for_node) = self.get_record(node_request.clone()).await {
+            let bills_for_node = list_bills_for_node.value;
+
+            if !bills_for_node.is_empty() {
+                if let Ok(bills) = from_slice::<Vec<String>>(&bills_for_node) {
+                    for bill_id in bills {
+                        if self.bill_store.exists(&bill_id).await {
+                            continue;
+                        }
+                        if let Err(e) = self
+                            .get_bill_data_from_the_network(&bill_id, node_id, private_key)
+                            .await
+                        {
+                            error!("Could not get bill data from network for {bill_id}: {e}");
+                            continue;
+                        };
+                        if let Err(e) = self.start_providing_bill(&bill_id).await {
+                            error!("Could not start providing bill {bill_id}: {e}");
+                        }
+                        if let Err(e) = self.subscribe_to_bill_topic(&bill_id).await {
+                            error!("Could not subscribe to bill {bill_id}: {e}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Fetches the bill blockchain, keys and attached file data for the given bill from the network and then persists it locally
     pub async fn get_bill_data_from_the_network(
         &mut self,
         bill_id: &str,
-        local_node_id: &str,
+        node_id: &str,
+        private_key: &str,
     ) -> Result<()> {
         let mut providers = self.get_bill_providers(bill_id).await?;
+        // we remove the local identity node id from the providers, companies don't have a peer id
+        let local_identity_node_id = self.identity_store.get().await?.node_id;
         if let Some(local_peer_id) = providers
             .iter()
-            .find(|p| util::crypto::is_peer_id_from_this_node_id(local_node_id, p))
+            .find(|p| util::crypto::is_peer_id_from_this_node_id(&local_identity_node_id, p))
             .cloned()
         {
             providers.remove(&local_peer_id);
@@ -732,12 +710,10 @@ impl Client {
             return Ok(());
         }
 
-        let chain = self
-            .request_bill_data(bill_id, local_node_id, &providers)
-            .await?;
+        let chain = self.request_bill_data(bill_id, node_id, &providers).await?;
 
         let bill_keys = self
-            .request_key_data(bill_id, local_node_id, &providers)
+            .request_key_data(bill_id, node_id, private_key, &providers)
             .await?;
 
         let bill = chain.get_first_version_bill(&bill_keys)?;
@@ -749,7 +725,8 @@ impl Client {
                     &file.name,
                     &file.hash,
                     &bill_keys,
-                    local_node_id,
+                    node_id,
+                    private_key,
                     &providers,
                 )
                 .await?;
@@ -781,11 +758,11 @@ impl Client {
     async fn request_bill_data(
         &mut self,
         name: &str,
-        local_node_id: &str,
+        node_id: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<BillBlockchain> {
-        let requests = self
-            .create_file_requests_for_peers(file_request_for_bill(local_node_id, name), providers);
+        let requests =
+            self.create_file_requests_for_peers(file_request_for_bill(node_id, name), providers);
 
         match futures::future::select_ok(requests).await {
             Err(e) => Err(super::Error::NoProviders(format!(
@@ -806,16 +783,12 @@ impl Client {
         file_name: &str,
         hash: &str,
         bill_keys: &BillKeys,
-        local_node_id: &str,
+        node_id: &str,
+        private_key: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<(String, Vec<u8>)> {
-        let pr_key = self
-            .identity_store
-            .get_key_pair()
-            .await?
-            .get_private_key_string();
         let requests = self.create_file_requests_for_peers(
-            file_request_for_bill_attachment(local_node_id, bill_id, file_name),
+            file_request_for_bill_attachment(node_id, bill_id, file_name),
             providers,
         );
         match futures::future::select_ok(requests).await {
@@ -824,8 +797,8 @@ impl Client {
             ))),
             Ok(file_content) => {
                 let bytes = file_content.0;
-                // decrypt file using identity private key and check hash
-                let decrypted_with_identity_key = util::crypto::decrypt_ecies(&bytes, &pr_key)?;
+                // decrypt file using private key and check hash
+                let decrypted_with_identity_key = util::crypto::decrypt_ecies(&bytes, private_key)?;
                 let decrypted_with_bill_key = util::crypto::decrypt_ecies(
                     &decrypted_with_identity_key,
                     &bill_keys.private_key,
@@ -846,18 +819,12 @@ impl Client {
     async fn request_key_data(
         &mut self,
         name: &str,
-        local_node_id: &str,
+        node_id: &str,
+        private_key: &str,
         providers: &HashSet<PeerId>,
     ) -> Result<BillKeys> {
-        let pr_key = self
-            .identity_store
-            .get_key_pair()
-            .await?
-            .get_private_key_string();
-        let requests = self.create_file_requests_for_peers(
-            file_request_for_bill_keys(local_node_id, name),
-            providers,
-        );
+        let requests = self
+            .create_file_requests_for_peers(file_request_for_bill_keys(node_id, name), providers);
 
         match futures::future::select_ok(requests).await {
             Err(e) => Err(super::Error::NoFileFromProviders(format!(
@@ -865,7 +832,7 @@ impl Client {
             ))),
             Ok(file_content) => {
                 let bytes = file_content.0;
-                let key_bytes_decrypted = util::crypto::decrypt_ecies(&bytes, &pr_key)?;
+                let key_bytes_decrypted = util::crypto::decrypt_ecies(&bytes, private_key)?;
 
                 let bill_keys = bill_keys_from_bytes(&key_bytes_decrypted)?;
                 Ok(bill_keys)
@@ -1349,6 +1316,11 @@ impl Client {
                                 if let Err(e) = self.subscribe_to_company_topic(&company_id).await {
                                     error!(
                                         "Could not start subscribing to company {company_id}: {e}"
+                                    );
+                                }
+                                if let Err(e) = self.check_new_bills().await {
+                                    error!(
+                                        "Could not check new bills for company {company_id}: {e}"
                                     );
                                 }
                             }
@@ -2965,7 +2937,7 @@ mod tests {
         let (
             mut bill_store,
             mut bill_chain_store,
-            company_store,
+            mut company_store,
             company_blockchain_store,
             mut identity_store,
             mut file_upload_store,
@@ -2979,6 +2951,15 @@ mod tests {
             let mut identity = Identity::new_empty();
             identity.node_id = node_id_clone.clone();
             Ok(identity)
+        });
+
+        company_store.expect_get_all().returning(|| {
+            let mut map = HashMap::new();
+            let company_1 = get_baseline_company_data("company_1");
+            let company_2 = get_baseline_company_data("company_2");
+            map.insert(String::from("company_1"), (company_1.1 .0, company_1.1 .1));
+            map.insert(String::from("company_2"), (company_2.1 .0, company_2.1 .1));
+            Ok(map)
         });
 
         identity_store
@@ -2997,13 +2978,9 @@ mod tests {
             while let Some(event) = receiver.next().await {
                 match event {
                     Command::GetRecord { key, sender } => {
-                        assert_eq!(key, format!("BILLS{}", node_id));
                         let result: Vec<String> = vec!["bill_1".to_string(), "bill_2".to_string()];
                         sender
-                            .send(Ok(Record::new(
-                                Key::new(&format!("BILLS{}", node_id)),
-                                to_vec(&result).unwrap(),
-                            )))
+                            .send(Ok(Record::new(Key::new(&key), to_vec(&result).unwrap())))
                             .unwrap();
                     }
                     Command::GetProviders { entry, sender } => {

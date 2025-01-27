@@ -225,6 +225,7 @@ pub async fn create_service_context(
         db.identity_chain_store.clone(),
         db.company_chain_store.clone(),
         db.contact_store.clone(),
+        db.company_store.clone(),
     );
     let identity_service = IdentityService::new(
         db.identity_store.clone(),

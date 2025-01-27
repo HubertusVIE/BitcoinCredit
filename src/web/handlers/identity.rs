@@ -25,7 +25,8 @@ pub async fn get_file(
     let file_bytes = state
         .identity_service
         .open_and_decrypt_file(&id, file_name, &private_key)
-        .await?;
+        .await
+        .map_err(|_| crate::service::Error::NotFound)?;
 
     let content_type = match detect_content_type_for_bytes(&file_bytes) {
         None => None,

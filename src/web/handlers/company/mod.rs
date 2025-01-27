@@ -43,6 +43,7 @@ pub async fn get_file(
     id: &str,
     file_name: &str,
 ) -> Result<(ContentType, Vec<u8>)> {
+    state.company_service.get_company_by_id(id).await?; // check if company exists
     let private_key = state
         .identity_service
         .get_full_identity()
@@ -53,7 +54,8 @@ pub async fn get_file(
     let file_bytes = state
         .company_service
         .open_and_decrypt_file(id, file_name, &private_key)
-        .await?;
+        .await
+        .map_err(|_| service::Error::NotFound)?;
 
     let content_type = match detect_content_type_for_bytes(&file_bytes) {
         None => None,

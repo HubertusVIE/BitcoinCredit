@@ -13,6 +13,7 @@ pub enum IdentityOpCode {
     Create,
     Update,
     SignPersonBill,
+    SignCompanyBill,
     CreateCompany,
     AddSignatory,
     RemoveSignatory,
@@ -86,6 +87,15 @@ pub struct IdentitySignPersonBillBlockData {
     pub bill_id: String,
     pub block_id: u64,
     pub block_hash: String,
+    pub operation: BillOpCode,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct IdentitySignCompanyBillBlockData {
+    pub bill_id: String,
+    pub block_id: u64,
+    pub block_hash: String,
+    pub company_id: String,
     pub operation: BillOpCode,
 }
 
@@ -242,6 +252,22 @@ impl IdentityBlock {
             keys,
             timestamp,
             IdentityOpCode::SignPersonBill,
+        )?;
+        Ok(block)
+    }
+
+    pub fn create_block_for_sign_company_bill(
+        previous_block: &Self,
+        data: &IdentitySignCompanyBillBlockData,
+        keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            previous_block,
+            data,
+            keys,
+            timestamp,
+            IdentityOpCode::SignCompanyBill,
         )?;
         Ok(block)
     }
@@ -406,6 +432,21 @@ mod tests {
         assert!(sign_person_bill_block.is_ok());
         chain.try_add_block(sign_person_bill_block.unwrap());
 
+        let sign_company_bill_block = IdentityBlock::create_block_for_sign_company_bill(
+            chain.get_latest_block(),
+            &IdentitySignCompanyBillBlockData {
+                bill_id: "some_bill".to_string(),
+                block_id: 1,
+                block_hash: "some hash".to_string(),
+                company_id: "some_id".to_string(),
+                operation: BillOpCode::Issue,
+            },
+            &keys,
+            1731593928,
+        );
+        assert!(sign_company_bill_block.is_ok());
+        chain.try_add_block(sign_company_bill_block.unwrap());
+
         let create_company_block = IdentityBlock::create_block_for_create_company(
             chain.get_latest_block(),
             &IdentityCreateCompanyBlockData {
@@ -446,7 +487,7 @@ mod tests {
         assert!(remove_signatory_block.is_ok());
         chain.try_add_block(remove_signatory_block.unwrap());
 
-        assert_eq!(chain.blocks().len(), 6);
+        assert_eq!(chain.blocks().len(), 7);
         assert!(chain.is_chain_valid());
     }
 }

@@ -6,6 +6,7 @@ use crate::{
     constants::VALID_CURRENCIES,
     service::{Error, Result, ServiceContext},
 };
+use bill::get_current_identity_node_id;
 use rocket::{get, post, serde::json::Json, Shutdown, State};
 
 pub mod bill;
@@ -46,7 +47,10 @@ pub async fn overview(
             currency
         )));
     }
-    let result = state.bill_service.get_bill_balances(currency).await?;
+    let result = state
+        .bill_service
+        .get_bill_balances(currency, &get_current_identity_node_id(state).await)
+        .await?;
 
     Ok(Json(OverviewResponse {
         currency: currency.to_owned(),
@@ -83,6 +87,7 @@ pub async fn search(
             &search_filter.filter.search_term,
             &search_filter.filter.currency,
             &search_filter.filter.item_types,
+            &get_current_identity_node_id(state).await,
         )
         .await?;
 

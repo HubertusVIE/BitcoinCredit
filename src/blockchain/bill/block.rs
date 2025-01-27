@@ -305,10 +305,17 @@ impl BillBlock {
         timestamp: u64,
     ) -> Result<Self> {
         let key_bytes = to_vec(&bill_keys.get_private_key_string())?;
-        let encrypted_key = util::base58_encode(&util::crypto::encrypt_ecies(
-            &key_bytes,
-            &drawer_keys.get_public_key(),
-        )?);
+        // If drawer is a company, use drawer_company_keys for encryption
+        let encrypted_key = match drawer_company_keys {
+            None => util::base58_encode(&util::crypto::encrypt_ecies(
+                &key_bytes,
+                &drawer_keys.get_public_key(),
+            )?),
+            Some(company_keys) => util::base58_encode(&util::crypto::encrypt_ecies(
+                &key_bytes,
+                &company_keys.get_public_key(),
+            )?),
+        };
 
         let encrypted_and_hashed_bill_data = util::base58_encode(&util::crypto::encrypt_ecies(
             &to_vec(bill)?,
