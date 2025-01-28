@@ -21,7 +21,6 @@ use crate::persistence::company::CompanyChainStoreApi;
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::persistence::ContactStoreApi;
-use crate::util::date::days_ago_timestamp;
 use crate::util::BcrKeys;
 use crate::web::data::{BillCombinedBitcoinKey, File};
 use crate::{dht, external, persistence, util};
@@ -1576,9 +1575,10 @@ impl BillServiceApi for BillService {
             BillOpCode::OfferToSell,
             BillOpCode::RequestToAccept,
         ]);
+
         let bill_ids_to_check = self
             .store
-            .get_bill_ids_with_op_codes_since(op_codes, days_ago_timestamp(3))
+            .get_bill_ids_with_op_codes_since(op_codes, 0)
             .await?;
 
         for bill_id in bill_ids_to_check {
@@ -1759,7 +1759,7 @@ pub mod tests {
     use core::str;
     use external::bitcoin::MockBitcoinClientApi;
     use futures::channel::mpsc;
-    use mockall::predicate::{always, eq};
+    use mockall::predicate::{always, eq, function};
     use persistence::{
         bill::{MockBillChainStoreApi, MockBillStoreApi},
         company::{MockCompanyChainStoreApi, MockCompanyStoreApi},
@@ -3810,5 +3810,332 @@ pub mod tests {
 
         let res = service.check_bills_offer_to_sell_payment().await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_bills_timeouts_does_nothing_if_not_timed_out() {
+        let (
+            mut storage,
+            mut chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+        ) = get_storages();
+
+        let op_codes = HashSet::from([
+            BillOpCode::RequestToAccept,
+            BillOpCode::RequestToPay,
+            BillOpCode::OfferToSell,
+        ]);
+
+        storage
+            .expect_get_keys()
+            .returning(|_| {
+                Ok(BillKeys {
+                    private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                    public_key: TEST_PUB_KEY_SECP.to_owned(),
+                })
+            })
+            .times(2);
+
+        // fetches bill ids
+        storage
+            .expect_get_bill_ids_with_op_codes_since()
+            .with(eq(op_codes.clone()), eq(0))
+            .returning(|_, _| Ok(vec!["1234".to_string(), "4321".to_string()]));
+
+        // fetches bill chain accept
+        chain_storage
+            .expect_get_chain()
+            .with(eq("1234".to_string()))
+            .returning(|id| {
+                let mut chain = get_genesis_chain(Some(get_baseline_bill(id)));
+                chain.try_add_block(request_to_accept_block(id, 1000, chain.get_latest_block()));
+                Ok(chain)
+            });
+
+        // fetches bill chain pay
+        chain_storage
+            .expect_get_chain()
+            .with(eq("4321".to_string()))
+            .returning(|id| {
+                let mut chain = get_genesis_chain(Some(get_baseline_bill(id)));
+                chain.try_add_block(request_to_pay_block(id, 1000, chain.get_latest_block()));
+                Ok(chain)
+            });
+
+        let notification_service = MockNotificationServiceApi::new();
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+        );
+
+        // now is the same as block created time so no timeout should have happened
+        let res = service.check_bills_timeouts(1000).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_bills_timeouts_does_nothing_if_notifications_are_already_sent() {
+        let (
+            mut storage,
+            mut chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+        ) = get_storages();
+
+        let op_codes = HashSet::from([
+            BillOpCode::RequestToAccept,
+            BillOpCode::RequestToPay,
+            BillOpCode::OfferToSell,
+        ]);
+
+        storage
+            .expect_get_keys()
+            .returning(|_| {
+                Ok(BillKeys {
+                    private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                    public_key: TEST_PUB_KEY_SECP.to_owned(),
+                })
+            })
+            .times(2);
+
+        // fetches bill ids
+        storage
+            .expect_get_bill_ids_with_op_codes_since()
+            .with(eq(op_codes.clone()), eq(0))
+            .returning(|_, _| Ok(vec!["1234".to_string(), "4321".to_string()]));
+
+        // fetches bill chain accept
+        chain_storage
+            .expect_get_chain()
+            .with(eq("1234".to_string()))
+            .returning(|id| {
+                let mut chain = get_genesis_chain(Some(get_baseline_bill(id)));
+                chain.try_add_block(request_to_accept_block(id, 1000, chain.get_latest_block()));
+                Ok(chain)
+            });
+
+        // fetches bill chain pay
+        chain_storage
+            .expect_get_chain()
+            .with(eq("4321".to_string()))
+            .returning(|id| {
+                let mut chain = get_genesis_chain(Some(get_baseline_bill(id)));
+                chain.try_add_block(request_to_pay_block(id, 1000, chain.get_latest_block()));
+                Ok(chain)
+            });
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        // notification already sent
+        notification_service
+            .expect_check_bill_notification_sent()
+            .with(eq("1234"), eq(2), eq(ActionType::AcceptBill))
+            .returning(|_, _, _| Ok(true));
+
+        // notification already sent
+        notification_service
+            .expect_check_bill_notification_sent()
+            .with(eq("4321"), eq(2), eq(ActionType::PayBill))
+            .returning(|_, _, _| Ok(true));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+        );
+
+        let res = service
+            .check_bills_timeouts(PAYMENT_DEADLINE_SECONDS + 1100)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_bills_timeouts() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+        ) = get_storages();
+
+        let op_codes = HashSet::from([
+            BillOpCode::RequestToAccept,
+            BillOpCode::RequestToPay,
+            BillOpCode::OfferToSell,
+        ]);
+
+        storage
+            .expect_get_keys()
+            .returning(|_| {
+                Ok(BillKeys {
+                    private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                    public_key: TEST_PUB_KEY_SECP.to_owned(),
+                })
+            })
+            .times(2);
+
+        // fetches bill ids
+        storage
+            .expect_get_bill_ids_with_op_codes_since()
+            .with(eq(op_codes.clone()), eq(0))
+            .returning(|_, _| Ok(vec!["1234".to_string(), "4321".to_string()]));
+
+        // fetches bill chain accept
+        chain_storage
+            .expect_get_chain()
+            .with(eq("1234".to_string()))
+            .returning(|id| {
+                let mut chain = get_genesis_chain(Some(get_baseline_bill(id)));
+                chain.try_add_block(request_to_accept_block(id, 1000, chain.get_latest_block()));
+                Ok(chain)
+            });
+
+        // fetches bill chain pay
+        chain_storage
+            .expect_get_chain()
+            .with(eq("4321".to_string()))
+            .returning(|id| {
+                let mut chain = get_genesis_chain(Some(get_baseline_bill(id)));
+                chain.try_add_block(request_to_pay_block(id, 1000, chain.get_latest_block()));
+                Ok(chain)
+            });
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        // notification not sent
+        notification_service
+            .expect_check_bill_notification_sent()
+            .with(eq("1234"), eq(2), eq(ActionType::AcceptBill))
+            .returning(|_, _, _| Ok(false));
+
+        // notification not sent
+        notification_service
+            .expect_check_bill_notification_sent()
+            .with(eq("4321"), eq(2), eq(ActionType::PayBill))
+            .returning(|_, _, _| Ok(false));
+
+        let identity = get_baseline_identity().identity;
+        let cloned = identity.clone();
+        // get own identity
+        identity_storage
+            .expect_get()
+            .returning(move || Ok(cloned.clone()));
+
+        // we should have at least two participants
+        let recipient_check = function(|r: &Vec<IdentityPublicData>| r.len() >= 2);
+
+        // send accept timeout notification
+        notification_service
+            .expect_send_request_to_action_timed_out_event()
+            .with(
+                eq("1234"),
+                eq(ActionType::AcceptBill),
+                recipient_check.clone(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        // send pay timeout notification
+        notification_service
+            .expect_send_request_to_action_timed_out_event()
+            .with(eq("4321"), eq(ActionType::PayBill), recipient_check)
+            .returning(|_, _, _| Ok(()));
+
+        // marks accept bill timeout as sent
+        notification_service
+            .expect_mark_bill_notification_sent()
+            .with(eq("1234"), eq(2), eq(ActionType::AcceptBill))
+            .returning(|_, _, _| Ok(()));
+
+        // marks pay bill timeout as sent
+        notification_service
+            .expect_mark_bill_notification_sent()
+            .with(eq("4321"), eq(2), eq(ActionType::PayBill))
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+        );
+
+        let res = service
+            .check_bills_timeouts(PAYMENT_DEADLINE_SECONDS + 1100)
+            .await;
+        assert!(res.is_ok());
+    }
+
+    fn request_to_accept_block(id: &str, ts: u64, first_block: &BillBlock) -> BillBlock {
+        BillBlock::create_block_for_request_to_accept(
+            id.to_string(),
+            first_block,
+            &BillRequestToAcceptBlockData {
+                requester: IdentityPublicData::new_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: PostalAddress::new_empty(),
+            },
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1000,
+        )
+        .expect("block could not be created")
+    }
+
+    fn request_to_pay_block(id: &str, ts: u64, first_block: &BillBlock) -> BillBlock {
+        BillBlock::create_block_for_request_to_pay(
+            id.to_string(),
+            first_block,
+            &BillRequestToPayBlockData {
+                requester: IdentityPublicData::new_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+                currency: "SATS".to_string(),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: PostalAddress::new_empty(),
+            },
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1000,
+        )
+        .expect("block could not be created")
     }
 }
