@@ -6,7 +6,7 @@ use surrealdb::{engine::any::Any, sql::Thing, Surreal};
 
 use crate::{
     persistence::notification::NotificationStoreApi,
-    service::notification_service::{Notification, NotificationType},
+    service::notification_service::{ActionType, Notification, NotificationType},
     util::date::{now, DateTimeUtc},
 };
 
@@ -100,13 +100,13 @@ impl NotificationStoreApi for SurrealNotificationStore {
         &self,
         bill_id: &str,
         block_height: i32,
-        notification_type: &str,
+        action_type: ActionType,
     ) -> Result<()> {
         let db = SentBlockNotificationDb {
             notification_type: NotificationType::Bill,
             reference_id: bill_id.to_owned(),
             block_height,
-            event_type: notification_type.to_owned(),
+            action_type,
             datetime: now(),
         };
         let _: Vec<SentBlockNotificationDb> = self.db.insert(Self::SENT_TABLE).content(db).await?;
@@ -117,15 +117,15 @@ impl NotificationStoreApi for SurrealNotificationStore {
         &self,
         bill_id: &str,
         block_height: i32,
-        notification_type: &str,
+        action_type: ActionType,
     ) -> Result<bool> {
         let res: Option<SentBlockNotificationDb> = self.db
-            .query("SELECT * FROM type::table($table) WHERE notification_type = $notification_type AND reference_id = $reference_id AND block_height = $block_height AND event_type = $event_type limit 1")
+            .query("SELECT * FROM type::table($table) WHERE notification_type = $notification_type AND reference_id = $reference_id AND block_height = $block_height AND action_type = $action_type limit 1")
             .bind(("table", Self::SENT_TABLE))
             .bind(("notification_type", NotificationType::Bill))
             .bind(("reference_id", bill_id.to_owned()))
             .bind(("block_height", block_height))
-            .bind(("event_type", notification_type.to_owned()))
+            .bind(("action_type", action_type))
             .await?
             .take(0)?;
         Ok(res.is_some())
@@ -184,7 +184,7 @@ struct SentBlockNotificationDb {
     pub notification_type: NotificationType,
     pub reference_id: String,
     pub block_height: i32,
-    pub event_type: String,
+    pub action_type: ActionType,
     pub datetime: DateTimeUtc,
 }
 
@@ -208,7 +208,7 @@ mod tests {
     async fn test_notification_sent_returns_false_for_non_existing() {
         let store = get_store().await;
         let sent = store
-            .bill_notification_sent("bill_id", 1, "notification_type")
+            .bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
             .await
             .expect("could not check if notification was sent");
         assert!(!sent);
@@ -218,11 +218,11 @@ mod tests {
     async fn test_notification_sent_returns_true_for_existing() {
         let store = get_store().await;
         store
-            .set_bill_notification_sent("bill_id", 1, "notification_type")
+            .set_bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
             .await
             .expect("could not set notification as sent");
         let sent = store
-            .bill_notification_sent("bill_id", 1, "notification_type")
+            .bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
             .await
             .expect("could not check if notification was sent");
         assert!(sent);
@@ -232,11 +232,11 @@ mod tests {
     async fn test_notification_sent_returns_false_for_different_notification_type() {
         let store = get_store().await;
         store
-            .set_bill_notification_sent("bill_id", 1, "notification_type")
+            .set_bill_notification_sent("bill_id", 1, ActionType::AcceptBill)
             .await
             .expect("could not set notification as sent");
         let sent = store
-            .bill_notification_sent("bill_id", 1, "different_notification_type")
+            .bill_notification_sent("bill_id", 1, ActionType::PayBill)
             .await
             .expect("could not check if notification was sent");
         assert!(!sent);

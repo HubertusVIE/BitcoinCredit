@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::Result;
 use crate::{
     blockchain::bill::BillOpCode,
@@ -139,6 +141,22 @@ impl BillStoreApi for SurrealBillStore {
             .take(0)?;
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
+
+    async fn get_bill_ids_with_op_codes_since(
+        &self,
+        op_codes: HashSet<BillOpCode>,
+        since: u64,
+    ) -> Result<Vec<String>> {
+        let codes = op_codes.into_iter().collect::<Vec<BillOpCode>>();
+        let result: Vec<BillIdDb> = self
+            .db
+            .query("SELECT bill_id FROM type::table($table) WHERE op_code IN $op_code AND timestamp >= $timestamp GROUP BY bill_id")
+            .bind((DB_TABLE, Self::CHAIN_TABLE))
+            .bind((DB_OP_CODE, codes))
+            .bind((DB_TIMESTAMP, since as i64))
+            .await?.take(0)?;
+        Ok(result.into_iter().map(|bid| bid.bill_id).collect())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,15 +199,17 @@ impl From<&BillKeys> for BillKeysDb {
 
 #[cfg(test)]
 pub mod tests {
+    use std::collections::HashSet;
+
     use super::SurrealBillStore;
     use crate::{
         blockchain::bill::{
             block::{
-                BillIssueBlockData, BillOfferToSellBlockData, BillRequestToPayBlockData,
-                BillSellBlockData,
+                BillIssueBlockData, BillOfferToSellBlockData, BillRequestToAcceptBlockData,
+                BillRequestToPayBlockData, BillSellBlockData,
             },
             tests::get_baseline_identity,
-            BillBlock,
+            BillBlock, BillOpCode,
         },
         persistence::{
             bill::{BillChainStoreApi, BillStoreApi},
@@ -506,5 +526,121 @@ pub mod tests {
         let res = store.get_bill_ids_waiting_for_sell_payment().await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_bill_ids_with_op_codes_since() {
+        let db = get_db().await;
+        let chain_store = get_chain_store(db.clone()).await;
+        let store = get_store(db.clone()).await;
+        let bill_id = "1234";
+        let first_block_request_to_accept = get_first_block(bill_id);
+        chain_store
+            .add_block(bill_id, &first_block_request_to_accept)
+            .await
+            .expect("block could not be added");
+
+        let second_block_request_to_accept =
+            request_to_accept_block(bill_id, 1000, &first_block_request_to_accept);
+
+        chain_store
+            .add_block(bill_id, &second_block_request_to_accept)
+            .await
+            .expect("failed to add second block");
+
+        let bill_id_pay = "4321";
+        let first_block_request_to_pay = get_first_block(bill_id_pay);
+        chain_store
+            .add_block(bill_id_pay, &first_block_request_to_pay)
+            .await
+            .expect("block could not be added");
+        let second_block_request_to_pay =
+            request_to_pay_block(bill_id_pay, 1500, &first_block_request_to_pay);
+
+        chain_store
+            .add_block(bill_id_pay, &second_block_request_to_pay)
+            .await
+            .expect("block could not be inserted");
+
+        let all = HashSet::from([BillOpCode::RequestToPay, BillOpCode::RequestToAccept]);
+
+        // should return all bill ids
+        let res = store
+            .get_bill_ids_with_op_codes_since(all.clone(), 0)
+            .await
+            .expect("could not get bill ids");
+        assert_eq!(res, vec![bill_id.to_string(), bill_id_pay.to_string()]);
+
+        // should return none as all are to old
+        let res = store
+            .get_bill_ids_with_op_codes_since(all, 2000)
+            .await
+            .expect("could not get bill ids");
+        assert_eq!(res, Vec::<String>::new());
+
+        // should return only the bill id with request to accept
+        let to_accept_only = HashSet::from([BillOpCode::RequestToAccept]);
+
+        let res = store
+            .get_bill_ids_with_op_codes_since(to_accept_only, 0)
+            .await
+            .expect("could not get bill ids");
+        assert_eq!(res, vec![bill_id.to_string()]);
+
+        // should return only the bill id with request to pay
+        let to_pay_only = HashSet::from([BillOpCode::RequestToPay]);
+
+        let res = store
+            .get_bill_ids_with_op_codes_since(to_pay_only, 0)
+            .await
+            .expect("could not get bill ids");
+        assert_eq!(res, vec![bill_id_pay.to_string()]);
+    }
+
+    fn request_to_accept_block(id: &str, ts: u64, first_block: &BillBlock) -> BillBlock {
+        BillBlock::create_block_for_request_to_accept(
+            id.to_string(),
+            first_block,
+            &BillRequestToAcceptBlockData {
+                requester: IdentityPublicData::new_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: PostalAddress::new_empty(),
+            },
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            None,
+            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            1000,
+        )
+        .expect("block could not be created")
+    }
+
+    fn request_to_pay_block(id: &str, ts: u64, first_block: &BillBlock) -> BillBlock {
+        BillBlock::create_block_for_request_to_pay(
+            id.to_string(),
+            first_block,
+            &BillRequestToPayBlockData {
+                requester: IdentityPublicData::new_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+                currency: "SATS".to_string(),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: PostalAddress::new_empty(),
+            },
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            None,
+            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            1000,
+        )
+        .expect("block could not be created")
     }
 }

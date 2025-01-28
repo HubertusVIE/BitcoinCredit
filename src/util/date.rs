@@ -29,6 +29,14 @@ pub fn date_string_to_i64_timestamp(date_str: &str, format_str: Option<&str>) ->
     Some(date_utc.timestamp())
 }
 
+pub fn days_ago(days: u64) -> DateTimeUtc {
+    now() - chrono::Duration::days(days as i64)
+}
+
+pub fn days_ago_timestamp(days: u64) -> u64 {
+    days_ago(days).timestamp() as u64
+}
+
 #[allow(dead_code)]
 pub fn date_time_string_to_i64_timestamp(
     date_time_str: &str,

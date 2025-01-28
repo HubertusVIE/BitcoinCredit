@@ -13,7 +13,16 @@ use block::BillIdentityBlockData;
 pub use chain::BillBlockchain;
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    ToSchema,
+    Hash,
 )]
 pub enum BillOpCode {
     Issue,

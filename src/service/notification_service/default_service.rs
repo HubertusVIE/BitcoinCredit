@@ -282,6 +282,31 @@ impl NotificationServiceApi for DefaultNotificationService {
             .await
             .unwrap_or_default()
     }
+
+    async fn check_bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        action: ActionType,
+    ) -> Result<bool> {
+        Ok(self
+            .notification_store
+            .bill_notification_sent(bill_id, block_height, action)
+            .await?)
+    }
+
+    /// Stores that a notification was sent for the given bill id and action
+    async fn mark_bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        action: ActionType,
+    ) -> Result<()> {
+        self.notification_store
+            .set_bill_notification_sent(bill_id, block_height, action)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

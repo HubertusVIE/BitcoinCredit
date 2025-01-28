@@ -126,6 +126,11 @@ pub trait Blockchain {
 
     fn blocks_mut(&mut self) -> &mut Vec<Self::Block>;
 
+    /// returns the current height of this blockchain
+    fn block_height(&self) -> usize {
+        self.blocks().len()
+    }
+
     /// Validates the integrity of the blockchain by checking the validity of each block in the chain.
     fn is_chain_valid(&self) -> bool {
         let blocks = self.blocks();

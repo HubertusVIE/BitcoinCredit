@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use super::Result;
-use crate::service::notification_service::{Notification, NotificationType};
+use crate::service::notification_service::{ActionType, Notification, NotificationType};
 #[cfg(test)]
 use mockall::automock;
 
@@ -31,13 +31,13 @@ pub trait NotificationStoreApi: Send + Sync {
         &self,
         bill_id: &str,
         block_height: i32,
-        notification_type: &str,
+        action_type: ActionType,
     ) -> Result<()>;
     /// lookup whether a notification has been sent for the given bill and block height
     async fn bill_notification_sent(
         &self,
         bill_id: &str,
         block_height: i32,
-        notification_type: &str,
+        action_type: ActionType,
     ) -> Result<bool>;
 }

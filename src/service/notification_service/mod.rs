@@ -33,7 +33,7 @@ pub mod push_notification;
 mod transport;
 
 pub use email::NotificationEmailTransportApi;
-pub use event::{EventEnvelope, EventType};
+pub use event::{ActionType, EventEnvelope, EventType};
 pub use nostr::{NostrClient, NostrConfig, NostrConsumer};
 pub use transport::NotificationJsonTransportApi;
 use utoipa::ToSchema;
@@ -238,6 +238,22 @@ pub trait NotificationServiceApi: Send + Sync {
 
     /// Returns the active bill notification for the given bill id
     async fn get_active_bill_notification(&self, bill_id: &str) -> Option<Notification>;
+
+    /// Returns whether a notification was already sent for the given bill id and action
+    async fn check_bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        action: ActionType,
+    ) -> Result<bool>;
+
+    /// Stores that a notification was sent for the given bill id and action
+    async fn mark_bill_notification_sent(
+        &self,
+        bill_id: &str,
+        block_height: i32,
+        action: ActionType,
+    ) -> Result<()>;
 }
 
 /// A notification as it will be delivered to the UI.
