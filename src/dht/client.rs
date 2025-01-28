@@ -1260,22 +1260,23 @@ impl Client {
         bill_id: &str,
         node_id: &str,
     ) -> Result<Vec<u8>> {
-        let chain = self.bill_blockchain_store.get_chain(bill_id).await?;
+        let _chain = self.bill_blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.bill_store.get_keys(bill_id).await?;
-        if chain
-            .get_all_nodes_from_bill(&bill_keys)?
-            .iter()
-            .any(|n| n == node_id)
-        {
-            let bytes = bill_keys_to_bytes(&bill_keys)?;
-            let file_encrypted = util::crypto::encrypt_ecies(&bytes, node_id)?;
-            Ok(file_encrypted)
-        } else {
-            Err(super::Error::CallerNotPartOfBill(
-                node_id.to_owned(),
-                bill_id.to_string(),
-            ))
-        }
+        // TODO: RE-ADD this check later
+        // if chain
+        //     .get_all_nodes_from_bill(&bill_keys)?
+        //     .iter()
+        //     .any(|n| n == node_id)
+        // {
+        let bytes = bill_keys_to_bytes(&bill_keys)?;
+        let file_encrypted = util::crypto::encrypt_ecies(&bytes, node_id)?;
+        Ok(file_encrypted)
+        // } else {
+        //     Err(super::Error::CallerNotPartOfBill(
+        //         node_id.to_owned(),
+        //         bill_id.to_string(),
+        //     ))
+        // }
     }
 
     async fn handle_bill_file_request_for_attachment(
@@ -1284,25 +1285,26 @@ impl Client {
         node_id: &str,
         file_name: &str,
     ) -> Result<Vec<u8>> {
-        let chain = self.bill_blockchain_store.get_chain(bill_id).await?;
-        let bill_keys = self.bill_store.get_keys(bill_id).await?;
-        if chain
-            .get_all_nodes_from_bill(&bill_keys)?
-            .iter()
-            .any(|n| n == node_id)
-        {
-            let file = self
-                .file_upload_store
-                .open_attached_file(bill_id, file_name)
-                .await?;
-            let file_encrypted = util::crypto::encrypt_ecies(&file, node_id)?;
-            Ok(file_encrypted)
-        } else {
-            Err(super::Error::CallerNotPartOfBill(
-                node_id.to_owned(),
-                bill_id.to_string(),
-            ))
-        }
+        let _chain = self.bill_blockchain_store.get_chain(bill_id).await?;
+        let _bill_keys = self.bill_store.get_keys(bill_id).await?;
+        // TODO: RE-ADD this check later
+        // if chain
+        //     .get_all_nodes_from_bill(&bill_keys)?
+        //     .iter()
+        //     .any(|n| n == node_id)
+        // {
+        let file = self
+            .file_upload_store
+            .open_attached_file(bill_id, file_name)
+            .await?;
+        let file_encrypted = util::crypto::encrypt_ecies(&file, node_id)?;
+        Ok(file_encrypted)
+        // } else {
+        //     Err(super::Error::CallerNotPartOfBill(
+        //         node_id.to_owned(),
+        //         bill_id.to_string(),
+        //     ))
+        // }
     }
 
     // -------------------------------------------------------------
@@ -1622,7 +1624,7 @@ mod tests {
 
     fn get_valid_company_chain(company_id: &str) -> CompanyBlockchain {
         let (id, (company, company_keys)) = get_baseline_company_data(company_id);
-        let to_return = CompanyToReturn::from(id, company, company_keys.clone());
+        let to_return = CompanyToReturn::from(id, company);
 
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),

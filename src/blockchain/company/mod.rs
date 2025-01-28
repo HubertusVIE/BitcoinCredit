@@ -72,7 +72,6 @@ pub struct CompanyCreateBlockData {
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
     pub signatories: Vec<String>,
-    pub public_key: String,
 }
 
 impl From<CompanyToReturn> for CompanyCreateBlockData {
@@ -89,7 +88,6 @@ impl From<CompanyToReturn> for CompanyCreateBlockData {
             proof_of_registration_file: value.proof_of_registration_file,
             logo_file: value.logo_file,
             signatories: value.signatories,
-            public_key: value.public_key,
         }
     }
 }
@@ -473,7 +471,7 @@ mod tests {
     #[test]
     fn create_and_check_validity() {
         let (id, (company, company_keys)) = get_baseline_company_data();
-        let to_return = CompanyToReturn::from(id, company, company_keys.clone());
+        let to_return = CompanyToReturn::from(id, company);
 
         let chain = CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),
@@ -488,7 +486,7 @@ mod tests {
     #[test]
     fn multi_block() {
         let (id, (company, company_keys)) = get_baseline_company_data();
-        let to_return = CompanyToReturn::from(id.clone(), company, company_keys.clone());
+        let to_return = CompanyToReturn::from(id.clone(), company);
         let identity_keys = BcrKeys::new();
 
         let chain = CompanyBlockchain::new(

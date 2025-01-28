@@ -3,7 +3,7 @@ use super::middleware::IdentityCheck;
 use crate::service::contact_service::Contact;
 use crate::service::{self, Result, ServiceContext};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
-use crate::web::data::{UploadFileForm, UploadFilesResponse};
+use crate::web::data::{ContactsResponse, UploadFileForm, UploadFilesResponse};
 use rocket::form::Form;
 use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
@@ -65,9 +65,9 @@ pub async fn upload_file(
 pub async fn return_contacts(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
-) -> Result<Json<Vec<Contact>>> {
+) -> Result<Json<ContactsResponse<Contact>>> {
     let contacts: Vec<Contact> = state.contact_service.get_contacts().await?;
-    Ok(Json(contacts))
+    Ok(Json(ContactsResponse { contacts }))
 }
 
 #[get("/detail/<node_id>")]

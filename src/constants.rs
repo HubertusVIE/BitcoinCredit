@@ -21,6 +21,7 @@ pub const ACCEPT_DEADLINE_SECONDS: u64 = 86400 * 2; // 2 days
 pub const MAX_FILE_SIZE_BYTES: usize = 1_000_000; // ~1 MB
 pub const MAX_FILE_NAME_CHARACTERS: usize = 50;
 pub const VALID_FILE_MIME_TYPES: [&str; 3] = ["image/jpeg", "image/png", "application/pdf"];
+pub const VALID_CURRENCIES: [&str; 2] = ["sat", "crsat"];
 
 // Paths
 pub const QUOTES_MAP_FOLDER_PATH: &str = "quotes";
@@ -49,3 +50,4 @@ pub const DB_OP_CODE: &str = "op_code";
 
 pub const DB_COMPANY_ID: &str = "company_id";
 pub const DB_BILL_ID: &str = "bill_id";
+pub const DB_SEARCH_TERM: &str = "search_term";

@@ -1,10 +1,109 @@
-use crate::service::Error;
+use crate::service::{
+    bill_service::LightBitcreditBillToReturn, company_service::CompanyToReturn,
+    contact_service::Contact, Error,
+};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rocket::fs::TempFile;
 use rocket::FromForm;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GeneralSearchResponse {
+    pub bills: Vec<LightBitcreditBillToReturn>,
+    pub contacts: Vec<Contact>,
+    pub companies: Vec<CompanyToReturn>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BillsResponse<T: Serialize> {
+    pub bills: Vec<T>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ContactsResponse<T: Serialize> {
+    pub contacts: Vec<T>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CompaniesResponse<T: Serialize> {
+    pub companies: Vec<T>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GeneralSearchFilterPayload {
+    pub filter: GeneralSearchFilter,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum GeneralSearchFilterItemType {
+    Company,
+    Bill,
+    Contact,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GeneralSearchFilter {
+    pub search_term: String,
+    pub currency: String,
+    pub item_types: Vec<GeneralSearchFilterItemType>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BillsSearchFilterPayload {
+    pub filter: BillsSearchFilter,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BillsSearchFilter {
+    pub search_term: Option<String>,
+    pub date_range: Option<DateRange>,
+    pub role: BillsFilterRole,
+    pub currency: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum BillsFilterRole {
+    All,
+    Payer,
+    Payee,
+    Contingent,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DateRange {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OverviewResponse {
+    pub currency: String,
+    pub balances: OverviewBalanceResponse,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OverviewBalanceResponse {
+    pub payee: BalanceResponse,
+    pub payer: BalanceResponse,
+    pub contingent: BalanceResponse,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BalanceResponse {
+    pub sum: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CurrenciesResponse {
+    pub currencies: Vec<CurrencyResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CurrencyResponse {
+    pub code: String,
+}
 
 #[repr(u8)]
 #[derive(

@@ -92,6 +92,7 @@ pub enum Error {
     FileHashesDidNotMatch(String),
 
     /// error if the caller is not a part of the bill
+    #[allow(dead_code)]
     #[error("The caller {0} is not a part of the bill: {1}")]
     CallerNotPartOfBill(String, String),
 

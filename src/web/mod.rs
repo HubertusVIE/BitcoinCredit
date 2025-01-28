@@ -56,6 +56,9 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .register("/", catchers![default_catcher, not_found])
         .manage(context)
         .mount("/exit", routes![handlers::exit])
+        .mount("/currencies", routes![handlers::currencies])
+        .mount("/overview", routes![handlers::overview])
+        .mount("/search", routes![handlers::search])
         .mount(
             "/identity",
             routes![
@@ -103,6 +106,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::issue_bill,
                 handlers::bill::bill_detail,
                 handlers::bill::list,
+                handlers::bill::list_light,
                 handlers::bill::attachment,
                 handlers::bill::upload_files,
                 handlers::bill::endorse_bill,
@@ -119,6 +123,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::find_bill_in_dht,
                 handlers::bill::check_dht_for_bills,
                 handlers::bill::holder,
+                handlers::bill::search,
             ],
         )
         .mount(

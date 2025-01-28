@@ -23,9 +23,12 @@ use borsh_derive::{self, BorshDeserialize, BorshSerialize};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::ToSchema;
 
 #[async_trait]
 pub trait CompanyServiceApi: Send + Sync {
+    /// Search companies
+    async fn search(&self, search_term: &str) -> Result<Vec<CompanyToReturn>>;
     /// Get a list of companies
     async fn get_list_of_companies(&self) -> Result<Vec<CompanyToReturn>>;
 
@@ -151,20 +154,26 @@ impl CompanyService {
 
 #[async_trait]
 impl CompanyServiceApi for CompanyService {
+    async fn search(&self, search_term: &str) -> Result<Vec<CompanyToReturn>> {
+        let results = self.store.search(search_term).await?;
+        Ok(results
+            .into_iter()
+            .map(|c| CompanyToReturn::from(c.id.clone(), c))
+            .collect())
+    }
+
     async fn get_list_of_companies(&self) -> Result<Vec<CompanyToReturn>> {
         let results = self.store.get_all().await?;
         let companies: Vec<CompanyToReturn> = results
             .into_iter()
-            .map(|(id, (company, keys))| CompanyToReturn::from(id, company, keys))
+            .map(|(id, (company, _keys))| CompanyToReturn::from(id, company))
             .collect();
         Ok(companies)
     }
 
     async fn get_company_and_keys_by_id(&self, id: &str) -> Result<(Company, CompanyKeys)> {
         if !self.store.exists(id).await {
-            return Err(super::Error::Validation(format!(
-                "No company with id: {id} found",
-            )));
+            return Err(crate::service::Error::NotFound);
         }
         let company = self.store.get(id).await?;
         let keys = self.store.get_key_pair(id).await?;
@@ -172,8 +181,8 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_company_by_id(&self, id: &str) -> Result<CompanyToReturn> {
-        let (company, keys) = self.get_company_and_keys_by_id(id).await?;
-        Ok(CompanyToReturn::from(id.to_owned(), company, keys))
+        let (company, _keys) = self.get_company_and_keys_by_id(id).await?;
+        Ok(CompanyToReturn::from(id.to_owned(), company))
     }
 
     async fn create_company(
@@ -235,8 +244,7 @@ impl CompanyServiceApi for CompanyService {
         };
         self.store.insert(&company).await?;
 
-        let company_to_return =
-            CompanyToReturn::from(id.clone(), company.clone(), company_keys.clone());
+        let company_to_return = CompanyToReturn::from(id.clone(), company.clone());
         let company_chain = CompanyBlockchain::new(
             &CompanyCreateBlockData::from(company_to_return),
             &full_identity.key_pair,
@@ -275,7 +283,7 @@ impl CompanyServiceApi for CompanyService {
             }
         }
 
-        Ok(CompanyToReturn::from(id, company, company_keys))
+        Ok(CompanyToReturn::from(id, company))
     }
 
     async fn edit_company(
@@ -570,7 +578,7 @@ impl CompanyServiceApi for CompanyService {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct CompanyToReturn {
     pub id: String,
     pub name: String,
@@ -584,11 +592,10 @@ pub struct CompanyToReturn {
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
     pub signatories: Vec<String>,
-    pub public_key: String,
 }
 
 impl CompanyToReturn {
-    pub fn from(id: String, company: Company, company_keys: CompanyKeys) -> CompanyToReturn {
+    pub fn from(id: String, company: Company) -> CompanyToReturn {
         CompanyToReturn {
             id,
             name: company.name,
@@ -601,7 +608,6 @@ impl CompanyToReturn {
             proof_of_registration_file: company.proof_of_registration_file,
             logo_file: company.logo_file,
             signatories: company.signatories,
-            public_key: company_keys.public_key,
         }
     }
 }
@@ -710,7 +716,7 @@ pub mod tests {
 
     pub fn get_valid_company_block() -> CompanyBlock {
         let (id, (company, company_keys)) = get_baseline_company_data();
-        let to_return = CompanyToReturn::from(id, company, company_keys.clone());
+        let to_return = CompanyToReturn::from(id, company);
 
         CompanyBlockchain::new(
             &CompanyCreateBlockData::from(to_return),
@@ -752,10 +758,6 @@ pub mod tests {
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().len(), 1);
         assert_eq!(res.as_ref().unwrap()[0].id, TEST_PUB_KEY_SECP.to_string());
-        assert_eq!(
-            res.as_ref().unwrap()[0].public_key,
-            TEST_PUB_KEY_SECP.to_string()
-        );
     }
 
     #[tokio::test]
@@ -815,10 +817,6 @@ pub mod tests {
         let res = service.get_company_by_id(TEST_PUB_KEY_SECP).await;
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().id, TEST_PUB_KEY_SECP.to_string());
-        assert_eq!(
-            res.as_ref().unwrap().public_key,
-            TEST_PUB_KEY_SECP.to_string()
-        );
     }
 
     #[tokio::test]
@@ -963,7 +961,6 @@ pub mod tests {
             res.as_ref().unwrap().logo_file.as_ref().unwrap().name,
             "some_file".to_string()
         );
-        assert!(!res.as_ref().unwrap().public_key.is_empty());
     }
 
     #[tokio::test]

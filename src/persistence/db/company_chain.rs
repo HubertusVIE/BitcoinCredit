@@ -252,7 +252,6 @@ mod tests {
                 proof_of_registration_file: None,
                 logo_file: None,
                 signatories: vec!["self".to_string()],
-                public_key: TEST_PUB_KEY_SECP.to_string(),
             }
             .into(),
             &BcrKeys::new(),
@@ -303,7 +302,6 @@ mod tests {
                 proof_of_registration_file: None,
                 logo_file: None,
                 signatories: vec!["self".to_string()],
-                public_key: TEST_PUB_KEY_SECP.to_string(),
             }
             .into(),
             &BcrKeys::new(),

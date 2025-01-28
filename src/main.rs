@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
     )
     .await
     .expect("DHT failed to start");
-    let mut dht_client = dht.client;
+    let dht_client = dht.client;
 
     let ctrl_c_sender = dht.shutdown_sender.clone();
     spawn(async move {
@@ -73,26 +73,60 @@ async fn main() -> Result<()> {
     });
 
     let local_node_id = db.identity_store.get_key_pair().await?.get_public_key();
-    // These actions only make sense, if we already have created an identity
-    if db.identity_store.exists().await {
-        if let Err(e) = dht_client.check_new_bills().await {
-            error!("Error while checking for new bills: {e}");
-        }
-        if let Err(e) = dht_client.update_bills_table(&local_node_id).await {
-            error!("Error while updating bills table: {e}");
-        }
-        dht_client.subscribe_to_all_bills_topics().await?;
-        dht_client.put_bills_for_parties().await?;
-        dht_client.start_providing_bills().await?;
-        dht_client.receive_updates_for_all_bills_topics().await?;
+    let mut dht_client_clone = dht_client.clone();
+    let identity_store_clone = db.identity_store.clone();
+    let local_node_id_clone = local_node_id.clone();
+    spawn(async move {
+        // These actions only make sense, if we already have created an identity
+        // We do them asynchronously, in a non-failing way
+        if identity_store_clone.exists().await {
+            if let Err(e) = dht_client_clone.check_new_bills().await {
+                error!("Error while checking for new bills: {e}");
+            }
 
-        if let Err(e) = dht_client.check_companies().await {
-            error!("Error while checking for new companies: {e}");
+            if let Err(e) = dht_client_clone
+                .update_bills_table(&local_node_id_clone)
+                .await
+            {
+                error!("Error while updating bills table: {e}");
+            }
+
+            if let Err(e) = dht_client_clone.subscribe_to_all_bills_topics().await {
+                error!("Error while subscribing to bills: {e}");
+            }
+
+            if let Err(e) = dht_client_clone.put_bills_for_parties().await {
+                error!("Error while putting bills for parties: {e}");
+            }
+
+            if let Err(e) = dht_client_clone.start_providing_bills().await {
+                error!("Error while starting to provide bills: {e}");
+            }
+
+            if let Err(e) = dht_client_clone
+                .receive_updates_for_all_bills_topics()
+                .await
+            {
+                error!("Error while starting receive updates for bill topics: {e}");
+            }
+
+            if let Err(e) = dht_client_clone.check_companies().await {
+                error!("Error while checking for new companies: {e}");
+            }
+
+            if let Err(e) = dht_client_clone.put_companies_for_signatories().await {
+                error!("Error while putting companies for signatories: {e}");
+            }
+
+            if let Err(e) = dht_client_clone.start_providing_companies().await {
+                error!("Error while starting to provide companies: {e}");
+            }
+
+            if let Err(e) = dht_client_clone.subscribe_to_all_companies_topics().await {
+                error!("Error while subscribing to all companies: {e}");
+            }
         }
-        dht_client.put_companies_for_signatories().await?;
-        dht_client.start_providing_companies().await?;
-        dht_client.subscribe_to_all_companies_topics().await?;
-    }
+    });
 
     let job_shutdown_receiver = dht.shutdown_sender.clone().subscribe();
     let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
