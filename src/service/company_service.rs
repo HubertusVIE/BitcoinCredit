@@ -1,4 +1,4 @@
-use super::contact_service::ContactType;
+use super::contact_service::{Contact, ContactType};
 use super::Result;
 use crate::blockchain::company::{
     CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain, CompanyCreateBlockData,
@@ -28,6 +28,9 @@ use utoipa::ToSchema;
 
 #[async_trait]
 pub trait CompanyServiceApi: Send + Sync {
+    /// List signatories for company
+    async fn list_signatories(&self, id: &str) -> Result<Vec<Contact>>;
+
     /// Search companies
     async fn search(&self, search_term: &str) -> Result<Vec<CompanyToReturn>>;
     /// Get a list of companies
@@ -155,6 +158,22 @@ impl CompanyService {
 
 #[async_trait]
 impl CompanyServiceApi for CompanyService {
+    async fn list_signatories(&self, id: &str) -> Result<Vec<Contact>> {
+        if !self.store.exists(id).await {
+            return Err(crate::service::Error::NotFound);
+        }
+        let company = self.store.get(id).await?;
+        let contacts = self.contact_store.get_map().await?;
+
+        let signatory_contacts: Vec<Contact> = company
+            .signatories
+            .iter()
+            .filter_map(|node_id| contacts.get(node_id))
+            .cloned()
+            .collect();
+        Ok(signatory_contacts)
+    }
+
     async fn search(&self, search_term: &str) -> Result<Vec<CompanyToReturn>> {
         let results = self.store.search(search_term).await?;
         Ok(results
@@ -1907,5 +1926,46 @@ pub mod tests {
             .open_and_decrypt_file("test", "test", TEST_PRIVATE_KEY_SECP)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn list_signatories_baseline() {
+        let (
+            mut storage,
+            file_upload_store,
+            identity_store,
+            mut contact_store,
+            identity_chain_store,
+            company_chain_store,
+        ) = get_storages();
+        storage.expect_exists().returning(|_| true);
+        storage.expect_get().returning(|_| {
+            let mut data = get_baseline_company_data().1 .0;
+            data.signatories.push("new_signatory_node_id".to_string());
+            data.signatories
+                .push("some_other_dude_or_dudette".to_string());
+            Ok(data)
+        });
+
+        contact_store.expect_get_map().returning(move || {
+            let mut map = HashMap::new();
+            let mut contact = get_baseline_contact();
+            contact.node_id = "new_signatory_node_id".to_owned();
+            map.insert(contact.node_id.clone(), contact);
+            Ok(map)
+        });
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+        );
+
+        let res = service.list_signatories("1234").await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 1);
     }
 }

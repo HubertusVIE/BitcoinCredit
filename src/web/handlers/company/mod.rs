@@ -6,7 +6,10 @@ use crate::{
     util::file::{detect_content_type_for_bytes, UploadFileHandler},
     web::data::{CompaniesResponse, UploadFileForm, UploadFilesResponse},
 };
-use data::{AddSignatoryPayload, CreateCompanyPayload, EditCompanyPayload, RemoveSignatoryPayload};
+use data::{
+    AddSignatoryPayload, CreateCompanyPayload, EditCompanyPayload, ListSignatoriesResponse,
+    RemoveSignatoryPayload,
+};
 use log::error;
 use rocket::{
     form::Form,
@@ -34,6 +37,17 @@ pub async fn list(
 ) -> Result<Json<CompaniesResponse<CompanyToReturn>>> {
     let companies = state.company_service.get_list_of_companies().await?;
     Ok(Json(CompaniesResponse { companies }))
+}
+
+#[get("/signatories/<id>")]
+pub async fn list_signatories(
+    state: &State<ServiceContext>,
+    id: &str,
+) -> Result<Json<ListSignatoriesResponse>> {
+    let signatories = state.company_service.list_signatories(id).await?;
+    Ok(Json(ListSignatoriesResponse {
+        signatories: signatories.into_iter().map(|c| c.into()).collect(),
+    }))
 }
 
 #[get("/file/<id>/<file_name>")]
