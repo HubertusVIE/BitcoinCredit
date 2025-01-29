@@ -4,8 +4,9 @@ use super::identity_service::{Identity, IdentityWithAll};
 use super::notification_service::{self, ActionType, Notification, NotificationServiceApi};
 use crate::blockchain::bill::block::{
     BillAcceptBlockData, BillEndorseBlockData, BillIdentityBlockData, BillIssueBlockData,
-    BillMintBlockData, BillOfferToSellBlockData, BillRequestToAcceptBlockData,
-    BillRequestToPayBlockData, BillSellBlockData, BillSignatoryBlockData,
+    BillMintBlockData, BillOfferToSellBlockData, BillRejectBlockData, BillRequestRecourseBlockData,
+    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
+    BillSignatoryBlockData,
 };
 use crate::blockchain::bill::{
     BillBlock, BillBlockchain, BillBlockchainToReturn, BillOpCode, WaitingForPayment,
@@ -14,7 +15,7 @@ use crate::blockchain::company::{CompanyBlock, CompanySignCompanyBillBlockData};
 use crate::blockchain::identity::{
     IdentityBlock, IdentitySignCompanyBillBlockData, IdentitySignPersonBillBlockData,
 };
-use crate::blockchain::{self, Blockchain};
+use crate::blockchain::{self, Block, Blockchain};
 use crate::constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS};
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::persistence::bill::BillChainStoreApi;
@@ -63,6 +64,10 @@ pub enum Error {
     #[error("not found")]
     NotFound,
 
+    /// errors stemming from trying to do invalid operations
+    #[error("invalid operation")]
+    InvalidOperation,
+
     /// error returned if a bill was already accepted and is attempted to be accepted again
     #[error("Bill was already accepted")]
     BillAlreadyAccepted,
@@ -76,6 +81,44 @@ pub enum Error {
     /// to be valid, e.g. requesting payment
     #[error("Caller is not holder")]
     CallerIsNotHolder,
+
+    /// error returned if the caller of a reject operation is not the recoursee
+    #[error("Caller is not the recoursee and can't reject")]
+    CallerIsNotRecoursee,
+
+    /// error returned if the caller of a reject buy operation is not the buyer
+    #[error("Caller is not the buyer and can't reject to buy")]
+    CallerIsNotBuyer,
+
+    /// error returned if the caller of a reject operation trys to reject a request that is already
+    /// expired
+    #[error("The request already expired")]
+    RequestAlreadyExpired,
+
+    /// error returned if the operation was already rejected
+    #[error("The request was already rejected")]
+    RequestAlreadyRejected,
+
+    /// error returned if the bill was already paid and hence can't be rejected to be paid
+    #[error("The bill was already paid")]
+    BillAlreadyPaid,
+
+    /// error returned if the bill was not requested to accept, e.g. when rejecting to accept
+    #[error("Bill was not requested to accept")]
+    BillWasNotRequestedToAccept,
+
+    /// error returned if the bill was not requested to pay, e.g. when rejecting to pay
+    #[error("Bill was not requested to pay")]
+    BillWasNotRequestedToPay,
+
+    /// error returned if the bill was not offered to sell, e.g. when rejecting to buy
+    #[error("Bill was not offered to sell")]
+    BillWasNotOfferedToSell,
+
+    /// error returned if the bill was not requester to recourse, e.g. when rejecting to pay for
+    /// recourse
+    #[error("Bill was not requested to recourse")]
+    BillWasNotRequestedToRecourse,
 
     /// error returned if the bill is not currently an offer to sell waiting for payment
     #[error("Bill is not offer to sell waiting for payment")]
@@ -120,13 +163,31 @@ pub enum Error {
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &rocket::Request) -> rocket::response::Result<'o> {
         match self {
-            Error::BillAlreadyAccepted => Status::BadRequest.respond_to(req),
-            Error::CannotReturnCombinedBitcoinKeyForBill => Status::BadRequest.respond_to(req),
-            Error::BillIsNotOfferToSellWaitingForPayment => Status::BadRequest.respond_to(req),
-            Error::BillIsOfferedToSellAndWaitingForPayment => Status::BadRequest.respond_to(req),
-            Error::BillSellDataInvalid => Status::BadRequest.respond_to(req),
-            Error::CallerIsNotDrawee => Status::BadRequest.respond_to(req),
-            Error::CallerIsNotHolder => Status::BadRequest.respond_to(req),
+            Error::RequestAlreadyExpired
+            | Error::BillAlreadyAccepted
+            | Error::BillWasNotOfferedToSell
+            | Error::BillWasNotRequestedToPay
+            | Error::BillWasNotRequestedToAccept
+            | Error::BillWasNotRequestedToRecourse
+            | Error::CannotReturnCombinedBitcoinKeyForBill
+            | Error::BillIsNotOfferToSellWaitingForPayment
+            | Error::BillIsOfferedToSellAndWaitingForPayment
+            | Error::BillSellDataInvalid
+            | Error::BillAlreadyPaid
+            | Error::CallerIsNotDrawee
+            | Error::CallerIsNotBuyer
+            | Error::CallerIsNotRecoursee
+            | Error::RequestAlreadyRejected
+            | Error::CallerIsNotHolder
+            | Error::InvalidOperation => {
+                let body =
+                    ErrorResponse::new("bad_request", self.to_string(), 400).to_json_string();
+                Response::build()
+                    .status(Status::BadRequest)
+                    .header(ContentType::JSON)
+                    .sized_body(body.len(), Cursor::new(body))
+                    .ok()
+            }
             Error::Io(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
@@ -347,6 +408,42 @@ pub trait BillServiceApi: Send + Sync {
         &self,
         bill_id: &str,
         endorsee: IdentityPublicData,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain>;
+
+    /// reject acceptance for a bill
+    async fn reject_acceptance(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain>;
+
+    /// reject payment for a bill
+    async fn reject_payment(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain>;
+
+    /// reject buying a bill
+    async fn reject_buying(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain>;
+
+    /// reject payment for recourse of a bill
+    async fn reject_payment_for_recourse(
+        &self,
+        bill_id: &str,
         signer_public_data: &IdentityPublicData,
         signer_keys: &BcrKeys,
         timestamp: u64,
@@ -605,60 +702,86 @@ impl BillService {
     ) -> Result<BitcreditBill> {
         let bill_first_version = chain.get_first_version_bill(bill_keys)?;
 
-        let mut last_endorsee = None;
+        // check endorsing blocks
+        let last_version_block_endorse = if let Some(endorse_block_encrypted) =
+            chain.get_last_version_block_with_op_code(BillOpCode::Endorse)
+        {
+            Some((
+                endorse_block_encrypted
+                    .get_decrypted_block_bytes::<BillEndorseBlockData>(bill_keys)?,
+                endorse_block_encrypted.id,
+            ))
+        } else {
+            None
+        };
+        let last_version_block_mint = if let Some(mint_block_encrypted) =
+            chain.get_last_version_block_with_op_code(BillOpCode::Mint)
+        {
+            Some((
+                mint_block_encrypted.get_decrypted_block_bytes::<BillMintBlockData>(bill_keys)?,
+                mint_block_encrypted.id,
+            ))
+        } else {
+            None
+        };
+        let last_version_block_sell = if let Some(sell_block_encrypted) =
+            chain.get_last_version_block_with_op_code(BillOpCode::Sell)
+        {
+            Some((
+                sell_block_encrypted.get_decrypted_block_bytes::<BillSellBlockData>(bill_keys)?,
+                sell_block_encrypted.id,
+            ))
+        } else {
+            None
+        };
 
-        if chain.blocks().len() > 1 && chain.has_been_endorsed_sold_or_minted() {
-            let last_version_block_endorse =
-                chain.get_last_version_block_with_op_code(BillOpCode::Endorse);
-            let last_version_block_mint =
-                chain.get_last_version_block_with_op_code(BillOpCode::Mint);
-            let last_version_block_offer_to_sell =
-                chain.get_last_version_block_with_op_code(BillOpCode::OfferToSell);
-            let last_version_block_sold =
-                chain.get_last_version_block_with_op_code(BillOpCode::Sell);
-
-            // If the last block is sold, the buyer is the holder
-            if (last_version_block_endorse.id < last_version_block_sold.id)
-                && (last_version_block_mint.id < last_version_block_sold.id)
-                && (last_version_block_offer_to_sell.id < last_version_block_sold.id)
-            {
-                let block_data_decrypted: BillSellBlockData =
-                    last_version_block_sold.get_decrypted_block_bytes(bill_keys)?;
-                let buyer = block_data_decrypted.buyer;
-
-                last_endorsee = Some(buyer);
-            // If the last block is offer to sell, the seller is the holder
-            } else if chain.block_with_operation_code_exists(BillOpCode::OfferToSell.clone())
-                && (last_version_block_offer_to_sell.id > last_version_block_endorse.id)
-                && (last_version_block_offer_to_sell.id > last_version_block_mint.id)
-            {
-                let block_data_decrypted: BillOfferToSellBlockData =
-                    last_version_block_offer_to_sell.get_decrypted_block_bytes(bill_keys)?;
-                let seller = block_data_decrypted.seller;
-
-                last_endorsee = Some(seller);
-            // If the last block is endorse, the endorsee is the holder
-            } else if chain.block_with_operation_code_exists(BillOpCode::Endorse.clone())
-                && (last_version_block_endorse.id > last_version_block_mint.id)
-                && (last_version_block_endorse.id > last_version_block_offer_to_sell.id)
-            {
-                let block_data_decrypted: BillEndorseBlockData =
-                    last_version_block_endorse.get_decrypted_block_bytes(bill_keys)?;
-                let endorsee = block_data_decrypted.endorsee;
-
-                last_endorsee = Some(endorsee);
-            // If the last block is mint, the mint is the holder
-            } else if chain.block_with_operation_code_exists(BillOpCode::Mint.clone())
-                && (last_version_block_mint.id > last_version_block_endorse.id)
-                && (last_version_block_mint.id > last_version_block_offer_to_sell.id)
-            {
-                let block_data_decrypted: BillMintBlockData =
-                    last_version_block_mint.get_decrypted_block_bytes(bill_keys)?;
-                let mint = block_data_decrypted.endorsee;
-
-                last_endorsee = Some(mint);
+        // If the last block is endorse, the endorsee is the holder
+        // If the last block is mint, the mint is the holder
+        // If the last block is sell, the buyer is the holder
+        let last_endorsee = match (
+            last_version_block_endorse,
+            last_version_block_mint,
+            last_version_block_sell,
+        ) {
+            (None, None, None) => None,
+            (Some((endorse_block, _)), None, None) => Some(endorse_block.endorsee),
+            (None, Some((mint_block, _)), None) => Some(mint_block.endorsee),
+            (None, None, Some((sell_block, _))) => Some(sell_block.buyer),
+            (Some((endorse_block, endorse_block_id)), Some((mint_block, mint_block_id)), None) => {
+                if endorse_block_id > mint_block_id {
+                    Some(endorse_block.endorsee)
+                } else {
+                    Some(mint_block.endorsee)
+                }
             }
-        }
+            (Some((endorse_block, endorse_block_id)), None, Some((sell_block, sell_block_id))) => {
+                if endorse_block_id > sell_block_id {
+                    Some(endorse_block.endorsee)
+                } else {
+                    Some(sell_block.buyer)
+                }
+            }
+            (None, Some((mint_block, mint_block_id)), Some((sell_block, sell_block_id))) => {
+                if sell_block_id > mint_block_id {
+                    Some(sell_block.buyer)
+                } else {
+                    Some(mint_block.endorsee)
+                }
+            }
+            (
+                Some((endorse_block, endorse_block_id)),
+                Some((mint_block, mint_block_id)),
+                Some((sell_block, sell_block_id)),
+            ) => {
+                if endorse_block_id > mint_block_id && endorse_block_id > sell_block_id {
+                    Some(endorse_block.endorsee)
+                } else if mint_block_id > sell_block_id {
+                    Some(mint_block.endorsee)
+                } else {
+                    Some(sell_block.buyer)
+                }
+            }
+        };
 
         let mut payee = bill_first_version.payee;
 
@@ -1119,6 +1242,237 @@ impl BillService {
         list.sort_by(|a, b| b.signing_timestamp.cmp(&a.signing_timestamp));
 
         Ok(list)
+    }
+
+    /// Implementation of reject actions for bills, with individual validation rules, blocks and
+    /// notifications
+    async fn reject(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+        op: BillOpCode,
+    ) -> Result<BillBlockchain> {
+        match op {
+            BillOpCode::RejectToAccept
+            | BillOpCode::RejectToBuy
+            | BillOpCode::RejectToPayRecourse
+            | BillOpCode::RejectToPay => (),
+            _ => return Err(Error::InvalidOperation),
+        };
+        // data fetching
+        let identity = self.identity_store.get_full().await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity.identity)
+            .await?;
+        let signer_node_id = signer_public_data.node_id.clone();
+        let waiting_for_payment =
+            blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?;
+        let last_block = blockchain.get_latest_block();
+
+        // validation
+        // If the operation was already rejected, we can't reject again
+        if op == *last_block.op_code() {
+            return Err(Error::RequestAlreadyRejected);
+        }
+        match op {
+            BillOpCode::RejectToAccept => {
+                // not waiting for last offer to sell
+                if let WaitingForPayment::Yes(_) = waiting_for_payment {
+                    return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+                }
+                // caller has to be the drawee
+                if signer_node_id != bill.drawee.node_id {
+                    return Err(Error::CallerIsNotDrawee);
+                }
+                // there is not allowed to be an accept block
+                if blockchain.block_with_operation_code_exists(BillOpCode::Accept) {
+                    return Err(Error::BillAlreadyAccepted);
+                }
+                // there has to be a request to accept block that is not expired
+                if let Some(req_to_accept) =
+                    blockchain.get_last_version_block_with_op_code(BillOpCode::RequestToAccept)
+                {
+                    if req_to_accept.timestamp + ACCEPT_DEADLINE_SECONDS < timestamp {
+                        return Err(Error::RequestAlreadyExpired);
+                    }
+                } else {
+                    return Err(Error::BillWasNotRequestedToAccept);
+                }
+            }
+            BillOpCode::RejectToBuy => {
+                // there has to be a offer to sell block that is not expired
+                if let WaitingForPayment::Yes(payment_info) = waiting_for_payment {
+                    // caller has to be buyer of the offer to sell
+                    if signer_node_id != payment_info.buyer.node_id {
+                        return Err(Error::CallerIsNotBuyer);
+                    }
+                } else {
+                    return Err(Error::BillWasNotOfferedToSell);
+                }
+            }
+            BillOpCode::RejectToPay => {
+                // not waiting for last offer to sell
+                if let WaitingForPayment::Yes(_) = waiting_for_payment {
+                    return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+                }
+                // caller has to be the drawee
+                if signer_node_id != bill.drawee.node_id {
+                    return Err(Error::CallerIsNotDrawee);
+                }
+                // bill is not paid already
+                if let Ok(true) = self.store.is_paid(bill_id).await {
+                    return Err(Error::BillAlreadyPaid);
+                }
+                // there has to be a request to pay block that is not expired
+                if let Some(req_to_pay) =
+                    blockchain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
+                {
+                    if req_to_pay.timestamp + ACCEPT_DEADLINE_SECONDS < timestamp {
+                        return Err(Error::RequestAlreadyExpired);
+                    }
+                } else {
+                    return Err(Error::BillWasNotRequestedToPay);
+                }
+            }
+            BillOpCode::RejectToPayRecourse => {
+                // not waiting for last offer to sell
+                if let WaitingForPayment::Yes(_) = waiting_for_payment {
+                    return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+                }
+                // there has to be a request to recourse that is not expired
+                if let Some(req_to_recourse) =
+                    blockchain.get_last_version_block_with_op_code(BillOpCode::RequestRecourse)
+                {
+                    // has to be the last block
+                    if blockchain.get_latest_block().id != req_to_recourse.id {
+                        return Err(Error::BillWasNotRequestedToRecourse);
+                    }
+                    if req_to_recourse.timestamp + ACCEPT_DEADLINE_SECONDS < timestamp {
+                        return Err(Error::RequestAlreadyExpired);
+                    }
+                    // caller has to be recoursee of the request to recourse block
+                    let block_data: BillRequestRecourseBlockData =
+                        req_to_recourse.get_decrypted_block_bytes(&bill_keys)?;
+                    if signer_node_id != block_data.recoursee.node_id {
+                        return Err(Error::CallerIsNotRecoursee);
+                    }
+                } else {
+                    return Err(Error::BillWasNotRequestedToRecourse);
+                }
+            }
+            _ => return Err(Error::InvalidOperation),
+        };
+
+        // block creation
+        let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, &identity);
+        let previous_block = blockchain.get_latest_block();
+        let block_data = BillRejectBlockData {
+            rejecter: signer_public_data.clone().into(),
+            signatory: signing_keys.signatory_identity,
+            signing_timestamp: timestamp,
+            signing_address: signer_public_data.postal_address.clone(),
+        };
+        let block = match op {
+            BillOpCode::RejectToAccept => BillBlock::create_block_for_reject_to_accept(
+                bill_id.to_owned(),
+                previous_block,
+                &block_data,
+                &signing_keys.signatory_keys,
+                signing_keys.company_keys.as_ref(),
+                &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                timestamp,
+            )?,
+            BillOpCode::RejectToBuy => BillBlock::create_block_for_reject_to_buy(
+                bill_id.to_owned(),
+                previous_block,
+                &block_data,
+                &signing_keys.signatory_keys,
+                signing_keys.company_keys.as_ref(),
+                &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                timestamp,
+            )?,
+            BillOpCode::RejectToPay => BillBlock::create_block_for_reject_to_pay(
+                bill_id.to_owned(),
+                previous_block,
+                &block_data,
+                &signing_keys.signatory_keys,
+                signing_keys.company_keys.as_ref(),
+                &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                timestamp,
+            )?,
+            BillOpCode::RejectToPayRecourse => BillBlock::create_block_for_reject_to_pay_recourse(
+                bill_id.to_owned(),
+                previous_block,
+                &block_data,
+                &signing_keys.signatory_keys,
+                signing_keys.company_keys.as_ref(),
+                &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                timestamp,
+            )?,
+            _ => return Err(Error::InvalidOperation),
+        };
+
+        self.validate_and_add_block(bill_id, &mut blockchain, block.clone())
+            .await?;
+
+        self.add_identity_and_company_chain_blocks_for_signed_bill_action(
+            signer_public_data,
+            bill_id,
+            &block,
+            &identity.key_pair,
+            signer_keys,
+            timestamp,
+        )
+        .await?;
+
+        // notifications
+        let mut recipients = vec![];
+        if let Some(self_identity) = IdentityPublicData::new(identity.identity) {
+            recipients.push(self_identity);
+        }
+        for node_id in blockchain.get_all_nodes_from_bill(&bill_keys)? {
+            if let Some(contact) = self.contact_store.get(&node_id).await?.map(|c| c.into()) {
+                recipients.push(contact);
+            }
+        }
+
+        match op {
+            BillOpCode::RejectToAccept => {
+                self.notification_service
+                    .send_request_to_action_rejected_event(
+                        bill_id,
+                        ActionType::AcceptBill,
+                        recipients,
+                    )
+                    .await?;
+            }
+            BillOpCode::RejectToBuy => {
+                self.notification_service
+                    .send_request_to_action_rejected_event(bill_id, ActionType::BuyBill, recipients)
+                    .await?;
+            }
+            BillOpCode::RejectToPay => {
+                self.notification_service
+                    .send_request_to_action_rejected_event(bill_id, ActionType::PayBill, recipients)
+                    .await?;
+            }
+            BillOpCode::RejectToPayRecourse => {
+                self.notification_service
+                    .send_request_to_action_rejected_event(
+                        bill_id,
+                        ActionType::RecourseBill,
+                        recipients,
+                    )
+                    .await?;
+            }
+            _ => (),
+        };
+
+        Ok(blockchain)
     }
 }
 
@@ -2066,6 +2420,74 @@ impl BillServiceApi for BillService {
             return Ok(blockchain);
         }
         Err(Error::CallerIsNotHolder)
+    }
+
+    async fn reject_acceptance(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain> {
+        self.reject(
+            bill_id,
+            signer_public_data,
+            signer_keys,
+            timestamp,
+            BillOpCode::RejectToAccept,
+        )
+        .await
+    }
+
+    async fn reject_payment(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain> {
+        self.reject(
+            bill_id,
+            signer_public_data,
+            signer_keys,
+            timestamp,
+            BillOpCode::RejectToPay,
+        )
+        .await
+    }
+
+    async fn reject_buying(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain> {
+        self.reject(
+            bill_id,
+            signer_public_data,
+            signer_keys,
+            timestamp,
+            BillOpCode::RejectToBuy,
+        )
+        .await
+    }
+
+    async fn reject_payment_for_recourse(
+        &self,
+        bill_id: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain> {
+        self.reject(
+            bill_id,
+            signer_public_data,
+            signer_keys,
+            timestamp,
+            BillOpCode::RejectToPayRecourse,
+        )
+        .await
     }
 
     async fn check_bills_payment(&self) -> Result<()> {
@@ -5818,6 +6240,355 @@ pub mod tests {
         assert_eq!(
             res.as_ref().unwrap()[3].pay_to_the_order_of.node_id,
             drawer.node_id
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_acceptance_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill("1234");
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        identity_storage
+            .expect_get_full()
+            .returning(|| Ok(get_baseline_identity()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        let payee = bill.payee.clone();
+
+        chain_storage.expect_get_chain().returning(move |_| {
+            let now = util::date::now().timestamp() as u64;
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+
+            // add req to accept block
+            let req_to_accept = BillBlock::create_block_for_request_to_accept(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillRequestToAcceptBlockData {
+                    requester: payee.clone().into(),
+                    signatory: None,
+                    signing_timestamp: now + 1,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now + 1,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(req_to_accept));
+
+            Ok(chain)
+        });
+
+        let mut notification_service = MockNotificationServiceApi::new();
+        notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(eq("1234"), eq(ActionType::AcceptBill), always())
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .reject_acceptance(
+                "1234",
+                &IdentityPublicData::new(identity.identity).unwrap(),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap().blocks()[2].op_code,
+            BillOpCode::RejectToAccept
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_buying_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill("1234");
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        identity_storage
+            .expect_get_full()
+            .returning(|| Ok(get_baseline_identity()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        let payee = bill.payee.clone();
+
+        chain_storage.expect_get_chain().returning(move |_| {
+            let now = util::date::now().timestamp() as u64;
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+
+            // add offer to sell block
+            let offer_to_sell_block = BillBlock::create_block_for_offer_to_sell(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillOfferToSellBlockData {
+                    seller: payee.clone().into(),
+                    buyer: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
+                    currency: "sat".to_string(),
+                    sum: 15000,
+                    payment_address: "1234paymentaddress".to_string(),
+                    signatory: None,
+                    signing_timestamp: now,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(offer_to_sell_block));
+
+            Ok(chain)
+        });
+
+        let mut notification_service = MockNotificationServiceApi::new();
+        notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(eq("1234"), eq(ActionType::BuyBill), always())
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .reject_buying(
+                "1234",
+                &IdentityPublicData::new(identity.identity).unwrap(),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap().blocks()[2].op_code,
+            BillOpCode::RejectToBuy
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_payment() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill("1234");
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        identity_storage
+            .expect_get_full()
+            .returning(|| Ok(get_baseline_identity()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        storage.expect_is_paid().returning(|_| Ok(false));
+        let payee = bill.payee.clone();
+
+        chain_storage.expect_get_chain().returning(move |_| {
+            let now = util::date::now().timestamp() as u64;
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+
+            // add req to pay
+            let req_to_pay = BillBlock::create_block_for_request_to_pay(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillRequestToPayBlockData {
+                    requester: payee.clone().into(),
+                    currency: "sat".to_string(),
+                    signatory: None,
+                    signing_timestamp: now,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(req_to_pay));
+
+            Ok(chain)
+        });
+
+        let mut notification_service = MockNotificationServiceApi::new();
+        notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(eq("1234"), eq(ActionType::PayBill), always())
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .reject_payment(
+                "1234",
+                &IdentityPublicData::new(identity.identity).unwrap(),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap().blocks()[2].op_code,
+            BillOpCode::RejectToPay
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_recourse() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let bill = get_baseline_bill("1234");
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        identity_storage
+            .expect_get_full()
+            .returning(|| Ok(get_baseline_identity()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        let payee = bill.payee.clone();
+
+        chain_storage.expect_get_chain().returning(move |_| {
+            let now = util::date::now().timestamp() as u64;
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+
+            // add req to pay
+            let req_to_pay = BillBlock::create_block_for_request_recourse(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillRequestRecourseBlockData {
+                    recourser: payee.clone().into(),
+                    recoursee: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
+                    currency: "sat".to_string(),
+                    sum: 15000,
+                    signatory: None,
+                    signing_timestamp: now,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(req_to_pay));
+
+            Ok(chain)
+        });
+
+        let mut notification_service = MockNotificationServiceApi::new();
+        notification_service
+            .expect_send_request_to_action_rejected_event()
+            .with(eq("1234"), eq(ActionType::RecourseBill), always())
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .reject_payment_for_recourse(
+                "1234",
+                &IdentityPublicData::new(identity.identity).unwrap(),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap().blocks()[2].op_code,
+            BillOpCode::RejectToPayRecourse
         );
     }
 }

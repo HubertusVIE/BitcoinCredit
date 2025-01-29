@@ -355,6 +355,18 @@ mod tests {
             .returning(|_, _| Ok(()))
             .times(3);
 
+        // expect to send buying rejected event to all recipients
+        mock.expect_send()
+            .withf(|_, e| e.event_type == EventType::BillBuyingRejected)
+            .returning(|_, _| Ok(()))
+            .times(3);
+
+        // expect to send recourse rejected event to all recipients
+        mock.expect_send()
+            .withf(|_, e| e.event_type == EventType::BillRecourseRejected)
+            .returning(|_, _| Ok(()))
+            .times(3);
+
         let service = DefaultNotificationService {
             notification_transport: Box::new(mock),
             notification_store: Arc::new(MockNotificationStoreApi::new()),
@@ -373,6 +385,24 @@ mod tests {
             .send_request_to_action_rejected_event(
                 "bill_id",
                 ActionType::AcceptBill,
+                recipients.clone(),
+            )
+            .await
+            .expect("failed to send event");
+
+        service
+            .send_request_to_action_rejected_event(
+                "bill_id",
+                ActionType::BuyBill,
+                recipients.clone(),
+            )
+            .await
+            .expect("failed to send event");
+
+        service
+            .send_request_to_action_rejected_event(
+                "bill_id",
+                ActionType::RecourseBill,
                 recipients.clone(),
             )
             .await

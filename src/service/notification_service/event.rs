@@ -18,8 +18,10 @@ pub enum EventType {
     BillPaymentRequested,
     BillPaymentRejected,
     BillPaymentRecourse,
+    BillRecourseRejected,
     BillPaymentTimeout,
     BillSellOffered,
+    BillBuyingRejected,
     BillPaid,
     BillEndorsed,
     BillSold,
@@ -41,7 +43,9 @@ impl EventType {
             Self::BillPaymentRejected,
             Self::BillPaymentTimeout,
             Self::BillPaymentRecourse,
+            Self::BillRecourseRejected,
             Self::BillSellOffered,
+            Self::BillBuyingRejected,
             Self::BillPaid,
             Self::BillEndorsed,
             Self::BillSold,
@@ -55,6 +59,8 @@ impl EventType {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names, dead_code)]
 pub enum ActionType {
+    BuyBill,
+    RecourseBill,
     AcceptBill,
     CheckBill,
     PayBill,
@@ -68,6 +74,8 @@ impl ActionType {
         match self {
             Self::AcceptBill => Some(EventType::BillAcceptanceRejected),
             Self::PayBill => Some(EventType::BillPaymentRejected),
+            Self::BuyBill => Some(EventType::BillBuyingRejected),
+            Self::RecourseBill => Some(EventType::BillRecourseRejected),
             _ => None,
         }
     }

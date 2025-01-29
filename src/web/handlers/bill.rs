@@ -10,9 +10,9 @@ use crate::web::data::{
     AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey, BillId,
     BillNumbersToWordsForSum, BillType, BillsResponse, BillsSearchFilterPayload,
     BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
-    OfferToSellBitcreditBillPayload, PastEndorseesResponse, RequestToAcceptBitcreditBillPayload,
-    RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, UploadBillFilesForm,
-    UploadFilesResponse,
+    OfferToSellBitcreditBillPayload, PastEndorseesResponse, RejectActionBillPayload,
+    RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
+    RequestToPayBitcreditBillPayload, UploadBillFilesForm, UploadFilesResponse,
 };
 use crate::{external, service};
 use crate::{service::bill_service::BitcreditBillToReturn, service::ServiceContext};
@@ -852,5 +852,134 @@ pub async fn mint_bill(
         }
     });
 
+    Ok(Status::Ok)
+}
+
+// Rejection
+#[put("/reject_to_accept", format = "json", data = "<reject_payload>")]
+pub async fn reject_to_accept_bill(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    reject_payload: Json<RejectActionBillPayload>,
+) -> Result<Status> {
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
+
+    let chain = state
+        .bill_service
+        .reject_acceptance(
+            &reject_payload.bill_id,
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+        )
+        .await?;
+
+    let bill_service_clone = state.bill_service.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
+    Ok(Status::Ok)
+}
+
+#[put("/reject_to_pay", format = "json", data = "<reject_payload>")]
+pub async fn reject_to_pay_bill(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    reject_payload: Json<RejectActionBillPayload>,
+) -> Result<Status> {
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
+
+    let chain = state
+        .bill_service
+        .reject_payment(
+            &reject_payload.bill_id,
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+        )
+        .await?;
+
+    let bill_service_clone = state.bill_service.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
+    Ok(Status::Ok)
+}
+
+#[put("/reject_to_buy", format = "json", data = "<reject_payload>")]
+pub async fn reject_to_buy_bill(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    reject_payload: Json<RejectActionBillPayload>,
+) -> Result<Status> {
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
+
+    let chain = state
+        .bill_service
+        .reject_buying(
+            &reject_payload.bill_id,
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+        )
+        .await?;
+
+    let bill_service_clone = state.bill_service.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
+    Ok(Status::Ok)
+}
+
+#[put("/reject_to_pay_recourse", format = "json", data = "<reject_payload>")]
+pub async fn reject_to_pay_recourse_bill(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    reject_payload: Json<RejectActionBillPayload>,
+) -> Result<Status> {
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
+
+    let chain = state
+        .bill_service
+        .reject_payment_for_recourse(
+            &reject_payload.bill_id,
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+        )
+        .await?;
+
+    let bill_service_clone = state.bill_service.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
     Ok(Status::Ok)
 }
