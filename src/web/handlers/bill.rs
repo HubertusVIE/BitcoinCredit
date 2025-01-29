@@ -10,7 +10,7 @@ use crate::web::data::{
     AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey, BillId,
     BillNumbersToWordsForSum, BillType, BillsResponse, BillsSearchFilterPayload,
     BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
-    OfferToSellBitcreditBillPayload, RequestToAcceptBitcreditBillPayload,
+    OfferToSellBitcreditBillPayload, PastEndorseesResponse, RequestToAcceptBitcreditBillPayload,
     RequestToMintBitcreditBillPayload, RequestToPayBitcreditBillPayload, UploadBillFilesForm,
     UploadFilesResponse,
 };
@@ -65,6 +65,21 @@ pub async fn get_signer_public_data_and_keys(
         }
     };
     Ok((signer_public_data, signer_keys))
+}
+
+#[get("/past_endorsees/<id>")]
+pub async fn get_past_endorsees_for_bill(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    id: &str,
+) -> Result<Json<PastEndorseesResponse>> {
+    let result = state
+        .bill_service
+        .get_past_endorsees(id, &get_current_identity_node_id(state).await)
+        .await?;
+    Ok(Json(PastEndorseesResponse {
+        past_endorsees: result,
+    }))
 }
 
 #[get("/holder/<id>")]

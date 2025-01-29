@@ -187,6 +187,14 @@ pub struct BillSignatoryBlockData {
     pub name: String,
 }
 
+/// The data of the new holder in a holder-changing block, with the signatory data from the block
+#[derive(Clone, Debug)]
+pub struct HolderFromBlock {
+    pub holder: BillIdentityBlockData,
+    pub signer: BillIdentityBlockData,
+    pub signatory: Option<BillSignatoryBlockData>,
+}
+
 impl Block for BillBlock {
     type OpCode = BillOpCode;
     type BlockDataToHash = BillBlockDataToHash;
@@ -456,7 +464,7 @@ impl BillBlock {
         Ok(block)
     }
 
-    pub fn create_block_for_sold(
+    pub fn create_block_for_sell(
         bill_id: String,
         previous_block: &Self,
         data: &BillSellBlockData,
@@ -717,6 +725,46 @@ impl BillBlock {
 
                 Ok(format!("{}, {}", seller.name, seller.postal_address))
             }
+        }
+    }
+
+    /// If the block is a non-recourse, holder-changing block (issue, endorse, sell, mint), returns
+    /// the new holder and signer data from the block
+    pub fn get_holder_from_block(&self, bill_keys: &BillKeys) -> Result<Option<HolderFromBlock>> {
+        match self.op_code {
+            Issue => {
+                let bill: BillIssueBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                Ok(Some(HolderFromBlock {
+                    holder: bill.payee,
+                    signer: bill.drawer,
+                    signatory: bill.signatory,
+                }))
+            }
+            Endorse => {
+                let block: BillEndorseBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                Ok(Some(HolderFromBlock {
+                    holder: block.endorsee,
+                    signer: block.endorser,
+                    signatory: block.signatory,
+                }))
+            }
+            Mint => {
+                let block: BillMintBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                Ok(Some(HolderFromBlock {
+                    holder: block.endorsee,
+                    signer: block.endorser,
+                    signatory: block.signatory,
+                }))
+            }
+            Sell => {
+                let block: BillSellBlockData = self.get_decrypted_block_bytes(bill_keys)?;
+                Ok(Some(HolderFromBlock {
+                    holder: block.buyer,
+                    signer: block.seller,
+                    signatory: block.signatory,
+                }))
+            }
+            _ => Ok(None),
         }
     }
 }
@@ -1241,7 +1289,7 @@ mod tests {
         buyer.node_id = node_id.clone();
         let seller =
             IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
-        let block = BillBlock::create_block_for_sold(
+        let block = BillBlock::create_block_for_sell(
             "some id".to_string(),
             &get_first_block(),
             &BillSellBlockData {
@@ -1285,7 +1333,7 @@ mod tests {
         let node_id = BcrKeys::new().get_public_key();
         buyer.node_id = node_id.clone();
 
-        let block = BillBlock::create_block_for_sold(
+        let block = BillBlock::create_block_for_sell(
             "some id".to_string(),
             &get_first_block(),
             &BillSellBlockData {

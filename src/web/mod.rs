@@ -124,6 +124,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::check_dht_for_bills,
                 handlers::bill::holder,
                 handlers::bill::search,
+                handlers::bill::get_past_endorsees_for_bill,
             ],
         )
         .mount(

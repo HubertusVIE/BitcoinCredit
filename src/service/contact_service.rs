@@ -8,6 +8,7 @@ use mockall::automock;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    blockchain::bill::block::BillIdentityBlockData,
     persistence::{file_upload::FileUploadStoreApi, identity::IdentityStoreApi, ContactStoreApi},
     service::identity_service::Identity,
     util,
@@ -395,6 +396,15 @@ pub struct LightIdentityPublicData {
 
 impl From<IdentityPublicData> for LightIdentityPublicData {
     fn from(value: IdentityPublicData) -> Self {
+        Self {
+            name: value.name,
+            node_id: value.node_id,
+        }
+    }
+}
+
+impl From<BillIdentityBlockData> for LightIdentityPublicData {
+    fn from(value: BillIdentityBlockData) -> Self {
         Self {
             name: value.name,
             node_id: value.node_id,
