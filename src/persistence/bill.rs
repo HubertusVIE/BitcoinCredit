@@ -30,7 +30,7 @@ pub trait BillStoreApi: Send + Sync {
     async fn get_bill_ids_waiting_for_payment(&self) -> Result<Vec<String>>;
     /// Gets all bills where the latest block is OfferToSell, which are still waiting for payment
     async fn get_bill_ids_waiting_for_sell_payment(&self) -> Result<Vec<String>>;
-    /// Returns all bill ids that are currently withing the given op codes and block not
+    /// Returns all bill ids that are currently within the given op codes and block not
     /// older than the given timestamp.
     async fn get_bill_ids_with_op_codes_since(
         &self,

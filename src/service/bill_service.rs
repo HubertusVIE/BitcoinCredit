@@ -358,8 +358,8 @@ pub trait BillServiceApi: Send + Sync {
     /// haven't been expired, adding a Sell block if they were paid
     async fn check_bills_offer_to_sell_payment(&self) -> Result<()>;
 
-    /// Check if actions expeced on bills in certain states have expired and execute the necessary
-    /// actions for them.
+    /// Check if actions expected on bills in certain states have expired and execute the necessary
+    /// steps after timeout.
     async fn check_bills_timeouts(&self, now: u64) -> Result<()>;
 }
 
