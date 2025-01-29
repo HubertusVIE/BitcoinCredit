@@ -1,4 +1,7 @@
-use crate::web::data::{OptionalPostalAddress, PostalAddress};
+use crate::{
+    service::contact_service::{Contact, ContactType},
+    web::data::{File, OptionalPostalAddress, PostalAddress},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -35,4 +38,32 @@ pub struct AddSignatoryPayload {
 pub struct RemoveSignatoryPayload {
     pub id: String,
     pub signatory_node_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ListSignatoriesResponse {
+    pub signatories: Vec<SignatoryResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SignatoryResponse {
+    #[serde(rename = "type")]
+    pub t: ContactType,
+    pub node_id: String,
+    pub name: String,
+    #[serde(flatten)]
+    pub postal_address: PostalAddress,
+    pub avatar_file: Option<File>,
+}
+
+impl From<Contact> for SignatoryResponse {
+    fn from(value: Contact) -> Self {
+        Self {
+            t: value.t,
+            node_id: value.node_id,
+            name: value.name,
+            postal_address: value.postal_address,
+            avatar_file: value.avatar_file,
+        }
+    }
 }

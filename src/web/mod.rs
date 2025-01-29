@@ -98,6 +98,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::company::edit,
                 handlers::company::add_signatory,
                 handlers::company::remove_signatory,
+                handlers::company::list_signatories,
             ],
         )
         .mount(
