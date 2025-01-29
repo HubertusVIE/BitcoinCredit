@@ -1,6 +1,8 @@
 use crate::service::{
-    bill_service::LightBitcreditBillToReturn, company_service::CompanyToReturn,
-    contact_service::Contact, Error,
+    bill_service::LightBitcreditBillToReturn,
+    company_service::CompanyToReturn,
+    contact_service::{Contact, LightIdentityPublicData},
+    Error,
 };
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use rocket::fs::TempFile;
@@ -8,6 +10,25 @@ use rocket::FromForm;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PastEndorseesResponse {
+    pub past_endorsees: Vec<PastEndorsee>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PastEndorsee {
+    pub pay_to_the_order_of: LightIdentityPublicData,
+    pub signed: LightSignedBy,
+    pub signing_timestamp: u64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LightSignedBy {
+    #[serde(flatten)]
+    pub data: LightIdentityPublicData,
+    pub signatory: Option<LightIdentityPublicData>,
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GeneralSearchResponse {

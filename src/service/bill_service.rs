@@ -24,7 +24,9 @@ use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::persistence::ContactStoreApi;
 use crate::service::company_service::Company;
 use crate::util::BcrKeys;
-use crate::web::data::{BillCombinedBitcoinKey, BillsFilterRole, File};
+use crate::web::data::{
+    BillCombinedBitcoinKey, BillsFilterRole, File, LightSignedBy, PastEndorsee,
+};
 use crate::web::ErrorResponse;
 use crate::{dht, external, persistence, util};
 use crate::{
@@ -357,6 +359,13 @@ pub trait BillServiceApi: Send + Sync {
     /// Check payment status of bills that are waiting for a payment on an OfferToSell block, which
     /// haven't been expired, adding a Sell block if they were paid
     async fn check_bills_offer_to_sell_payment(&self) -> Result<()>;
+
+    /// Returns previous endorseers of the bill to select from for Recourse
+    async fn get_past_endorsees(
+        &self,
+        bill_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<Vec<PastEndorsee>>;
 }
 
 /// The bill service is responsible for all bill-related logic and for syncing them with the dht data.
@@ -980,6 +989,78 @@ impl BillService {
             }
         }
         Ok(())
+    }
+
+    fn get_past_endorsees_for_bill(
+        &self,
+        chain: &BillBlockchain,
+        bill_keys: &BillKeys,
+        current_identity_node_id: &str,
+    ) -> Result<Vec<PastEndorsee>> {
+        let mut result: HashMap<String, PastEndorsee> = HashMap::new();
+
+        let mut found_last_endorsing_block_for_node = false;
+        for block in chain.blocks().iter().rev() {
+            if let Ok(Some(holder_from_block)) = block.get_holder_from_block(bill_keys) {
+                // first, we search for the last non-recourse block in which we became holder
+                if holder_from_block.holder.node_id == *current_identity_node_id
+                    && !found_last_endorsing_block_for_node
+                {
+                    found_last_endorsing_block_for_node = true;
+                }
+
+                // we add the holders after ourselves, if they're not in the list already
+                if found_last_endorsing_block_for_node
+                    && holder_from_block.holder.node_id != *current_identity_node_id
+                {
+                    result
+                        .entry(holder_from_block.holder.node_id.clone())
+                        .or_insert(PastEndorsee {
+                            pay_to_the_order_of: holder_from_block.holder.clone().into(),
+                            signed: LightSignedBy {
+                                data: holder_from_block.signer.into(),
+                                signatory: holder_from_block.signatory.map(|s| {
+                                    LightIdentityPublicData {
+                                        name: s.name,
+                                        node_id: s.node_id,
+                                    }
+                                }),
+                            },
+                            signing_timestamp: block.timestamp,
+                        });
+                }
+            }
+        }
+
+        let first_version_bill = chain.get_first_version_bill(bill_keys)?;
+        // If the drawer is not the drawee, the drawer is the first holder, if the drawer is the
+        // payee, they are already in the list
+        if first_version_bill.drawer.node_id != first_version_bill.drawee.node_id {
+            result
+                .entry(first_version_bill.drawer.node_id.clone())
+                .or_insert(PastEndorsee {
+                    pay_to_the_order_of: first_version_bill.drawer.clone().into(),
+                    signed: LightSignedBy {
+                        data: first_version_bill.drawer.into(),
+                        signatory: first_version_bill
+                            .signatory
+                            .map(|s| LightIdentityPublicData {
+                                name: s.name,
+                                node_id: s.node_id,
+                            }),
+                    },
+                    signing_timestamp: first_version_bill.signing_timestamp,
+                });
+        }
+
+        // remove ourselves from the list
+        result.remove(current_identity_node_id);
+
+        // sort by signing timestamp descending
+        let mut list: Vec<PastEndorsee> = result.into_values().collect();
+        list.sort_by(|a, b| b.signing_timestamp.cmp(&a.signing_timestamp));
+
+        Ok(list)
     }
 }
 
@@ -1813,7 +1894,7 @@ impl BillServiceApi for BillService {
                 let signing_keys =
                     self.get_bill_signing_keys(signer_public_data, signer_keys, &identity);
                 let previous_block = blockchain.get_latest_block();
-                let block = BillBlock::create_block_for_sold(
+                let block = BillBlock::create_block_for_sell(
                     bill_id.to_owned(),
                     previous_block,
                     &BillSellBlockData {
@@ -1956,6 +2037,30 @@ impl BillServiceApi for BillService {
             }
         }
         Ok(())
+    }
+
+    async fn get_past_endorsees(
+        &self,
+        bill_id: &str,
+        current_identity_node_id: &str,
+    ) -> Result<Vec<PastEndorsee>> {
+        if !self.store.exists(bill_id).await {
+            return Err(Error::NotFound);
+        }
+
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+
+        let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
+        // active identity is not part of the bill
+        if !bill_participants
+            .iter()
+            .any(|p| p == current_identity_node_id)
+        {
+            return Err(Error::NotFound);
+        }
+
+        self.get_past_endorsees_for_bill(&chain, &bill_keys, current_identity_node_id)
     }
 }
 
@@ -4966,5 +5071,341 @@ pub mod tests {
 
         let res = service.check_bills_offer_to_sell_payment().await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_past_endorsees_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill("1234");
+        bill.drawer = IdentityPublicData::new(identity.identity.clone()).unwrap();
+
+        storage.expect_exists().returning(|_| true);
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        chain_storage
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+
+        let service = get_service(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .get_past_endorsees("1234", &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+        // if we're the drawee and drawer, there's no holder before us
+        assert_eq!(res.as_ref().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_past_endorsees_fails_if_not_my_bill() {
+        let (
+            mut storage,
+            mut chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill("1234");
+        bill.drawer = IdentityPublicData::new(identity.identity.clone()).unwrap();
+
+        storage.expect_exists().returning(|_| true);
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        chain_storage
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+
+        let service = get_service(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .get_past_endorsees("1234", "some_other_node_id")
+            .await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn get_past_endorsees_3_party() {
+        let (
+            mut storage,
+            mut chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill("1234");
+        let drawer = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill.drawer = drawer.clone();
+        bill.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+
+        storage.expect_exists().returning(|_| true);
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        chain_storage
+            .expect_get_chain()
+            .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+
+        let service = get_service(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .get_past_endorsees("1234", &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+        // if it's a 3 party bill and we're the payee, the drawer is a previous holder
+        assert_eq!(res.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
+            drawer.node_id
+        );
+    }
+
+    #[tokio::test]
+    async fn get_past_endorsees_multi() {
+        let (
+            mut storage,
+            mut chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill("1234");
+        let drawer = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let mint_endorsee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let endorse_endorsee =
+            IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let sell_endorsee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+
+        bill.drawer = drawer.clone();
+        bill.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+
+        storage.expect_exists().returning(|_| true);
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+
+        let endorse_endorsee_clone = endorse_endorsee.clone();
+        let mint_endorsee_clone = mint_endorsee.clone();
+        let sell_endorsee_clone = sell_endorsee.clone();
+
+        chain_storage.expect_get_chain().returning(move |_| {
+            let now = util::date::now().timestamp() as u64;
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+
+            // add endorse block from payee to endorsee
+            let endorse_block = BillBlock::create_block_for_endorse(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillEndorseBlockData {
+                    endorsee: endorse_endorsee.clone().into(),
+                    // endorsed by payee
+                    endorser: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
+                    signatory: None,
+                    signing_timestamp: now + 1,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now + 1,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(endorse_block));
+
+            // add sell block from endorsee to sell endorsee
+            let sell_block = BillBlock::create_block_for_sell(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillSellBlockData {
+                    buyer: sell_endorsee.clone().into(),
+                    // endorsed by endorsee
+                    seller: endorse_endorsee.clone().into(),
+                    currency: "sat".to_string(),
+                    sum: 15000,
+                    payment_address: "1234paymentaddress".to_string(),
+                    signatory: None,
+                    signing_timestamp: now + 2,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now + 2,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(sell_block));
+
+            // add mint block from sell endorsee to mint endorsee
+            let mint_block = BillBlock::create_block_for_mint(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillMintBlockData {
+                    endorsee: mint_endorsee.clone().into(),
+                    // endorsed by sell endorsee
+                    endorser: sell_endorsee.clone().into(),
+                    currency: "sat".to_string(),
+                    sum: 15000,
+                    signatory: None,
+                    signing_timestamp: now + 3,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now + 3,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(mint_block));
+
+            // add endorse block back to endorsee
+            let endorse_block_back = BillBlock::create_block_for_endorse(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillEndorseBlockData {
+                    endorsee: endorse_endorsee.clone().into(),
+                    // endorsed by payee
+                    endorser: mint_endorsee.clone().into(),
+                    signatory: None,
+                    signing_timestamp: now + 4,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now + 4,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(endorse_block_back));
+
+            // add endorse block back to payee (caller)
+            let endorse_block_last = BillBlock::create_block_for_endorse(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillEndorseBlockData {
+                    endorsee: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
+                    // endorsed by payee
+                    endorser: endorse_endorsee.clone().into(),
+                    signatory: None,
+                    signing_timestamp: now + 5,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now + 5,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(endorse_block_last));
+
+            Ok(chain)
+        });
+
+        let service = get_service(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .get_past_endorsees("1234", &identity.identity.node_id)
+            .await;
+        assert!(res.is_ok());
+        // if there are mint, sell and endorse blocks, they are considered
+        // but without duplicates
+        assert_eq!(res.as_ref().unwrap().len(), 4);
+        // endorse endorsee is the one directly before
+        assert_eq!(
+            res.as_ref().unwrap()[0].pay_to_the_order_of.node_id,
+            endorse_endorsee_clone.node_id
+        );
+        // mint endorsee is the one after that
+        assert_eq!(
+            res.as_ref().unwrap()[1].pay_to_the_order_of.node_id,
+            mint_endorsee_clone.node_id
+        );
+        // sell endorsee is the next one
+        assert_eq!(
+            res.as_ref().unwrap()[2].pay_to_the_order_of.node_id,
+            sell_endorsee_clone.node_id
+        );
+        // drawer is the last one, because endorse endorsee is already there
+        // and drawer != drawee
+        assert_eq!(
+            res.as_ref().unwrap()[3].pay_to_the_order_of.node_id,
+            drawer.node_id
+        );
     }
 }

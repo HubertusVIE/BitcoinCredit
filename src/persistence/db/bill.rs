@@ -423,7 +423,7 @@ pub mod tests {
         chain_store
             .add_block(
                 "1234",
-                &BillBlock::create_block_for_sold(
+                &BillBlock::create_block_for_sell(
                     "1234".to_string(),
                     &second_block,
                     &BillSellBlockData {
