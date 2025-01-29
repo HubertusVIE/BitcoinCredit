@@ -1,3 +1,4 @@
+use super::bill::get_signer_public_data_and_keys;
 use super::middleware::IdentityCheck;
 use crate::external;
 use crate::external::mint::{
@@ -42,6 +43,7 @@ pub async fn accept_quote(
     id: String,
 ) -> Result<Json<BitcreditEbillQuote>> {
     let mut quote = get_quote_from_map(&id).ok_or(Error::NotFound)?;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
     let public_data_endorsee = state
         .contact_service
@@ -52,7 +54,13 @@ pub async fn accept_quote(
         let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
         state
             .bill_service
-            .endorse_bitcredit_bill(&quote.bill_id, endorsee.clone(), timestamp)
+            .endorse_bitcredit_bill(
+                &quote.bill_id,
+                endorsee.clone(),
+                &signer_public_data,
+                &signer_keys,
+                timestamp,
+            )
             .await?;
     }
 

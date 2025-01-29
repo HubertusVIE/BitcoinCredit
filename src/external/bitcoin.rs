@@ -129,7 +129,9 @@ impl BitcoinClientApi for BitcoinClient {
 
         let sum_chain_mempool: u64 =
             received_sum + spent_sum + received_sum_mempool + spent_sum_mempool;
-        if sum >= sum_chain_mempool {
+        if sum_chain_mempool >= sum {
+            // if the received sum is higher than the sum we're looking
+            // to get, it's OK
             Ok((true, received_sum + spent_sum)) // only return sum received on chain, so we don't
                                                  // return a sum if it's in mempool
         } else {

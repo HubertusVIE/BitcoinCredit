@@ -75,20 +75,12 @@ async fn main() -> Result<()> {
     let local_node_id = db.identity_store.get_key_pair().await?.get_public_key();
     let mut dht_client_clone = dht_client.clone();
     let identity_store_clone = db.identity_store.clone();
-    let local_node_id_clone = local_node_id.clone();
     spawn(async move {
         // These actions only make sense, if we already have created an identity
         // We do them asynchronously, in a non-failing way
         if identity_store_clone.exists().await {
             if let Err(e) = dht_client_clone.check_new_bills().await {
                 error!("Error while checking for new bills: {e}");
-            }
-
-            if let Err(e) = dht_client_clone
-                .update_bills_table(&local_node_id_clone)
-                .await
-            {
-                error!("Error while updating bills table: {e}");
             }
 
             if let Err(e) = dht_client_clone.subscribe_to_all_bills_topics().await {

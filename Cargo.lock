@@ -780,12 +780,13 @@ dependencies = [
 
 [[package]]
 name = "axum"
-version = "0.7.6"
+version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f43644eed690f5374f1af436ecd6aea01cd201f6fbdf0178adaf6907afb2cec"
+checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
 dependencies = [
  "async-trait",
- "axum-core 0.4.4",
+ "axum-core 0.4.5",
+ "axum-macros",
  "bytes",
  "futures-util",
  "http 1.1.0",
@@ -831,9 +832,9 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e6b8ba012a258d63c9adfa28b9ddcf66149da6f986c5b5452e629d5ee64bf00"
+checksum = "09f2bd6146b97ae3359fa0cc6d6b376d9539582c7b4220f041a33ec24c226199"
 dependencies = [
  "async-trait",
  "bytes",
@@ -848,6 +849,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
 ]
 
 [[package]]
@@ -960,7 +972,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -997,7 +1009,7 @@ checksum = "33415e24172c1b7d6066f6d999545375ab8e1d95421d6784bdfff9496f292387"
 dependencies = [
  "bitcoin_hashes 0.12.0",
  "rand",
- "rand_core 0.5.1",
+ "rand_core 0.6.4",
  "serde",
  "unicode-normalization",
 ]
@@ -3235,7 +3247,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.7",
  "tokio",
  "tower-service",
  "tracing",
@@ -3353,7 +3365,7 @@ dependencies = [
  "iana-time-zone-haiku",
  "js-sys",
  "wasm-bindgen",
- "windows-core 0.51.1",
+ "windows-core 0.52.0",
 ]
 
 [[package]]
@@ -4785,7 +4797,7 @@ dependencies = [
 [[package]]
 name = "moksha-core"
 version = "0.2.1"
-source = "git+https://github.com/mtbitcr/moksha#e5fef93a63402cd06c22b0ef09825e4aca8fdc00"
+source = "git+https://github.com/mtbitcr/moksha#11d0745e1d2bdf3bd023b45d0c2d72d1c4e5e30b"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4806,11 +4818,11 @@ dependencies = [
 [[package]]
 name = "moksha-mint"
 version = "0.2.1"
-source = "git+https://github.com/mtbitcr/moksha#e5fef93a63402cd06c22b0ef09825e4aca8fdc00"
+source = "git+https://github.com/mtbitcr/moksha#11d0745e1d2bdf3bd023b45d0c2d72d1c4e5e30b"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.6",
+ "axum 0.7.9",
  "chrono",
  "clap",
  "cln-grpc",
@@ -4819,7 +4831,9 @@ dependencies = [
  "hex",
  "hyper 1.4.1",
  "lightning-invoice",
+ "log",
  "moksha-core",
+ "moksha-wallet",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -4844,7 +4858,7 @@ dependencies = [
 [[package]]
 name = "moksha-wallet"
 version = "0.2.1"
-source = "git+https://github.com/mtbitcr/moksha#e5fef93a63402cd06c22b0ef09825e4aca8fdc00"
+source = "git+https://github.com/mtbitcr/moksha#11d0745e1d2bdf3bd023b45d0c2d72d1c4e5e30b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6200,7 +6214,7 @@ checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
  "heck 0.5.0",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "log",
  "multimap 0.10.0",
  "once_cell",
@@ -6233,7 +6247,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.87",
@@ -9459,7 +9473,7 @@ version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b39868d43c011961e04b41623e050aedf2cc93652562ff7935ce0f819aaf2da"
 dependencies = [
- "axum 0.7.6",
+ "axum 0.7.9",
  "mime_guess",
  "regex",
  "rust-embed",

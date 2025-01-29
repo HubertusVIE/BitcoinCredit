@@ -16,12 +16,9 @@ impl TimeApi {
                 Err(e) => {
                     handle_error(e)
                 },
-                Ok(result) => match result.json().await {
-                    Err(e) => {
-                        handle_error(e)
-                    },
-                    Ok(res) => res,
-                },
+                Ok(result) => result.json().await.unwrap_or_else(|e| {
+                    handle_error(e)
+                }),
             }
     }
 }

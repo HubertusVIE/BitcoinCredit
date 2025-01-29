@@ -79,7 +79,7 @@ pub async fn check_bitcredit_quote(bill_id_hex: &str, node_id: &str, bill_id_bas
     // quote
 }
 
-// Usage of tokio::main to spawn a new runtime is necessary here, because Wallet is'nt Send - but
+// Usage of tokio::main to spawn a new runtime is necessary here, because Wallet isn't Send - but
 // this logic will be replaced soon
 #[tokio::main]
 pub async fn client_accept_bitcredit_quote(bill_id_hex: &str, bill_id_base58: &String) -> String {
@@ -139,6 +139,7 @@ pub async fn client_accept_bitcredit_quote(bill_id_hex: &str, bill_id_base58: &S
 pub async fn request_to_mint_bitcredit(
     payload: RequestToMintBitcreditBillPayload,
     bill_keys: LocalBillKeys,
+    maturity_date_timestamp: i64,
 ) -> PostRequestToMintBitcreditResponse {
     let dir = PathBuf::from("./data/wallet".to_string());
     let db_path = dir.join("wallet.db").to_str().unwrap().to_string();
@@ -162,7 +163,12 @@ pub async fn request_to_mint_bitcredit(
     let bill_id_u8 = base58_decode(&payload.bill_id).unwrap();
     let bill_id_hex = hex::encode(bill_id_u8);
 
-    let req = wallet.send_request_to_mint_bitcredit(&mint_url, bill_id_hex.clone(), keys);
+    let req = wallet.send_request_to_mint_bitcredit(
+        &mint_url,
+        bill_id_hex.clone(),
+        keys,
+        maturity_date_timestamp,
+    );
 
     let quote: BitcreditEbillQuote = BitcreditEbillQuote {
         bill_id: payload.bill_id.clone(),

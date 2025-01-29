@@ -15,6 +15,7 @@ pub trait SearchServiceApi: Send + Sync {
         search_term: &str,
         currency: &str,
         item_types: &[GeneralSearchFilterItemType],
+        current_identity_node_id: &str,
     ) -> Result<GeneralSearchResponse>;
 }
 
@@ -47,6 +48,7 @@ impl SearchServiceApi for SearchService {
         search_term: &str,
         currency: &str,
         item_types: &[GeneralSearchFilterItemType],
+        current_identity_node_id: &str,
     ) -> Result<GeneralSearchResponse> {
         let search_term_lc = search_term.to_lowercase();
         let bills = if item_types.contains(&GeneralSearchFilterItemType::Bill) {
@@ -57,6 +59,7 @@ impl SearchServiceApi for SearchService {
                     None,
                     None,
                     &BillsFilterRole::All,
+                    current_identity_node_id,
                 )
                 .await?
         } else {

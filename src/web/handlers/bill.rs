@@ -3,6 +3,7 @@ use crate::blockchain::Blockchain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::bill_service::LightBitcreditBillToReturn;
 use crate::service::{contact_service::IdentityPublicData, Result};
+use crate::util::date::date_string_to_i64_timestamp;
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
 use crate::util::{self, base58_encode, BcrKeys};
 use crate::web::data::{
@@ -21,6 +22,50 @@ use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
 use rocket::{get, post, put, State};
 use std::thread;
+
+pub async fn get_current_identity_node_id(state: &State<ServiceContext>) -> String {
+    let current_identity = state.get_current_identity().await;
+    match current_identity.company {
+        None => current_identity.personal,
+        Some(company_node_id) => company_node_id,
+    }
+}
+
+pub async fn get_signer_public_data_and_keys(
+    state: &State<ServiceContext>,
+) -> Result<(IdentityPublicData, BcrKeys)> {
+    let current_identity = state.get_current_identity().await;
+    let local_node_id = current_identity.personal;
+    let (signer_public_data, signer_keys) = match current_identity.company {
+        None => {
+            let identity = state.identity_service.get_full_identity().await?;
+            match IdentityPublicData::new(identity.identity) {
+                Some(identity_public_data) => (identity_public_data, identity.key_pair),
+                None => {
+                    return Err(service::Error::Validation(String::from(
+                        "Drawer is not a bill issuer - does not have a postal address set",
+                    )));
+                }
+            }
+        }
+        Some(company_node_id) => {
+            let (company, keys) = state
+                .company_service
+                .get_company_and_keys_by_id(&company_node_id)
+                .await?;
+            if !company.signatories.contains(&local_node_id) {
+                return Err(service::Error::Validation(format!(
+                    "Signer {local_node_id} for company {company_node_id} is not signatory",
+                )));
+            }
+            (
+                IdentityPublicData::from(company),
+                BcrKeys::from_private_key(&keys.private_key)?,
+            )
+        }
+    };
+    Ok((signer_public_data, signer_keys))
+}
 
 #[get("/holder/<id>")]
 pub async fn holder(
@@ -43,9 +88,10 @@ pub async fn bitcoin_key(
     state: &State<ServiceContext>,
     id: &str,
 ) -> Result<Json<BillCombinedBitcoinKey>> {
+    let (caller_public_data, caller_keys) = get_signer_public_data_and_keys(state).await?;
     let combined_key = state
         .bill_service
-        .get_combined_bitcoin_key_for_bill(id)
+        .get_combined_bitcoin_key_for_bill(id, &caller_public_data, &caller_keys)
         .await?;
     Ok(Json(combined_key))
 }
@@ -61,7 +107,8 @@ pub async fn attachment(
     let file_bytes = state
         .bill_service
         .open_and_decrypt_attached_file(bill_id, file_name, &keys.private_key)
-        .await?;
+        .await
+        .map_err(|_| service::Error::NotFound)?;
 
     let content_type = match detect_content_type_for_bytes(&file_bytes) {
         None => None,
@@ -108,6 +155,7 @@ pub async fn search(
             from,
             to,
             &filter.role,
+            &get_current_identity_node_id(state).await,
         )
         .await?;
     Ok(Json(BillsResponse { bills }))
@@ -126,7 +174,10 @@ pub async fn list_light(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
 ) -> Result<Json<BillsResponse<LightBitcreditBillToReturn>>> {
-    let bills = state.bill_service.get_bills().await?;
+    let bills = state
+        .bill_service
+        .get_bills(&get_current_identity_node_id(state).await)
+        .await?;
     Ok(Json(BillsResponse {
         bills: bills.into_iter().map(|b| b.into()).collect(),
     }))
@@ -145,7 +196,10 @@ pub async fn list(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
 ) -> Result<Json<BillsResponse<BitcreditBillToReturn>>> {
-    let bills = state.bill_service.get_bills().await?;
+    let bills = state
+        .bill_service
+        .get_bills(&get_current_identity_node_id(state).await)
+        .await?;
     Ok(Json(BillsResponse { bills }))
 }
 
@@ -167,7 +221,11 @@ pub async fn find_bill_in_dht(
     state: &State<ServiceContext>,
     bill_id: &str,
 ) -> Result<Status> {
-    state.bill_service.find_bill_in_dht(bill_id).await?;
+    let (caller_public_data, caller_keys) = get_signer_public_data_and_keys(state).await?;
+    state
+        .bill_service
+        .find_bill_in_dht(bill_id, &caller_public_data, &caller_keys)
+        .await?;
     Ok(Status::Ok)
 }
 
@@ -193,7 +251,12 @@ pub async fn bill_detail(
     let identity = state.identity_service.get_identity().await?;
     let bill_detail = state
         .bill_service
-        .get_detail(id, &identity, current_timestamp)
+        .get_detail(
+            id,
+            &identity,
+            &get_current_identity_node_id(state).await,
+            current_timestamp,
+        )
         .await?;
     Ok(Json(bill_detail))
 }
@@ -264,7 +327,6 @@ pub async fn issue_bill(
     state: &State<ServiceContext>,
     bill_payload: Json<BitcreditBillPayload>,
 ) -> Result<Json<BillId>> {
-    let current_identity = state.get_current_identity().await;
     let sum = util::currency::parse_sum(&bill_payload.sum)?;
 
     if util::date::date_string_to_i64_timestamp(&bill_payload.issue_date, None).is_none() {
@@ -279,29 +341,7 @@ pub async fn issue_bill(
         )));
     }
 
-    let (drawer_public_data, drawer_keys) = match current_identity.company {
-        None => {
-            let identity = state.identity_service.get_full_identity().await?;
-            match IdentityPublicData::new(identity.identity) {
-                Some(identity_public_data) => (identity_public_data, identity.key_pair),
-                None => {
-                    return Err(service::Error::Validation(String::from(
-                        "Drawer is not a bill issuer - does not have a postal address set",
-                    )));
-                }
-            }
-        }
-        Some(company_node_id) => {
-            let (company, keys) = state
-                .company_service
-                .get_company_and_keys_by_id(&company_node_id)
-                .await?;
-            (
-                IdentityPublicData::from(company),
-                BcrKeys::from_private_key(&keys.private_key)?,
-            )
-        }
-    };
+    let (drawer_public_data, drawer_keys) = get_signer_public_data_and_keys(state).await?;
 
     let bill_type = BillType::try_from(bill_payload.t)?;
 
@@ -398,8 +438,8 @@ pub async fn issue_bill(
             bill_payload.city_of_payment.to_owned(),
             bill_payload.language.to_owned(),
             bill_payload.file_upload_id.to_owned(),
-            drawer_public_data,
-            drawer_keys,
+            drawer_public_data.clone(),
+            drawer_keys.clone(),
             timestamp,
         )
         .await?;
@@ -425,7 +465,12 @@ pub async fn issue_bill(
         let timestamp_accept = external::time::TimeApi::get_atomic_time().await.timestamp;
         state
             .bill_service
-            .accept_bill(&bill.id, timestamp_accept)
+            .accept_bill(
+                &bill.id,
+                &drawer_public_data,
+                &drawer_keys,
+                timestamp_accept,
+            )
             .await?;
     }
 
@@ -455,6 +500,7 @@ pub async fn offer_to_sell_bill(
 
     let sum = util::currency::parse_sum(&offer_to_sell_payload.sum)?;
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
     let chain = state
         .bill_service
@@ -463,6 +509,8 @@ pub async fn offer_to_sell_bill(
             public_data_buyer.clone(),
             sum,
             &offer_to_sell_payload.currency,
+            &signer_public_data,
+            &signer_keys,
             timestamp,
         )
         .await?;
@@ -509,12 +557,14 @@ pub async fn endorse_bill(
     };
 
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
-
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
     let chain = state
         .bill_service
         .endorse_bitcredit_bill(
             &endorse_bill_payload.bill_id,
             public_data_endorsee.clone(),
+            &signer_public_data,
+            &signer_keys,
             timestamp,
         )
         .await?;
@@ -552,12 +602,15 @@ pub async fn request_to_pay_bill(
     request_to_pay_bill_payload: Json<RequestToPayBitcreditBillPayload>,
 ) -> Result<Status> {
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
     let chain = state
         .bill_service
         .request_pay(
             &request_to_pay_bill_payload.bill_id,
             &request_to_pay_bill_payload.currency,
+            &signer_public_data,
+            &signer_keys,
             timestamp,
         )
         .await?;
@@ -588,10 +641,16 @@ pub async fn request_to_accept_bill(
     request_to_accept_bill_payload: Json<RequestToAcceptBitcreditBillPayload>,
 ) -> Result<Status> {
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
     let chain = state
         .bill_service
-        .request_acceptance(&request_to_accept_bill_payload.bill_id, timestamp)
+        .request_acceptance(
+            &request_to_accept_bill_payload.bill_id,
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+        )
         .await?;
 
     let bill_service_clone = state.bill_service.clone();
@@ -617,9 +676,16 @@ pub async fn accept_bill(
     accept_bill_payload: Json<AcceptBitcreditBillPayload>,
 ) -> Result<Status> {
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
+
     let chain = state
         .bill_service
-        .accept_bill(&accept_bill_payload.bill_id, timestamp)
+        .accept_bill(
+            &accept_bill_payload.bill_id,
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+        )
         .await?;
 
     let bill_service_clone = state.bill_service.clone();
@@ -661,10 +727,22 @@ pub async fn request_to_mint_bill(
         .get_bill_keys(&request_to_mint_bill_payload.bill_id)
         .await?;
 
+    let maturity_date_str = state
+        .bill_service
+        .get_bill(&request_to_mint_bill_payload.bill_id)
+        .await?
+        .maturity_date;
+
+    let maturity_date_timestamp = date_string_to_i64_timestamp(&maturity_date_str, None).unwrap();
+
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
     // thread, but this logic will be replaced soon
     thread::spawn(move || {
-        request_to_mint_bitcredit(request_to_mint_bill_payload.into_inner(), bill_keys)
+        request_to_mint_bitcredit(
+            request_to_mint_bill_payload.into_inner(),
+            bill_keys,
+            maturity_date_timestamp,
+        )
     })
     .join()
     .expect("Thread panicked");
@@ -724,6 +802,7 @@ pub async fn mint_bill(
             )));
         }
     };
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
     let chain = state
         .bill_service
@@ -732,6 +811,8 @@ pub async fn mint_bill(
             sum,
             &mint_bill_payload.currency,
             public_mint_node.clone(),
+            &signer_public_data,
+            &signer_keys,
             timestamp,
         )
         .await?;

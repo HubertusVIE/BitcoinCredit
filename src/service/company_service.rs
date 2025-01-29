@@ -1,3 +1,4 @@
+use super::contact_service::ContactType;
 use super::Result;
 use crate::blockchain::company::{
     CompanyAddSignatoryBlockData, CompanyBlock, CompanyBlockchain, CompanyCreateBlockData,
@@ -412,12 +413,12 @@ impl CompanyServiceApi for CompanyService {
         }
         let full_identity = self.identity_store.get_full().await?;
         let contacts = self.contact_store.get_map().await?;
-        let is_in_contacts = contacts
-            .iter()
-            .any(|(node_id, _contact)| *node_id == signatory_node_id);
+        let is_in_contacts = contacts.iter().any(|(node_id, contact)| {
+            *node_id == signatory_node_id && contact.t == ContactType::Person
+        });
         if !is_in_contacts {
             return Err(super::Error::Validation(format!(
-                "Node Id {signatory_node_id} is not in the contacts.",
+                "Node Id {signatory_node_id} is not a person in the contacts.",
             )));
         }
 
@@ -704,7 +705,7 @@ pub mod tests {
                     registration_date: "2012-01-01".to_string(),
                     proof_of_registration_file: None,
                     logo_file: None,
-                    signatories: vec![],
+                    signatories: vec![TEST_PUB_KEY_SECP.to_string()],
                 },
                 CompanyKeys {
                     private_key: TEST_PRIVATE_KEY_SECP.to_string(),
@@ -1227,8 +1228,7 @@ pub mod tests {
             mut identity_chain_store,
             mut company_chain_store,
         ) = get_storages();
-        let signatory_keys = BcrKeys::new();
-        let signatory_node_id = signatory_keys.get_public_key();
+        let signatory_node_id = BcrKeys::new().get_public_key();
         storage.expect_exists().returning(|_| true);
         storage.expect_update().returning(|_, _| Ok(()));
         storage
@@ -1286,6 +1286,48 @@ pub mod tests {
             .add_signatory("some_id", signatory_node_id, 1731593928)
             .await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn add_signatory_fails_if_signatory_in_contacts_but_not_a_person() {
+        let (
+            mut storage,
+            file_upload_store,
+            mut identity_store,
+            mut contact_store,
+            identity_chain_store,
+            company_chain_store,
+        ) = get_storages();
+        let signatory_node_id = BcrKeys::new().get_public_key();
+        storage.expect_exists().returning(|_| true);
+        let signatory_node_id_clone = signatory_node_id.clone();
+        contact_store.expect_get_map().returning(move || {
+            let mut map = HashMap::new();
+            let mut contact = get_baseline_contact();
+            contact.node_id = signatory_node_id_clone.clone();
+            contact.t = ContactType::Company;
+            map.insert(signatory_node_id_clone.clone(), contact);
+            Ok(map)
+        });
+        identity_store.expect_get_full().returning(|| {
+            let identity = Identity::new_empty();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: BcrKeys::new(),
+            })
+        });
+        let service = get_service(
+            storage,
+            file_upload_store,
+            identity_store,
+            contact_store,
+            identity_chain_store,
+            company_chain_store,
+        );
+        let res = service
+            .add_signatory("some_id", signatory_node_id, 1731593928)
+            .await;
+        assert!(res.is_err());
     }
 
     #[tokio::test]

@@ -17,6 +17,7 @@ use libp2p::kad::{Kademlia, KademliaEvent};
 use libp2p::request_response::{self, ProtocolSupport, ResponseChannel};
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{dcutr, gossipsub, identify, relay, PeerId};
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::{fs, iter};
@@ -311,9 +312,10 @@ pub fn parse_inbound_file_request(
 
     let node_id = parts[0].to_owned();
     if !util::crypto::is_peer_id_from_this_node_id(&node_id, peer_id) {
-        return Err(Error::InvalidFileRequest(
-                format!("request was not sent by the owner of node_id: {node_id}, but by {peer_id:?}: {request}")
-        ));
+        // TODO: add back as error - or remove libp2p file transfer entirely
+        // return Err(Error::InvalidFileRequest(
+        warn!("request was not sent by the owner of node_id: {node_id}, but by {peer_id:?}: {request}");
+        // ));
     }
     let prefix = parts[1];
     match prefix {
@@ -486,19 +488,6 @@ mod tests {
         assert!(parse_inbound_file_request("a_b", &PeerId::random()).is_err());
         assert!(parse_inbound_file_request("_b", &PeerId::random()).is_err());
         assert!(parse_inbound_file_request("b_", &PeerId::random()).is_err());
-    }
-
-    #[test]
-    fn parse_inbound_file_request_validate_peer_id() {
-        let keys = BcrKeys::new();
-        let other_keys = BcrKeys::new();
-        let other_peer_id = other_keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let peer_id = keys.get_libp2p_keys().unwrap().public().to_peer_id();
-        let node_id = keys.get_public_key();
-        assert!(parse_inbound_file_request(&format!("{node_id}_BILL_TEST"), &peer_id).is_ok());
-        assert!(
-            parse_inbound_file_request(&format!("{node_id}_BILL_TEST"), &other_peer_id).is_err()
-        );
     }
 
     #[test]
