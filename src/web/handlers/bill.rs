@@ -3,6 +3,7 @@ use crate::blockchain::Blockchain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
 use crate::service::bill_service::LightBitcreditBillToReturn;
 use crate::service::{contact_service::IdentityPublicData, Result};
+use crate::util::date::date_string_to_i64_timestamp;
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
 use crate::util::{self, base58_encode, BcrKeys};
 use crate::web::data::{
@@ -726,10 +727,22 @@ pub async fn request_to_mint_bill(
         .get_bill_keys(&request_to_mint_bill_payload.bill_id)
         .await?;
 
+    let maturity_date_str = state
+        .bill_service
+        .get_bill(&request_to_mint_bill_payload.bill_id)
+        .await?
+        .maturity_date;
+
+    let maturity_date_timestamp = date_string_to_i64_timestamp(&maturity_date_str, None).unwrap();
+
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
     // thread, but this logic will be replaced soon
     thread::spawn(move || {
-        request_to_mint_bitcredit(request_to_mint_bill_payload.into_inner(), bill_keys)
+        request_to_mint_bitcredit(
+            request_to_mint_bill_payload.into_inner(),
+            bill_keys,
+            maturity_date_timestamp,
+        )
     })
     .join()
     .expect("Thread panicked");
