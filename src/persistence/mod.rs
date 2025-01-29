@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod bill;
 pub mod company;
 pub mod contact;
@@ -8,12 +9,13 @@ pub mod nostr;
 pub mod notification;
 
 use crate::util;
+use backup::BackupStoreApi;
 use db::{
-    bill::SurrealBillStore, bill_chain::SurrealBillChainStore, company::SurrealCompanyStore,
-    company_chain::SurrealCompanyChainStore, contact::SurrealContactStore, get_surreal_db,
-    identity::SurrealIdentityStore, identity_chain::SurrealIdentityChainStore,
-    nostr_event_offset::SurrealNostrEventOffsetStore, notification::SurrealNotificationStore,
-    SurrealDbConfig,
+    backup::SurrealBackupStore, bill::SurrealBillStore, bill_chain::SurrealBillChainStore,
+    company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
+    contact::SurrealContactStore, get_surreal_db, identity::SurrealIdentityStore,
+    identity_chain::SurrealIdentityChainStore, nostr_event_offset::SurrealNostrEventOffsetStore,
+    notification::SurrealNotificationStore, SurrealDbConfig,
 };
 use log::error;
 use notification::NotificationStoreApi;
@@ -120,6 +122,7 @@ pub struct DbContext {
     pub file_upload_store: Arc<dyn file_upload::FileUploadStoreApi>,
     pub nostr_event_offset_store: Arc<dyn nostr::NostrEventOffsetStoreApi>,
     pub notification_store: Arc<dyn NotificationStoreApi>,
+    pub backup_store: Arc<dyn BackupStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
@@ -146,6 +149,7 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
 
     let nostr_event_offset_store = Arc::new(SurrealNostrEventOffsetStore::new(db.clone()));
     let notification_store = Arc::new(SurrealNotificationStore::new(db.clone()));
+    let backup_store = Arc::new(SurrealBackupStore::new(db.clone()));
 
     Ok(DbContext {
         contact_store,
@@ -158,5 +162,6 @@ pub async fn get_db_context(conf: &Config) -> Result<DbContext> {
         file_upload_store,
         nostr_event_offset_store,
         notification_store,
+        backup_store,
     })
 }

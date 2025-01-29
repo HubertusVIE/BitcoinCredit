@@ -244,3 +244,17 @@ pub async fn recover_from_seed_phrase(
         .await?;
     Ok(Status::Ok)
 }
+
+#[utoipa::path(
+    tag = "Identity",
+    path = "/identity/backup",
+    description = "Creates an encrypted backup of all the data for current identity",
+    responses(
+        (status = 200, description = "Backup has been created")
+    ),
+)]
+#[post("/backup")]
+pub async fn backup_identity(state: &State<ServiceContext>) -> Result<Status> {
+    state.backup_service.backup().await?;
+    Ok(Status::Ok)
+}

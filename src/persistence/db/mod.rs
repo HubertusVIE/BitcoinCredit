@@ -7,6 +7,7 @@ use surrealdb::{
     Surreal,
 };
 
+pub mod backup;
 pub mod bill;
 pub mod bill_chain;
 pub mod company;

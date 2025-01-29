@@ -1,3 +1,4 @@
+pub mod backup_service;
 pub mod bill_service;
 pub mod company_service;
 pub mod contact_service;
@@ -12,6 +13,7 @@ use crate::persistence::DbContext;
 use crate::web::ErrorResponse;
 use crate::{blockchain, dht, external};
 use crate::{persistence, util};
+use backup_service::{BackupService, BackupServiceApi};
 use bill_service::{BillService, BillServiceApi};
 use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
@@ -155,6 +157,7 @@ pub struct ServiceContext {
     pub notification_service: Arc<dyn NotificationServiceApi>,
     pub push_service: Arc<dyn PushApi>,
     pub current_identity: Arc<RwLock<SwitchIdentityState>>,
+    pub backup_service: Arc<dyn BackupServiceApi>,
 }
 
 /// A structure describing the currently selected identity between the personal and multiple
@@ -260,6 +263,8 @@ pub async fn create_service_context(
         Arc::new(company_service.clone()),
     );
 
+    let backup_service = BackupService::new(db.backup_store.clone());
+
     Ok(ServiceContext {
         config,
         dht_client: client,
@@ -277,5 +282,6 @@ pub async fn create_service_context(
             personal: local_node_id.to_owned(),
             company: None,
         })),
+        backup_service: Arc::new(backup_service),
     })
 }
