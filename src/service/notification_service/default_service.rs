@@ -160,17 +160,40 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
-    async fn send_bill_is_sold_event(&self, bill: &BitcreditBill) -> Result<()> {
+    async fn send_bill_is_sold_event(
+        &self,
+        bill_id: &str,
+        buyer: &IdentityPublicData,
+    ) -> Result<()> {
         let event = Event::new(
             EventType::BillSold,
-            &bill.drawee.node_id,
+            &buyer.node_id,
             BillActionEventPayload {
-                bill_id: bill.id.clone(),
+                bill_id: bill_id.to_owned(),
                 action_type: ActionType::CheckBill,
             },
         );
         self.notification_transport
-            .send(&bill.drawee, event.try_into()?)
+            .send(buyer, event.try_into()?)
+            .await?;
+        Ok(())
+    }
+
+    async fn send_bill_recourse_paid_event(
+        &self,
+        bill_id: &str,
+        recoursee: &IdentityPublicData,
+    ) -> Result<()> {
+        let event = Event::new(
+            EventType::BillRecoursePaid,
+            &recoursee.node_id,
+            BillActionEventPayload {
+                bill_id: bill_id.to_owned(),
+                action_type: ActionType::CheckBill,
+            },
+        );
+        self.notification_transport
+            .send(recoursee, event.try_into()?)
             .await?;
         Ok(())
     }
@@ -701,12 +724,35 @@ mod tests {
     async fn test_send_bill_is_sold_event() {
         let bill = get_test_bill();
 
-        // should send sold event to drawee
+        // should send sold event to buyer
         let service =
-            setup_service_expectation("drawee", EventType::BillSold, ActionType::CheckBill);
+            setup_service_expectation("buyer", EventType::BillSold, ActionType::CheckBill);
 
         service
-            .send_bill_is_sold_event(&bill)
+            .send_bill_is_sold_event(
+                &bill.id,
+                &get_identity_public_data("buyer", "buyer@example.com", None),
+            )
+            .await
+            .expect("failed to send event");
+    }
+
+    #[tokio::test]
+    async fn test_send_bill_recourse_paid_event() {
+        let bill = get_test_bill();
+
+        // should send sold event to recoursee
+        let service = setup_service_expectation(
+            "recoursee",
+            EventType::BillRecoursePaid,
+            ActionType::CheckBill,
+        );
+
+        service
+            .send_bill_recourse_paid_event(
+                &bill.id,
+                &get_identity_public_data("recoursee", "recoursee@example.com", None),
+            )
             .await
             .expect("failed to send event");
     }

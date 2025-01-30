@@ -37,7 +37,8 @@ pub async fn run(
 async fn run_jobs(service_context: &ServiceContext) {
     tokio::join!(
         run_check_bill_payment_job(service_context.clone()),
-        run_check_bill_offer_to_sell_payment_job(service_context.clone())
+        run_check_bill_offer_to_sell_payment_job(service_context.clone()),
+        run_check_bill_recourse_payment_job(service_context.clone())
     );
     // explicitly not added to join! because we want to run this job after
     // all payment jobs are done and avoid any concurrency issues.
@@ -62,6 +63,18 @@ async fn run_check_bill_offer_to_sell_payment_job(service_context: ServiceContex
         error!("Error while running Check Bill Offer to Sell Payment Job: {e}");
     }
     info!("Finished running Check Bill Offer to Sell Payment Job");
+}
+
+async fn run_check_bill_recourse_payment_job(service_context: ServiceContext) {
+    info!("Running Check Bill Recourse Payment Job");
+    if let Err(e) = service_context
+        .bill_service
+        .check_bills_in_recourse_payment()
+        .await
+    {
+        error!("Error while running Check Bill Recourse Payment Job: {e}");
+    }
+    info!("Finished running Check Bill Recourse Payment Job");
 }
 
 async fn run_check_bill_timeouts(service_context: ServiceContext) {

@@ -472,7 +472,6 @@ impl BillBlock {
         Ok(block)
     }
 
-    #[allow(dead_code)]
     pub fn create_block_for_request_recourse(
         bill_id: String,
         previous_block: &Self,
@@ -496,7 +495,6 @@ impl BillBlock {
         Ok(block)
     }
 
-    #[allow(dead_code)]
     pub fn create_block_for_recourse(
         bill_id: String,
         previous_block: &Self,

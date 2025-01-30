@@ -1,7 +1,7 @@
 use super::middleware::IdentityCheck;
 use crate::blockchain::Blockchain;
 use crate::external::mint::{accept_mint_bitcredit, request_to_mint_bitcredit};
-use crate::service::bill_service::LightBitcreditBillToReturn;
+use crate::service::bill_service::{LightBitcreditBillToReturn, RecourseReason};
 use crate::service::{contact_service::IdentityPublicData, Result};
 use crate::util::date::date_string_to_i64_timestamp;
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
@@ -11,6 +11,7 @@ use crate::web::data::{
     BillNumbersToWordsForSum, BillType, BillsResponse, BillsSearchFilterPayload,
     BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
     OfferToSellBitcreditBillPayload, PastEndorseesResponse, RejectActionBillPayload,
+    RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
     RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
     RequestToPayBitcreditBillPayload, UploadBillFilesForm, UploadFilesResponse,
 };
@@ -377,7 +378,7 @@ pub async fn issue_bill(
                 Ok(Some(drawee)) => drawee,
                 Ok(None) | Err(_) => {
                     return Err(service::Error::Validation(String::from(
-                        "Can not get drawee identity.",
+                        "Can not get drawee identity from contacts.",
                     )));
                 }
             };
@@ -398,7 +399,7 @@ pub async fn issue_bill(
                 Ok(Some(drawee)) => drawee,
                 Ok(None) | Err(_) => {
                     return Err(service::Error::Validation(String::from(
-                        "Can not get payee identity.",
+                        "Can not get payee identity from contacts.",
                     )));
                 }
             };
@@ -415,7 +416,7 @@ pub async fn issue_bill(
                 Ok(Some(drawee)) => drawee,
                 Ok(None) | Err(_) => {
                     return Err(service::Error::Validation(String::from(
-                        "Can not get drawee identity.",
+                        "Can not get drawee identity from contacts.",
                     )));
                 }
             };
@@ -428,7 +429,7 @@ pub async fn issue_bill(
                 Ok(Some(drawee)) => drawee,
                 Ok(None) | Err(_) => {
                     return Err(service::Error::Validation(String::from(
-                        "Can not get payee identity.",
+                        "Can not get payee identity from contacts.",
                     )));
                 }
             };
@@ -508,7 +509,7 @@ pub async fn offer_to_sell_bill(
         Ok(Some(buyer)) => buyer,
         Ok(None) | Err(_) => {
             return Err(service::Error::Validation(String::from(
-                "Can not get buyer identity.",
+                "Can not get buyer identity from contacts.",
             )));
         }
     };
@@ -566,7 +567,7 @@ pub async fn endorse_bill(
         Ok(Some(endorsee)) => endorsee,
         Ok(None) | Err(_) => {
             return Err(service::Error::Validation(String::from(
-                "Can not get endorsee identity.",
+                "Can not get endorsee identity from contacts.",
             )));
         }
     };
@@ -813,7 +814,7 @@ pub async fn mint_bill(
         Ok(Some(drawee)) => drawee,
         Ok(None) | Err(_) => {
             return Err(service::Error::Validation(String::from(
-                "Can not get public mint node identity.",
+                "Can not get public mint node identity from contacts.",
             )));
         }
     };
@@ -976,6 +977,93 @@ pub async fn reject_to_pay_recourse_bill(
     tokio::spawn(async move {
         if let Err(e) = bill_service_clone
             .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
+    });
+    Ok(Status::Ok)
+}
+
+// Recourse
+#[put(
+    "/request_recourse_for_payment",
+    format = "json",
+    data = "<request_recourse_payload>"
+)]
+pub async fn request_to_recourse_bill_payment(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    request_recourse_payload: Json<RequestRecourseForPaymentPayload>,
+) -> Result<Status> {
+    let sum = util::currency::parse_sum(&request_recourse_payload.sum)?;
+    request_recourse(
+        state,
+        RecourseReason::Pay(sum, request_recourse_payload.currency.clone()),
+        &request_recourse_payload.bill_id,
+        &request_recourse_payload.recoursee,
+    )
+    .await
+}
+
+#[put(
+    "/request_recourse_for_acceptance",
+    format = "json",
+    data = "<request_recourse_payload>"
+)]
+pub async fn request_to_recourse_bill_acceptance(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    request_recourse_payload: Json<RequestRecourseForAcceptancePayload>,
+) -> Result<Status> {
+    request_recourse(
+        state,
+        RecourseReason::Accept,
+        &request_recourse_payload.bill_id,
+        &request_recourse_payload.recoursee,
+    )
+    .await
+}
+
+async fn request_recourse(
+    state: &State<ServiceContext>,
+    recourse_reason: RecourseReason,
+    bill_id: &str,
+    recoursee_node_id: &str,
+) -> Result<Status> {
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
+
+    let public_data_recoursee = match state
+        .contact_service
+        .get_identity_by_node_id(recoursee_node_id)
+        .await
+    {
+        Ok(Some(buyer)) => buyer,
+        Ok(None) | Err(_) => {
+            return Err(service::Error::Validation(String::from(
+                "Can not get recoursee identity from contacts.",
+            )));
+        }
+    };
+
+    let chain = state
+        .bill_service
+        .request_recourse(
+            bill_id,
+            &public_data_recoursee,
+            &signer_public_data,
+            &signer_keys,
+            recourse_reason,
+            timestamp,
+        )
+        .await?;
+
+    let bill_id_clone = bill_id.to_owned();
+    let bill_service_clone = state.bill_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = bill_service_clone
+            .propagate_block(&bill_id_clone, chain.get_latest_block())
             .await
         {
             error!("Error propagating block: {e}");

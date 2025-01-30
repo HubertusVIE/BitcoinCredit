@@ -260,6 +260,20 @@ pub struct RequestToPayBitcreditBillPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct RequestRecourseForPaymentPayload {
+    pub bill_id: String,
+    pub recoursee: String,
+    pub currency: String,
+    pub sum: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RequestRecourseForAcceptancePayload {
+    pub bill_id: String,
+    pub recoursee: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AcceptBitcreditBillPayload {
     pub bill_id: String,
 }
