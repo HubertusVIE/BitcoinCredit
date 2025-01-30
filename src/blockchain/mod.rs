@@ -30,6 +30,10 @@ pub enum Error {
     #[error("Block is invalid")]
     BlockInvalid,
 
+    /// If an invalid operation is passed to a function (e.g. a non-reject op)
+    #[error("Invalid operation")]
+    InvalidOperation,
+
     /// Errors stemming from cryptography, such as converting keys, encryption and decryption
     #[error("Secp256k1Cryptography error: {0}")]
     Secp256k1Cryptography(#[from] crypto::Error),
@@ -203,16 +207,16 @@ pub trait Blockchain {
         blocks_to_add
     }
 
-    /// Retrieves the last block with the specified op code.
+    /// Retrieves the last block with the specified op code, or None if the block is not in the
+    /// chain
     fn get_last_version_block_with_op_code(
         &self,
         op_code: <Self::Block as Block>::OpCode,
-    ) -> &Self::Block {
+    ) -> Option<&Self::Block> {
         self.blocks()
             .iter()
             .filter(|block| block.op_code() == &op_code)
             .next_back()
-            .unwrap_or_else(|| self.get_first_block())
     }
 
     /// Checks if there is any block with a given operation code in the current blocks list.

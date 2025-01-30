@@ -239,6 +239,11 @@ pub struct RequestToAcceptBitcreditBillPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct RejectActionBillPayload {
+    pub bill_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BillCombinedBitcoinKey {
     pub private_key: String,
 }

@@ -33,6 +33,12 @@ pub enum BillOpCode {
     OfferToSell,
     Sell,
     Mint,
+    RejectToAccept,
+    RejectToPay,
+    RejectToBuy,
+    RejectToPayRecourse,
+    RequestRecourse,
+    Recourse,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -127,6 +127,10 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::holder,
                 handlers::bill::search,
                 handlers::bill::get_past_endorsees_for_bill,
+                handlers::bill::reject_to_accept_bill,
+                handlers::bill::reject_to_pay_bill,
+                handlers::bill::reject_to_buy_bill,
+                handlers::bill::reject_to_pay_recourse_bill,
             ],
         )
         .mount(

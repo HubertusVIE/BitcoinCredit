@@ -102,32 +102,31 @@ impl BillBlockchain {
         current_timestamp: u64,
     ) -> Result<WaitingForPayment> {
         let last_block = self.get_latest_block();
-        let last_version_block_offer_to_sell =
-            self.get_last_version_block_with_op_code(BillOpCode::OfferToSell);
-        // we only wait for payment, if the last block is an Offer to Sell block
-        if self.block_with_operation_code_exists(BillOpCode::OfferToSell.clone())
-            && last_block.id == last_version_block_offer_to_sell.id
+        if let Some(last_version_block_offer_to_sell) =
+            self.get_last_version_block_with_op_code(BillOpCode::OfferToSell)
         {
-            // if the deadline is up, we're not waiting for payment anymore
-            if self.check_if_payment_deadline_has_passed(
-                last_version_block_offer_to_sell.timestamp,
-                current_timestamp,
-            ) {
-                return Ok(WaitingForPayment::No);
-            }
+            // we only wait for payment, if the last block is an Offer to Sell block
+            if last_block.id == last_version_block_offer_to_sell.id {
+                // if the deadline is up, we're not waiting for payment anymore
+                if self.check_if_payment_deadline_has_passed(
+                    last_version_block_offer_to_sell.timestamp,
+                    current_timestamp,
+                ) {
+                    return Ok(WaitingForPayment::No);
+                }
 
-            let block_data_decrypted: BillOfferToSellBlockData =
-                last_version_block_offer_to_sell.get_decrypted_block_bytes(bill_keys)?;
-            Ok(WaitingForPayment::Yes(Box::new(PaymentInfo {
-                buyer: block_data_decrypted.buyer,
-                seller: block_data_decrypted.seller,
-                sum: block_data_decrypted.sum,
-                currency: block_data_decrypted.currency,
-                payment_address: block_data_decrypted.payment_address,
-            })))
-        } else {
-            Ok(WaitingForPayment::No)
+                let block_data_decrypted: BillOfferToSellBlockData =
+                    last_version_block_offer_to_sell.get_decrypted_block_bytes(bill_keys)?;
+                return Ok(WaitingForPayment::Yes(Box::new(PaymentInfo {
+                    buyer: block_data_decrypted.buyer,
+                    seller: block_data_decrypted.seller,
+                    sum: block_data_decrypted.sum,
+                    currency: block_data_decrypted.currency,
+                    payment_address: block_data_decrypted.payment_address,
+                })));
+            }
         }
+        Ok(WaitingForPayment::No)
     }
 
     /// This function checks if the payment deadline associated with the most recent sell block
@@ -382,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn _get_blocks_to_add_from_other_chain_changes() {
+    fn get_blocks_to_add_from_other_chain_changes() {
         let bill = BitcreditBill::new_empty();
         let identity = get_baseline_identity();
 

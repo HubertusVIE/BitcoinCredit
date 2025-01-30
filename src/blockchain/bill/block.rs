@@ -1,7 +1,8 @@
 use super::super::{Error, Result};
 use super::BillOpCode;
 use super::BillOpCode::{
-    Accept, Endorse, Issue, Mint, OfferToSell, RequestToAccept, RequestToPay, Sell,
+    Accept, Endorse, Issue, Mint, OfferToSell, Recourse, RejectToAccept, RejectToBuy, RejectToPay,
+    RejectToPayRecourse, RequestRecourse, RequestToAccept, RequestToPay, Sell,
 };
 
 use crate::blockchain::{Block, FIRST_BLOCK_ID};
@@ -39,6 +40,14 @@ pub struct BillBlockDataToHash {
     timestamp: u64,
     public_key: String,
     op_code: BillOpCode,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct BillRejectBlockData {
+    pub rejecter: BillIdentityBlockData,
+    pub signatory: Option<BillSignatoryBlockData>,
+    pub signing_timestamp: u64,
+    pub signing_address: PostalAddress,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -155,6 +164,28 @@ pub struct BillSellBlockData {
 pub struct BillEndorseBlockData {
     pub endorser: BillIdentityBlockData,
     pub endorsee: BillIdentityBlockData,
+    pub signatory: Option<BillSignatoryBlockData>,
+    pub signing_timestamp: u64,
+    pub signing_address: PostalAddress, // address of the endorser
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct BillRequestRecourseBlockData {
+    pub recourser: BillIdentityBlockData,
+    pub recoursee: BillIdentityBlockData,
+    pub sum: u64,
+    pub currency: String,
+    pub signatory: Option<BillSignatoryBlockData>,
+    pub signing_timestamp: u64,
+    pub signing_address: PostalAddress, // address of the endorser
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct BillRecourseBlockData {
+    pub recourser: BillIdentityBlockData,
+    pub recoursee: BillIdentityBlockData,
+    pub sum: u64,
+    pub currency: String,
     pub signatory: Option<BillSignatoryBlockData>,
     pub signing_timestamp: u64,
     pub signing_address: PostalAddress, // address of the endorser
@@ -347,6 +378,146 @@ impl BillBlock {
             bill_keys,
             timestamp,
         )
+    }
+
+    pub fn create_block_for_reject_to_accept(
+        bill_id: String,
+        previous_block: &Self,
+        data: &BillRejectBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: Option<&BcrKeys>,
+        bill_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            bill_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            bill_keys,
+            None,
+            timestamp,
+            BillOpCode::RejectToAccept,
+        )?;
+        Ok(block)
+    }
+
+    pub fn create_block_for_reject_to_pay(
+        bill_id: String,
+        previous_block: &Self,
+        data: &BillRejectBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: Option<&BcrKeys>,
+        bill_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            bill_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            bill_keys,
+            None,
+            timestamp,
+            BillOpCode::RejectToPay,
+        )?;
+        Ok(block)
+    }
+
+    pub fn create_block_for_reject_to_buy(
+        bill_id: String,
+        previous_block: &Self,
+        data: &BillRejectBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: Option<&BcrKeys>,
+        bill_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            bill_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            bill_keys,
+            None,
+            timestamp,
+            BillOpCode::RejectToBuy,
+        )?;
+        Ok(block)
+    }
+
+    pub fn create_block_for_reject_to_pay_recourse(
+        bill_id: String,
+        previous_block: &Self,
+        data: &BillRejectBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: Option<&BcrKeys>,
+        bill_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            bill_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            bill_keys,
+            None,
+            timestamp,
+            BillOpCode::RejectToPayRecourse,
+        )?;
+        Ok(block)
+    }
+
+    #[allow(dead_code)]
+    pub fn create_block_for_request_recourse(
+        bill_id: String,
+        previous_block: &Self,
+        data: &BillRequestRecourseBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: Option<&BcrKeys>,
+        bill_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            bill_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            bill_keys,
+            None,
+            timestamp,
+            BillOpCode::RequestRecourse,
+        )?;
+        Ok(block)
+    }
+
+    #[allow(dead_code)]
+    pub fn create_block_for_recourse(
+        bill_id: String,
+        previous_block: &Self,
+        data: &BillRecourseBlockData,
+        identity_keys: &BcrKeys,
+        company_keys: Option<&BcrKeys>,
+        bill_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<Self> {
+        let block = Self::encrypt_data_create_block_and_validate(
+            bill_id,
+            previous_block,
+            data,
+            identity_keys,
+            company_keys,
+            bill_keys,
+            None,
+            timestamp,
+            BillOpCode::Recourse,
+        )?;
+        Ok(block)
     }
 
     pub fn create_block_for_accept(
@@ -640,6 +811,23 @@ impl BillBlock {
                 nodes.insert(block_data_decrypted.buyer.node_id);
                 nodes.insert(block_data_decrypted.seller.node_id);
             }
+            RejectToAccept | RejectToBuy | RejectToPay | RejectToPayRecourse => {
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                nodes.insert(block_data_decrypted.rejecter.node_id);
+            }
+            RequestRecourse => {
+                let block_data_decrypted: BillRequestRecourseBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                nodes.insert(block_data_decrypted.recourser.node_id);
+                nodes.insert(block_data_decrypted.recoursee.node_id);
+            }
+            Recourse => {
+                let block_data_decrypted: BillRecourseBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                nodes.insert(block_data_decrypted.recourser.node_id);
+                nodes.insert(block_data_decrypted.recoursee.node_id);
+            }
         }
         Ok(nodes.into_iter().collect())
     }
@@ -724,6 +912,76 @@ impl BillBlock {
                 let seller = block_data_decrypted.seller;
 
                 Ok(format!("{}, {}", seller.name, seller.postal_address))
+            }
+            RejectToAccept => {
+                let time = util::date::seconds(self.timestamp);
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+
+                Ok(format!(
+                    "Bill rejected to accept by {} at {} in {}",
+                    block_data_decrypted.rejecter.name,
+                    time,
+                    block_data_decrypted.rejecter.postal_address
+                ))
+            }
+            RejectToPay => {
+                let time = util::date::seconds(self.timestamp);
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+
+                Ok(format!(
+                    "Bill rejected to pay by {} at {} in {}",
+                    block_data_decrypted.rejecter.name,
+                    time,
+                    block_data_decrypted.rejecter.postal_address
+                ))
+            }
+            RejectToBuy => {
+                let time = util::date::seconds(self.timestamp);
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+
+                Ok(format!(
+                    "Bill rejected to buy by {} at {} in {}",
+                    block_data_decrypted.rejecter.name,
+                    time,
+                    block_data_decrypted.rejecter.postal_address
+                ))
+            }
+            RejectToPayRecourse => {
+                let time = util::date::seconds(self.timestamp);
+                let block_data_decrypted: BillRejectBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+
+                Ok(format!(
+                    "Bill rejected to pay recourse by {} at {} in {}",
+                    block_data_decrypted.rejecter.name,
+                    time,
+                    block_data_decrypted.rejecter.postal_address
+                ))
+            }
+            RequestRecourse => {
+                let time = util::date::seconds(self.timestamp);
+                let block_data_decrypted: BillRequestRecourseBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                Ok(format!(
+                    "Bill requested recourse by {} at {} in {}",
+                    block_data_decrypted.recourser.name,
+                    time,
+                    block_data_decrypted.recourser.postal_address
+                ))
+            }
+            Recourse => {
+                let time = util::date::seconds(self.timestamp);
+                let block_data_decrypted: BillRecourseBlockData =
+                    self.get_decrypted_block_bytes(bill_keys)?;
+                Ok(format!(
+                    "Bill recoursed by {} at {} in {}",
+                    block_data_decrypted.recourser.name,
+                    time,
+                    block_data_decrypted.recourser.postal_address,
+                ))
             }
         }
     }
@@ -1283,7 +1541,7 @@ mod tests {
     }
 
     #[test]
-    fn get_nodes_from_block_sold() {
+    fn get_nodes_from_block_sell() {
         let mut buyer = IdentityPublicData::new_empty();
         let node_id = BcrKeys::new().get_public_key();
         buyer.node_id = node_id.clone();
@@ -1319,7 +1577,7 @@ mod tests {
     }
 
     #[test]
-    fn get_history_label_sold() {
+    fn get_history_label_sell() {
         let mut seller =
             IdentityPublicData::new_only_node_id(get_baseline_identity().key_pair.get_public_key());
         seller.name = "bill".to_string();
@@ -1361,6 +1619,378 @@ mod tests {
         assert_eq!(
             res.as_ref().unwrap(),
             "bill, Hayekweg 12, 1020 Vienna, Austria"
+        );
+    }
+
+    #[test]
+    fn get_nodes_from_block_reject_to_accept() {
+        let rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let block = BillBlock::create_block_for_reject_to_accept(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let res = block.get_nodes_from_block(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 1);
+        assert!(res.as_ref().unwrap().contains(&rejecter.node_id));
+    }
+
+    #[test]
+    fn get_history_label_reject_to_accept() {
+        let mut rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        rejecter.name = "bill".to_string();
+        rejecter.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: Some(String::from("1020")),
+            address: String::from("Hayekweg 12"),
+        };
+
+        let block = BillBlock::create_block_for_reject_to_accept(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+
+        let res = block.get_history_label(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "Bill rejected to accept by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
+        );
+    }
+
+    #[test]
+    fn get_nodes_from_block_reject_to_pay() {
+        let rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let block = BillBlock::create_block_for_reject_to_pay(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let res = block.get_nodes_from_block(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 1);
+        assert!(res.as_ref().unwrap().contains(&rejecter.node_id));
+    }
+
+    #[test]
+    fn get_history_label_reject_to_pay() {
+        let mut rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        rejecter.name = "bill".to_string();
+        rejecter.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: Some(String::from("1020")),
+            address: String::from("Hayekweg 12"),
+        };
+
+        let block = BillBlock::create_block_for_reject_to_pay(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+
+        let res = block.get_history_label(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "Bill rejected to pay by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
+        );
+    }
+
+    #[test]
+    fn get_nodes_from_block_reject_to_buy() {
+        let rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let block = BillBlock::create_block_for_reject_to_buy(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let res = block.get_nodes_from_block(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 1);
+        assert!(res.as_ref().unwrap().contains(&rejecter.node_id));
+    }
+
+    #[test]
+    fn get_history_label_reject_to_buy() {
+        let mut rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        rejecter.name = "bill".to_string();
+        rejecter.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: Some(String::from("1020")),
+            address: String::from("Hayekweg 12"),
+        };
+
+        let block = BillBlock::create_block_for_reject_to_buy(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+
+        let res = block.get_history_label(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "Bill rejected to buy by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
+        );
+    }
+
+    #[test]
+    fn get_nodes_from_block_reject_to_pay_recourse() {
+        let rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let block = BillBlock::create_block_for_reject_to_pay_recourse(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let res = block.get_nodes_from_block(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 1);
+        assert!(res.as_ref().unwrap().contains(&rejecter.node_id));
+    }
+
+    #[test]
+    fn get_history_label_reject_to_pay_recourse() {
+        let mut rejecter = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        rejecter.name = "bill".to_string();
+        rejecter.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: Some(String::from("1020")),
+            address: String::from("Hayekweg 12"),
+        };
+
+        let block = BillBlock::create_block_for_reject_to_pay_recourse(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRejectBlockData {
+                rejecter: rejecter.clone().into(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: rejecter.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+
+        let res = block.get_history_label(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "Bill rejected to pay recourse by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
+        );
+    }
+
+    #[test]
+    fn get_nodes_from_block_request_recourse() {
+        let recoursee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let recourser = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let block = BillBlock::create_block_for_request_recourse(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRequestRecourseBlockData {
+                recourser: recourser.clone().into(),
+                recoursee: recoursee.clone().into(),
+                sum: 15000,
+                currency: "sat".to_string(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: recourser.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let res = block.get_nodes_from_block(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 2);
+        assert!(res.as_ref().unwrap().contains(&recourser.node_id));
+        assert!(res.as_ref().unwrap().contains(&recoursee.node_id));
+    }
+
+    #[test]
+    fn get_history_label_request_recourse() {
+        let recoursee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let mut recourser = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        recourser.name = "bill".to_string();
+        recourser.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: Some(String::from("1020")),
+            address: String::from("Hayekweg 12"),
+        };
+
+        let block = BillBlock::create_block_for_request_recourse(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRequestRecourseBlockData {
+                recourser: recourser.clone().into(),
+                recoursee: recoursee.clone().into(),
+                sum: 15000,
+                currency: "sat".to_string(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: recourser.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+
+        let res = block.get_history_label(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "Bill requested recourse by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
+        );
+    }
+
+    #[test]
+    fn get_nodes_from_block_recourse() {
+        let recoursee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let recourser = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let block = BillBlock::create_block_for_recourse(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRecourseBlockData {
+                recourser: recourser.clone().into(),
+                recoursee: recoursee.clone().into(),
+                sum: 15000,
+                currency: "sat".to_string(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: recourser.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+        let res = block.get_nodes_from_block(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 2);
+        assert!(res.as_ref().unwrap().contains(&recourser.node_id));
+        assert!(res.as_ref().unwrap().contains(&recoursee.node_id));
+    }
+
+    #[test]
+    fn get_history_label_recourse() {
+        let recoursee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let mut recourser = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        recourser.name = "bill".to_string();
+        recourser.postal_address = PostalAddress {
+            country: String::from("Austria"),
+            city: String::from("Vienna"),
+            zip: Some(String::from("1020")),
+            address: String::from("Hayekweg 12"),
+        };
+
+        let block = BillBlock::create_block_for_recourse(
+            "some id".to_string(),
+            &get_first_block(),
+            &BillRecourseBlockData {
+                recourser: recourser.clone().into(),
+                recoursee: recoursee.clone().into(),
+                sum: 15000,
+                currency: "sat".to_string(),
+                signatory: None,
+                signing_timestamp: 1731593928,
+                signing_address: recourser.postal_address,
+            },
+            &get_baseline_identity().key_pair,
+            None,
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            1731593928,
+        )
+        .unwrap();
+
+        let res = block.get_history_label(&get_bill_keys());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.as_ref().unwrap(),
+            "Bill recoursed by bill at 2024-11-14 14:18:48 UTC in Hayekweg 12, 1020 Vienna, Austria"
         );
     }
 }
