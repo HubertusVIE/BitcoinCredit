@@ -178,7 +178,7 @@ pub async fn search(
 
 #[utoipa::path(
     tag = "Bills Light",
-    path = "bill/list/list",
+    path = "bill/list/light",
     description = "Get all bill details in a light version",
     responses(
         (status = 200, description = "List of bills light", body = BillsResponse<LightBitcreditBillToReturn>)

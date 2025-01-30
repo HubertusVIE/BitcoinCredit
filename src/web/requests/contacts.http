@@ -1,14 +1,27 @@
 ### Get contacts
-GET {{host}}/contacts/return
+GET {{host}}/contacts/list
 
 ### Create contact
-POST {{host}}/contacts/new
+POST {{host}}/contacts/create
 Content-Type: application/json
 Accept: application/json
 
 {
-  "name": "Docker1",
-  "node_id": "16Uiu2HAkwHkc3f4WQVaL89Cug8XvytNSsPfHe17wgThFRFbi7Zwq"
+    "type": 0,
+    "node_id": "039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943",
+    "name": "John Smith",
+    "email": "johnny_smith@example.com",
+    "country": "AT",
+    "city": "Vienna",
+    "zip": "1020",
+    "address": "Smithstreet 15, Top 22",
+    "date_of_birth_or_registration": "1998-10-17",
+    "country_of_birth_or_registration": "AT",
+    "city_of_birth_or_registration": "Vienna",
+    "identification_number": "12315412312",
+    "nostr_relays": [
+        "wss://bitcr-cloud-run-03-550030097098.europe-west1.run.app"
+    ]
 }
 
 ### Edit contact
@@ -17,8 +30,8 @@ Content-Type: application/json
 Accept: application/json
 
 {
-  "name": "Jane Doe",
-  "old_name": "DockerName",
+  "node_id": "03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
+  "name": "John Smith2"
 }
 
 ### Remove contact

@@ -22,9 +22,9 @@ pub mod notification;
 /// database name
 #[derive(Clone, Debug)]
 pub struct SurrealDbConfig {
-    connection_string: String,
-    namespace: String,
-    database: String,
+    pub connection_string: String,
+    pub namespace: String,
+    pub database: String,
 }
 
 impl SurrealDbConfig {

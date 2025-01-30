@@ -39,6 +39,10 @@ pub fn date_string_to_i64_timestamp(date_str: &str, format_str: Option<&str>) ->
     Some(date_utc.timestamp())
 }
 
+pub fn format_date_string(date: DateTimeUtc) -> String {
+    date.format(DEFAULT_DATE_FORMAT).to_string()
+}
+
 #[allow(dead_code)]
 pub fn date_time_string_to_i64_timestamp(
     date_time_str: &str,

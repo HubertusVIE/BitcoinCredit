@@ -71,7 +71,6 @@ ecies = { version = "0.2", features = ["std"] }
 bip39 = { version = "2.1.0", features = ["rand"] }
 hex = "0.4.3"
 
-
 [dev-dependencies]
 mockall = "0.13.0"
 nostr-relay-builder = "0.38.0"

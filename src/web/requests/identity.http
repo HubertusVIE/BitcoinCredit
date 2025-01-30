@@ -16,12 +16,32 @@ Accept: application/json
   "address": "Smithstreet 15, Top 22"
 }
 
-### Get identity
-GET {{host}}/identity/return
+### get active identity
+GET {{host}}/identity/active
 Accept: application/json
 
-### Get node id
-GET {{host}}/identity/peer_id/return
+### get identity
+GET {{host}}/identity/detail
+Accept: application/json
+
+### set seed backup
+GET {{host}}/identity/seed/backup
+
+### switch active identity
+PUT {{host}}/identity/switch
+Content-Type: application/json
+
+{
+  "node_id": "02c0b2884fb510672feceacdb3678b30b157b017bcb06a9fd44642aae18b522aaf"
+}
+
+### restore seed backup
+PUT {{host}}/identity/seed/recover
+Content-Type: application/json
+
+{
+  "seed_phrase": "joke arrow early differ negative flavor desert burden talk country try ridge"
+}
 
 ### Update identity
 PUT {{host}}/identity/change
@@ -37,3 +57,6 @@ Accept: application/json
   "zip": "1020",
   "address": "Smithstreet 15, Top 22"
 }
+
+### Backup identity
+GET {{host}}/identity/backup

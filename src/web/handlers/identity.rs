@@ -1,6 +1,7 @@
 use super::middleware::IdentityCheck;
 use crate::external;
 use crate::service::Result;
+use crate::util::date::{format_date_string, now};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
 use crate::web::data::{
     ChangeIdentityPayload, NewIdentityPayload, SeedPhrase, SwitchIdentity, UploadFileForm,
@@ -9,8 +10,9 @@ use crate::web::data::{
 use crate::{service::identity_service::IdentityToReturn, service::ServiceContext};
 use rocket::form::Form;
 use rocket::http::{ContentType, Status};
+use rocket::response::Responder;
 use rocket::serde::json::Json;
-use rocket::{get, post, put, State};
+use rocket::{get, post, put, Response, State};
 
 #[get("/file/<file_name>")]
 pub async fn get_file(
@@ -248,13 +250,38 @@ pub async fn recover_from_seed_phrase(
 #[utoipa::path(
     tag = "Identity",
     path = "/identity/backup",
-    description = "Creates an encrypted backup of all the data for current identity",
+    description = "Creates an encrypted backup of all the data for current identity and returns the backup file",
     responses(
-        (status = 200, description = "Backup has been created")
+        (status = 200, description = "The encrypted backup that has been created")
     ),
 )]
-#[post("/backup")]
-pub async fn backup_identity(state: &State<ServiceContext>) -> Result<Status> {
-    state.backup_service.backup().await?;
-    Ok(Status::Ok)
+#[get("/backup")]
+pub async fn backup_identity(state: &State<ServiceContext>) -> Result<BinaryFileResponse> {
+    let file_name = format!("bitcredit_backup_{}.ecies", format_date_string(now()));
+    let bytes = state.backup_service.backup().await?;
+    Ok(BinaryFileResponse {
+        data: bytes,
+        name: file_name.to_string(),
+    })
+}
+
+/// Just a wrapper struct to allow setting a content disposition header
+pub struct BinaryFileResponse {
+    data: Vec<u8>,
+    name: String,
+}
+
+/// Needed to respond with a binary file that can set a content disposition header
+/// to allow named downloads from a browser
+impl Responder<'_, 'static> for BinaryFileResponse {
+    fn respond_to(self, _: &rocket::Request<'_>) -> rocket::response::Result<'static> {
+        Response::build()
+            .header(ContentType::Binary)
+            .raw_header(
+                "Content-Disposition",
+                format!(r#"attachment; filename="{}""#, self.name),
+            )
+            .sized_body(self.data.len(), std::io::Cursor::new(self.data))
+            .ok()
+    }
 }

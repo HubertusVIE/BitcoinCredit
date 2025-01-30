@@ -8,6 +8,6 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BackupStoreApi: Send + Sync {
-    /// creates a backup of the currently active database and stores it in the given file
-    async fn backup(&self, file_name: String) -> Result<()>;
+    /// creates a backup of the currently active database
+    async fn backup(&self) -> Result<Vec<u8>>;
 }

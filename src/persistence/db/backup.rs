@@ -4,7 +4,6 @@ use super::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
 use surrealdb::{engine::any::Any, Surreal};
-use tokio::io::AsyncWriteExt;
 
 pub struct SurrealBackupStore {
     db: Surreal<Any>,
@@ -18,16 +17,32 @@ impl SurrealBackupStore {
 
 #[async_trait]
 impl BackupStoreApi for SurrealBackupStore {
-    async fn backup(&self, file_name: String) -> Result<()> {
-        let mut stream = self.db.export(()).await.unwrap();
-        let mut file = tokio::fs::File::create(file_name).await?;
+    /// create a file backup of the database and returns the file name
+    async fn backup(&self) -> Result<Vec<u8>> {
+        let mut stream = self.db.export(()).await?;
+        let mut buffer = Vec::new();
         while let Some(Ok(chunk)) = stream.next().await {
-            println!(
-                "Writing chunk to file {}",
-                String::from_utf8(chunk.clone()).unwrap()
-            );
-            file.write_all(&chunk).await?;
+            buffer.extend_from_slice(&chunk);
         }
-        Ok(())
+        Ok(buffer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::persistence::db::get_memory_db;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_backup() {
+        let db = get_memory_db("test", "backup")
+            .await
+            .expect("could not create get_memory_db");
+
+        let store = SurrealBackupStore::new(db);
+        let result = store.backup().await;
+        assert!(result.is_ok());
+        assert!(!result.unwrap().is_empty());
     }
 }
