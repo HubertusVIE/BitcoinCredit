@@ -17,7 +17,7 @@ impl SurrealBackupStore {
 
 #[async_trait]
 impl BackupStoreApi for SurrealBackupStore {
-    /// create a file backup of the database and returns the file name
+    /// returns the whole database as a byte vector backup ready for encryption
     async fn backup(&self) -> Result<Vec<u8>> {
         let mut stream = self.db.export(()).await?;
         let mut buffer = Vec::new();

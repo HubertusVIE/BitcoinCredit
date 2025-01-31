@@ -14,7 +14,7 @@ use mockall::automock;
 #[async_trait::async_trait]
 pub trait BackupServiceApi: Send + Sync {
     /// Creates an encrypted backup of the database and returns the
-    /// download path to the backup file.
+    /// data as a byte vector.
     async fn backup(&self) -> Result<Vec<u8>>;
 }
 
@@ -56,13 +56,7 @@ impl BackupService {
 impl BackupServiceApi for BackupService {
     async fn backup(&self) -> Result<Vec<u8>> {
         self.validate_surreal_db_connection()?;
-        let public_key = self
-            .identity_store
-            .get_full()
-            .await?
-            .key_pair
-            .get_public_key();
-
+        let public_key = self.identity_store.get_key_pair().await?.get_public_key();
         let bytes = self.store.backup().await?;
         let encrypted_bytes = util::crypto::encrypt_ecies(&bytes, &public_key)?;
         Ok(encrypted_bytes)
@@ -73,10 +67,7 @@ impl BackupServiceApi for BackupService {
 mod tests {
     use util::BcrKeys;
 
-    use crate::{
-        persistence::{backup::MockBackupStoreApi, identity::MockIdentityStoreApi},
-        service::identity_service::{Identity, IdentityWithAll},
-    };
+    use crate::persistence::{backup::MockBackupStoreApi, identity::MockIdentityStoreApi};
 
     use super::*;
 
@@ -91,13 +82,8 @@ mod tests {
         };
 
         identity_store
-            .expect_get_full()
-            .returning(|| {
-                Ok(IdentityWithAll {
-                    identity: Identity::new_empty(),
-                    key_pair: BcrKeys::new(),
-                })
-            })
+            .expect_get_key_pair()
+            .returning(|| Ok(BcrKeys::new()))
             .once();
 
         store
@@ -122,8 +108,7 @@ mod tests {
             namespace: "test".to_string(),
         };
 
-        identity_store.expect_get_full().never();
-
+        identity_store.expect_get_key_pair().never();
         store.expect_backup().never();
 
         let service =
