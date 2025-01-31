@@ -1,4 +1,4 @@
-use crate::constants::{BOOTSTRAP_FOLDER_PATH, QUOTES_MAP_FOLDER_PATH};
+use crate::constants::QUOTES_MAP_FOLDER_PATH;
 use anyhow::Result;
 use clap::Parser;
 use config::Config;
@@ -156,8 +156,5 @@ async fn main() -> Result<()> {
 fn init_folders() {
     if !Path::new(QUOTES_MAP_FOLDER_PATH).exists() {
         fs::create_dir(QUOTES_MAP_FOLDER_PATH).expect("Can't create folder quotes.");
-    }
-    if !Path::new(BOOTSTRAP_FOLDER_PATH).exists() {
-        fs::create_dir(BOOTSTRAP_FOLDER_PATH).expect("Can't create folder bootstrap.");
     }
 }

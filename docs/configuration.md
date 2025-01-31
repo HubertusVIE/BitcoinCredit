@@ -20,6 +20,8 @@ The following options are available:
 * `FRONTEND_URL_PATH` - default path to serve the frontend from (default: /)
 * `FRONTEND_SERVE_FOLDER` - folder where the static frontend is served from (default: ./frontend)
 * `LAUNCH_FRONTEND_AT_STARTUP` - open the frontend in a browser on startup (default: false)
+* `RELAY_BOOTSTRAP_ADDRESS` - the relay bootstrap address (default: /ip4/45.147.248.87/tcp/1908)
+* `RELAY_BOOTSTRAP_PEER_ID` - the relay bootstrap peer id (default: 12D3KooWL5y2jyVFtk541g9ySSoKGjNf61GEPG1XbPhop5MRfyA8)
 
 ## Example
 
