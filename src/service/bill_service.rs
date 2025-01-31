@@ -4,19 +4,22 @@ use super::identity_service::{Identity, IdentityWithAll};
 use super::notification_service::{self, ActionType, Notification, NotificationServiceApi};
 use crate::blockchain::bill::block::{
     BillAcceptBlockData, BillEndorseBlockData, BillIdentityBlockData, BillIssueBlockData,
-    BillMintBlockData, BillOfferToSellBlockData, BillRejectBlockData, BillRequestRecourseBlockData,
-    BillRequestToAcceptBlockData, BillRequestToPayBlockData, BillSellBlockData,
-    BillSignatoryBlockData,
+    BillMintBlockData, BillOfferToSellBlockData, BillRecourseBlockData, BillRejectBlockData,
+    BillRequestRecourseBlockData, BillRequestToAcceptBlockData, BillRequestToPayBlockData,
+    BillSellBlockData, BillSignatoryBlockData,
 };
 use crate::blockchain::bill::{
-    BillBlock, BillBlockchain, BillBlockchainToReturn, BillOpCode, WaitingForPayment,
+    BillBlock, BillBlockchain, BillBlockchainToReturn, BillOpCode, OfferToSellWaitingForPayment,
+    RecourseWaitingForPayment,
 };
 use crate::blockchain::company::{CompanyBlock, CompanySignCompanyBillBlockData};
 use crate::blockchain::identity::{
     IdentityBlock, IdentitySignCompanyBillBlockData, IdentitySignPersonBillBlockData,
 };
 use crate::blockchain::{self, Block, Blockchain};
-use crate::constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS};
+use crate::constants::{
+    ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS,
+};
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::persistence::bill::BillChainStoreApi;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
@@ -55,11 +58,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Generic error type
 #[derive(Debug, Error)]
 pub enum Error {
-    /// error returned if the combined bitcoin private key for a bill can't be returned to the
-    /// caller
-    #[error("Caller can not request combined bitcoin key for bill")]
-    CannotReturnCombinedBitcoinKeyForBill,
-
     /// errors that currently return early http status code Status::NotFound
     #[error("not found")]
     NotFound,
@@ -115,10 +113,28 @@ pub enum Error {
     #[error("Bill was not offered to sell")]
     BillWasNotOfferedToSell,
 
+    /// error returned someone wants to request acceptance recourse, but the request to accept did
+    /// not expire and was not rejected
+    #[error("Bill request to accept did not expire and was not rejected")]
+    BillRequestToAcceptDidNotExpireAndWasNotRejected,
+
+    /// error returned someone wants to request payment recourse, but the request to pay did
+    /// not expire and was not rejected
+    #[error("Bill request to pay did not expire and was not rejected")]
+    BillRequestToPayDidNotExpireAndWasNotRejected,
+
+    /// error returned if the given recoursee is not a past holder of the bill
+    #[error("The given recoursee is not a past holder of the bill")]
+    RecourseeNotPastHolder,
+
     /// error returned if the bill was not requester to recourse, e.g. when rejecting to pay for
     /// recourse
     #[error("Bill was not requested to recourse")]
     BillWasNotRequestedToRecourse,
+
+    /// error returned if the bill is not requested to recourse and is waiting for payment
+    #[error("Bill is not waiting for recourse payment")]
+    BillIsNotRequestedToRecourseAndWaitingForPayment,
 
     /// error returned if the bill is not currently an offer to sell waiting for payment
     #[error("Bill is not offer to sell waiting for payment")]
@@ -129,9 +145,18 @@ pub enum Error {
     #[error("Sell data does not match offer to sell")]
     BillSellDataInvalid,
 
+    /// error returned if the selling data of recoursing a bill does not match the request to
+    /// recourse
+    #[error("Recourse data does not match request to recourse")]
+    BillRecourseDataInvalid,
+
     /// error returned if the bill is offered to sell and waiting for payment
     #[error("Bill is offered to sell and waiting for payment")]
     BillIsOfferedToSellAndWaitingForPayment,
+
+    /// error returned if the bill is in recourse and waiting for payment
+    #[error("Bill is in recourse and waiting for payment")]
+    BillIsInRecourseAndWaitingForPayment,
 
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
@@ -169,11 +194,16 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             | Error::BillWasNotRequestedToPay
             | Error::BillWasNotRequestedToAccept
             | Error::BillWasNotRequestedToRecourse
-            | Error::CannotReturnCombinedBitcoinKeyForBill
             | Error::BillIsNotOfferToSellWaitingForPayment
             | Error::BillIsOfferedToSellAndWaitingForPayment
+            | Error::BillIsInRecourseAndWaitingForPayment
+            | Error::BillRequestToAcceptDidNotExpireAndWasNotRejected
+            | Error::BillRequestToPayDidNotExpireAndWasNotRejected
+            | Error::BillIsNotRequestedToRecourseAndWaitingForPayment
             | Error::BillSellDataInvalid
             | Error::BillAlreadyPaid
+            | Error::BillRecourseDataInvalid
+            | Error::RecourseeNotPastHolder
             | Error::CallerIsNotDrawee
             | Error::CallerIsNotBuyer
             | Error::CallerIsNotRecoursee
@@ -366,6 +396,29 @@ pub trait BillServiceApi: Send + Sync {
         timestamp: u64,
     ) -> Result<BillBlockchain>;
 
+    /// request recourse for a bill
+    async fn request_recourse(
+        &self,
+        bill_id: &str,
+        recoursee: &IdentityPublicData,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        recourse_reason: RecourseReason,
+        timestamp: u64,
+    ) -> Result<BillBlockchain>;
+
+    /// recourse bitcredit bill
+    async fn recourse_bitcredit_bill(
+        &self,
+        bill_id: &str,
+        recoursee: IdentityPublicData,
+        sum: u64,
+        currency: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain>;
+
     /// mint bitcredit bill
     async fn mint_bitcredit_bill(
         &self,
@@ -456,6 +509,10 @@ pub trait BillServiceApi: Send + Sync {
     /// Check payment status of bills that are waiting for a payment on an OfferToSell block, which
     /// haven't been expired, adding a Sell block if they were paid
     async fn check_bills_offer_to_sell_payment(&self) -> Result<()>;
+
+    /// Check payment status of bills that are waiting for a payment on an RequestRecourse block, which
+    /// haven't been expired, adding a Recourse block if they were paid
+    async fn check_bills_in_recourse_payment(&self) -> Result<()>;
 
     /// Check if actions expected on bills in certain states have expired and execute the necessary
     /// steps after timeout.
@@ -870,16 +927,22 @@ impl BillService {
         let time_of_drawing = first_version_bill.signing_timestamp;
         let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
 
+        let mut in_recourse = false;
+        let mut link_to_pay_recourse = "".to_string();
         let mut link_for_buy = "".to_string();
         let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
         let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
         let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
         let last_offer_to_sell_block_waiting_for_payment =
             chain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, current_timestamp)?;
+        let last_req_to_recourse_block_waiting_for_payment = chain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, current_timestamp)?;
         let mut waiting_for_payment = false;
         let mut buyer = None;
         let mut seller = None;
-        if let WaitingForPayment::Yes(payment_info) = last_offer_to_sell_block_waiting_for_payment {
+        if let OfferToSellWaitingForPayment::Yes(payment_info) =
+            last_offer_to_sell_block_waiting_for_payment
+        {
             waiting_for_payment = true;
             buyer = Some(
                 self.extend_bill_chain_identity_data_from_contacts_or_identity(
@@ -909,6 +972,46 @@ impl BillService {
             {
                 let message: String = format!("Payment in relation to a bill {}", &bill.id);
                 link_for_buy = self.bitcoin_client.generate_link_to_pay(
+                    &address_to_pay,
+                    payment_info.sum,
+                    &message,
+                );
+            }
+        }
+        let mut recourser = None;
+        let mut recoursee = None;
+        if let RecourseWaitingForPayment::Yes(payment_info) =
+            last_req_to_recourse_block_waiting_for_payment
+        {
+            in_recourse = true;
+            recourser = Some(
+                self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                    payment_info.recourser.clone(),
+                    local_identity,
+                )
+                .await,
+            );
+            recoursee = Some(
+                self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                    payment_info.recoursee.clone(),
+                    local_identity,
+                )
+                .await,
+            );
+
+            let address_to_pay = self
+                .bitcoin_client
+                .get_address_to_pay(&bill_keys.public_key, &payment_info.recourser.node_id)?;
+
+            if current_identity_node_id
+                .to_string()
+                .eq(&payment_info.recoursee.node_id)
+                || current_identity_node_id
+                    .to_string()
+                    .eq(&payment_info.recourser.node_id)
+            {
+                let message: String = format!("Payment in relation to a bill {}", &bill.id);
+                link_to_pay_recourse = self.bitcoin_client.generate_link_to_pay(
                     &address_to_pay,
                     payment_info.sum,
                     &message,
@@ -965,6 +1068,10 @@ impl BillService {
             paid,
             link_for_buy,
             link_to_pay,
+            in_recourse,
+            recourser,
+            recoursee,
+            link_to_pay_recourse,
             address_to_pay,
             chain_of_blocks: chain_to_return,
             files: bill.files,
@@ -1009,6 +1116,118 @@ impl BillService {
         Ok(())
     }
 
+    async fn check_bill_in_recourse_payment(
+        &self,
+        bill_id: &str,
+        identity: &IdentityWithAll,
+        now: u64,
+    ) -> Result<()> {
+        info!("Checking bill recourse payment for {bill_id}");
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        if let Ok(RecourseWaitingForPayment::Yes(payment_info)) =
+            chain.is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, now)
+        {
+            // calculate payment address
+            let payment_address = self
+                .bitcoin_client
+                .get_address_to_pay(&bill_keys.public_key, &payment_info.recourser.node_id)?;
+            // check if paid
+            if let Ok((paid, sum)) = self
+                .bitcoin_client
+                .check_if_paid(&payment_address, payment_info.sum)
+                .await
+            {
+                if paid && sum > 0 {
+                    // If we are the recourser and a bill issuer and it's paid, we add a Recourse block
+                    if payment_info.recourser.node_id == identity.identity.node_id {
+                        if let Some(signer_identity) =
+                            IdentityPublicData::new(identity.identity.clone())
+                        {
+                            let chain = self
+                                .recourse_bitcredit_bill(
+                                    bill_id,
+                                    self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                                        payment_info.recoursee.clone(),
+                                        &identity.identity,
+                                    )
+                                    .await,
+                                    payment_info.sum,
+                                    &payment_info.currency,
+                                    &signer_identity,
+                                    &identity.key_pair,
+                                    now,
+                                )
+                                .await?;
+
+                            if let Err(e) = self
+                                .propagate_block(bill_id, chain.get_latest_block())
+                                .await
+                            {
+                                error!("Error propagating block: {e}");
+                            }
+
+                            if let Err(e) = self
+                                .propagate_bill_for_node(bill_id, &payment_info.recoursee.node_id)
+                                .await
+                            {
+                                error!("Error propagating bill for node on DHT: {e}");
+                            }
+                        }
+                        return Ok(()); // return early
+                    }
+
+                    let local_companies: HashMap<String, (Company, CompanyKeys)> =
+                        self.company_store.get_all().await?;
+                    // If a local company is the recourser, create the recourse block as that company
+                    if let Some(recourser_company) =
+                        local_companies.get(&payment_info.recourser.node_id)
+                    {
+                        if recourser_company
+                            .0
+                            .signatories
+                            .iter()
+                            .any(|s| s == &identity.identity.node_id)
+                        {
+                            let chain = self
+                                .recourse_bitcredit_bill(
+                                    bill_id,
+                                    self.extend_bill_chain_identity_data_from_contacts_or_identity(
+                                        payment_info.recoursee.clone(),
+                                        &identity.identity,
+                                    )
+                                    .await,
+                                    payment_info.sum,
+                                    &payment_info.currency,
+                                    // signer identity (company)
+                                    &IdentityPublicData::from(recourser_company.0.clone()),
+                                    // signer keys (company keys)
+                                    &BcrKeys::from_private_key(&recourser_company.1.private_key)?,
+                                    now,
+                                )
+                                .await?;
+
+                            if let Err(e) = self
+                                .propagate_block(bill_id, chain.get_latest_block())
+                                .await
+                            {
+                                error!("Error propagating block: {e}");
+                            }
+
+                            if let Err(e) = self
+                                .propagate_bill_for_node(bill_id, &payment_info.recoursee.node_id)
+                                .await
+                            {
+                                error!("Error propagating bill for node on DHT: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn check_bill_offer_to_sell_payment(
         &self,
         bill_id: &str,
@@ -1018,7 +1237,7 @@ impl BillService {
         info!("Checking bill offer to sell payment for {bill_id}");
         let bill_keys = self.store.get_keys(bill_id).await?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
-        if let Ok(WaitingForPayment::Yes(payment_info)) =
+        if let Ok(OfferToSellWaitingForPayment::Yes(payment_info)) =
             chain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, now)
         {
             // check if paid
@@ -1131,6 +1350,9 @@ impl BillService {
             }
             BillOpCode::RequestToAccept if (latest_ts + ACCEPT_DEADLINE_SECONDS <= now) => {
                 Some(ActionType::AcceptBill)
+            }
+            BillOpCode::RequestRecourse if (latest_ts + RECOURSE_DEADLINE_SECONDS <= now) => {
+                Some(ActionType::RecourseBill)
             }
             _ => None,
         } {
@@ -1271,6 +1493,8 @@ impl BillService {
         let signer_node_id = signer_public_data.node_id.clone();
         let waiting_for_payment =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?;
+        let waiting_for_recourse = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?;
         let last_block = blockchain.get_latest_block();
 
         // validation
@@ -1281,8 +1505,12 @@ impl BillService {
         match op {
             BillOpCode::RejectToAccept => {
                 // not waiting for last offer to sell
-                if let WaitingForPayment::Yes(_) = waiting_for_payment {
+                if let OfferToSellWaitingForPayment::Yes(_) = waiting_for_payment {
                     return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+                }
+                // not in recourse
+                if let RecourseWaitingForPayment::Yes(_) = waiting_for_recourse {
+                    return Err(Error::BillIsInRecourseAndWaitingForPayment);
                 }
                 // caller has to be the drawee
                 if signer_node_id != bill.drawee.node_id {
@@ -1304,8 +1532,11 @@ impl BillService {
                 }
             }
             BillOpCode::RejectToBuy => {
+                if let RecourseWaitingForPayment::Yes(_) = waiting_for_recourse {
+                    return Err(Error::BillIsInRecourseAndWaitingForPayment);
+                }
                 // there has to be a offer to sell block that is not expired
-                if let WaitingForPayment::Yes(payment_info) = waiting_for_payment {
+                if let OfferToSellWaitingForPayment::Yes(payment_info) = waiting_for_payment {
                     // caller has to be buyer of the offer to sell
                     if signer_node_id != payment_info.buyer.node_id {
                         return Err(Error::CallerIsNotBuyer);
@@ -1315,8 +1546,11 @@ impl BillService {
                 }
             }
             BillOpCode::RejectToPay => {
+                if let RecourseWaitingForPayment::Yes(_) = waiting_for_recourse {
+                    return Err(Error::BillIsInRecourseAndWaitingForPayment);
+                }
                 // not waiting for last offer to sell
-                if let WaitingForPayment::Yes(_) = waiting_for_payment {
+                if let OfferToSellWaitingForPayment::Yes(_) = waiting_for_payment {
                     return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
                 }
                 // caller has to be the drawee
@@ -1331,7 +1565,7 @@ impl BillService {
                 if let Some(req_to_pay) =
                     blockchain.get_last_version_block_with_op_code(BillOpCode::RequestToPay)
                 {
-                    if req_to_pay.timestamp + ACCEPT_DEADLINE_SECONDS < timestamp {
+                    if req_to_pay.timestamp + PAYMENT_DEADLINE_SECONDS < timestamp {
                         return Err(Error::RequestAlreadyExpired);
                     }
                 } else {
@@ -1340,7 +1574,7 @@ impl BillService {
             }
             BillOpCode::RejectToPayRecourse => {
                 // not waiting for last offer to sell
-                if let WaitingForPayment::Yes(_) = waiting_for_payment {
+                if let OfferToSellWaitingForPayment::Yes(_) = waiting_for_payment {
                     return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
                 }
                 // there has to be a request to recourse that is not expired
@@ -1351,7 +1585,7 @@ impl BillService {
                     if blockchain.get_latest_block().id != req_to_recourse.id {
                         return Err(Error::BillWasNotRequestedToRecourse);
                     }
-                    if req_to_recourse.timestamp + ACCEPT_DEADLINE_SECONDS < timestamp {
+                    if req_to_recourse.timestamp + RECOURSE_DEADLINE_SECONDS < timestamp {
                         return Err(Error::RequestAlreadyExpired);
                     }
                     // caller has to be recoursee of the request to recourse block
@@ -1622,7 +1856,6 @@ impl BillServiceApi for BillService {
         caller_public_data: &IdentityPublicData,
         caller_keys: &BcrKeys,
     ) -> Result<BillCombinedBitcoinKey> {
-        let identity = self.identity_store.get().await?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -1635,28 +1868,12 @@ impl BillServiceApi for BillService {
             return Err(Error::NotFound);
         }
 
-        let bill = self
-            .get_last_version_bill(&chain, &bill_keys, &identity)
-            .await?;
-
-        let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
-
-        let holder_public_key = match bill.endorsee {
-            None => &bill.payee.node_id,
-            Some(ref endorsee) => &endorsee.node_id,
-        };
-
-        if (!endorsed && bill.payee.node_id.clone().eq(&caller_public_data.node_id))
-            || (endorsed && holder_public_key.eq(&caller_public_data.node_id))
-        {
-            let private_key = self.bitcoin_client.get_combined_private_key(
-                &caller_keys.get_bitcoin_private_key(CONFIG.bitcoin_network()),
-                &BcrKeys::from_private_key(&bill_keys.private_key)?
-                    .get_bitcoin_private_key(CONFIG.bitcoin_network()),
-            )?;
-            return Ok(BillCombinedBitcoinKey { private_key });
-        }
-        Err(Error::CannotReturnCombinedBitcoinKeyForBill)
+        let private_key = self.bitcoin_client.get_combined_private_key(
+            &caller_keys.get_bitcoin_private_key(CONFIG.bitcoin_network()),
+            &BcrKeys::from_private_key(&bill_keys.private_key)?
+                .get_bitcoin_private_key(CONFIG.bitcoin_network()),
+        )?;
+        return Ok(BillCombinedBitcoinKey { private_key });
     }
 
     async fn get_detail(
@@ -1921,10 +2138,15 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
-        if let WaitingForPayment::Yes(_) =
+        if let OfferToSellWaitingForPayment::Yes(_) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?
         {
             return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+        }
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
         }
 
         let bill = self
@@ -1993,10 +2215,15 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
-        if let WaitingForPayment::Yes(_) =
+        if let OfferToSellWaitingForPayment::Yes(_) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?
         {
             return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+        }
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
         }
 
         let bill = self
@@ -2062,10 +2289,15 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
-        if let WaitingForPayment::Yes(_) =
+        if let OfferToSellWaitingForPayment::Yes(_) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?
         {
             return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+        }
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
         }
 
         let bill = self
@@ -2118,6 +2350,223 @@ impl BillServiceApi for BillService {
         Err(Error::CallerIsNotHolder)
     }
 
+    async fn request_recourse(
+        &self,
+        bill_id: &str,
+        recoursee: &IdentityPublicData,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        recourse_reason: RecourseReason,
+        timestamp: u64,
+    ) -> Result<BillBlockchain> {
+        // data fetching
+        let identity = self.identity_store.get_full().await?;
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+        let past_holders =
+            self.get_past_endorsees_for_bill(&blockchain, &bill_keys, &signer_public_data.node_id)?;
+
+        // validation
+        if !past_holders
+            .iter()
+            .any(|h| h.pay_to_the_order_of.node_id == recoursee.node_id)
+        {
+            return Err(Error::RecourseeNotPastHolder);
+        }
+
+        // if the bill is offered for selling and waiting, we have to wait
+        if let OfferToSellWaitingForPayment::Yes(_) =
+            blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+        }
+        // if the bill is currently in recourse and the recourse request has not expired
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
+        }
+
+        let bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity.identity)
+            .await?;
+
+        let holder_node_id = match bill.endorsee {
+            None => &bill.payee.node_id,
+            Some(ref endorsee) => &endorsee.node_id,
+        };
+
+        // the caller has to be the bill holder
+        if signer_public_data.node_id != *holder_node_id {
+            return Err(Error::CallerIsNotHolder);
+        }
+
+        match recourse_reason {
+            RecourseReason::Accept => {
+                if let Some(req_to_accept) =
+                    blockchain.get_last_version_block_with_op_code(BillOpCode::RejectToAccept)
+                {
+                    // only if the request to accept expired or was rejected
+                    if (req_to_accept.timestamp + ACCEPT_DEADLINE_SECONDS >= timestamp)
+                        && !blockchain.block_with_operation_code_exists(BillOpCode::RejectToAccept)
+                    {
+                        return Err(Error::BillRequestToAcceptDidNotExpireAndWasNotRejected);
+                    }
+                } else {
+                    return Err(Error::BillWasNotRequestedToAccept);
+                }
+            }
+            RecourseReason::Pay(_, _) => {
+                if let Some(req_to_pay) =
+                    blockchain.get_last_version_block_with_op_code(BillOpCode::RejectToPay)
+                {
+                    // only if the bill is not paid already
+                    if let Ok(true) = self.store.is_paid(bill_id).await {
+                        return Err(Error::BillAlreadyPaid);
+                    }
+                    // only if the request to pay expired or was rejected
+                    if (req_to_pay.timestamp + PAYMENT_DEADLINE_SECONDS >= timestamp)
+                        && !blockchain.block_with_operation_code_exists(BillOpCode::RejectToPay)
+                    {
+                        return Err(Error::BillRequestToPayDidNotExpireAndWasNotRejected);
+                    }
+                } else {
+                    return Err(Error::BillWasNotRequestedToPay);
+                }
+            }
+        };
+
+        let (sum, currency) = match recourse_reason {
+            RecourseReason::Accept => (bill.sum, bill.currency.clone()),
+            RecourseReason::Pay(sum, ref currency) => (sum, currency.to_owned()),
+        };
+
+        // block creation
+        let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, &identity);
+        let previous_block = blockchain.get_latest_block();
+        let block = BillBlock::create_block_for_request_recourse(
+            bill_id.to_owned(),
+            previous_block,
+            &BillRequestRecourseBlockData {
+                recourser: signer_public_data.clone().into(),
+                recoursee: recoursee.clone().into(),
+                sum,
+                currency: currency.to_owned(),
+                signatory: signing_keys.signatory_identity,
+                signing_timestamp: timestamp,
+                signing_address: signer_public_data.postal_address.clone(),
+            },
+            &signing_keys.signatory_keys,
+            signing_keys.company_keys.as_ref(),
+            &BcrKeys::from_private_key(&bill_keys.private_key)?,
+            timestamp,
+        )?;
+        self.validate_and_add_block(bill_id, &mut blockchain, block.clone())
+            .await?;
+
+        self.add_identity_and_company_chain_blocks_for_signed_bill_action(
+            signer_public_data,
+            bill_id,
+            &block,
+            &identity.key_pair,
+            signer_keys,
+            timestamp,
+        )
+        .await?;
+
+        let action_type = match recourse_reason {
+            RecourseReason::Accept => ActionType::AcceptBill,
+            RecourseReason::Pay(_, _) => ActionType::PayBill,
+        };
+        self.notification_service
+            .send_recourse_action_event(bill_id, action_type, recoursee)
+            .await?;
+
+        Ok(blockchain)
+    }
+
+    async fn recourse_bitcredit_bill(
+        &self,
+        bill_id: &str,
+        recoursee: IdentityPublicData,
+        sum: u64,
+        currency: &str,
+        signer_public_data: &IdentityPublicData,
+        signer_keys: &BcrKeys,
+        timestamp: u64,
+    ) -> Result<BillBlockchain> {
+        let identity = self.identity_store.get_full().await?;
+
+        let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let bill_keys = self.store.get_keys(bill_id).await?;
+
+        let bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity.identity)
+            .await?;
+
+        if let RecourseWaitingForPayment::Yes(payment_info) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            if payment_info.sum != sum
+                || payment_info.currency != currency
+                || payment_info.recoursee.node_id != recoursee.node_id
+                || payment_info.recourser.node_id != signer_public_data.node_id
+            {
+                return Err(Error::BillRecourseDataInvalid);
+            }
+
+            let holder_node_id = match bill.endorsee {
+                None => &bill.payee.node_id,
+                Some(ref endorsee) => &endorsee.node_id,
+            };
+
+            // the caller has to be the bill holder
+            if signer_public_data.node_id != *holder_node_id {
+                return Err(Error::CallerIsNotHolder);
+            }
+
+            let signing_keys =
+                self.get_bill_signing_keys(signer_public_data, signer_keys, &identity);
+            let previous_block = blockchain.get_latest_block();
+            let block = BillBlock::create_block_for_recourse(
+                bill_id.to_owned(),
+                previous_block,
+                &BillRecourseBlockData {
+                    recourser: signer_public_data.clone().into(),
+                    recoursee: recoursee.clone().into(),
+                    sum,
+                    currency: currency.to_owned(),
+                    signatory: signing_keys.signatory_identity,
+                    signing_timestamp: timestamp,
+                    signing_address: signer_public_data.postal_address.clone(),
+                },
+                &signing_keys.signatory_keys,
+                signing_keys.company_keys.as_ref(),
+                &BcrKeys::from_private_key(&bill_keys.private_key)?,
+                timestamp,
+            )?;
+            self.validate_and_add_block(bill_id, &mut blockchain, block.clone())
+                .await?;
+
+            self.add_identity_and_company_chain_blocks_for_signed_bill_action(
+                signer_public_data,
+                bill_id,
+                &block,
+                &identity.key_pair,
+                signer_keys,
+                timestamp,
+            )
+            .await?;
+
+            self.notification_service
+                .send_bill_recourse_paid_event(bill_id, &recoursee)
+                .await?;
+
+            return Ok(blockchain);
+        }
+        Err(Error::BillIsNotRequestedToRecourseAndWaitingForPayment)
+    }
+
     async fn mint_bitcredit_bill(
         &self,
         bill_id: &str,
@@ -2133,10 +2582,15 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
-        if let WaitingForPayment::Yes(_) =
+        if let OfferToSellWaitingForPayment::Yes(_) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?
         {
             return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+        }
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
         }
 
         let bill = self
@@ -2207,10 +2661,15 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
-        if let WaitingForPayment::Yes(_) =
+        if let OfferToSellWaitingForPayment::Yes(_) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?
         {
             return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+        }
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
         }
 
         let bill = self
@@ -2287,7 +2746,13 @@ impl BillServiceApi for BillService {
             .get_last_version_bill(&blockchain, &bill_keys, &identity.identity)
             .await?;
 
-        if let Ok(WaitingForPayment::Yes(payment_info)) =
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
+        }
+
+        if let Ok(OfferToSellWaitingForPayment::Yes(payment_info)) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)
         {
             if payment_info.sum != sum
@@ -2311,7 +2776,7 @@ impl BillServiceApi for BillService {
                     previous_block,
                     &BillSellBlockData {
                         seller: signer_public_data.clone().into(),
-                        buyer: buyer.into(),
+                        buyer: buyer.clone().into(),
                         currency: currency.to_owned(),
                         sum,
                         payment_address: payment_address.to_owned(),
@@ -2337,11 +2802,8 @@ impl BillServiceApi for BillService {
                 )
                 .await?;
 
-                let last_version_bill = self
-                    .get_last_version_bill(&blockchain, &bill_keys, &identity.identity)
-                    .await?;
                 self.notification_service
-                    .send_bill_is_sold_event(&last_version_bill)
+                    .send_bill_is_sold_event(bill_id, &buyer)
                     .await?;
 
                 return Ok(blockchain);
@@ -2365,10 +2827,15 @@ impl BillServiceApi for BillService {
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
-        if let WaitingForPayment::Yes(_) =
+        if let OfferToSellWaitingForPayment::Yes(_) =
             blockchain.is_last_offer_to_sell_block_waiting_for_payment(&bill_keys, timestamp)?
         {
             return Err(Error::BillIsOfferedToSellAndWaitingForPayment);
+        }
+        if let RecourseWaitingForPayment::Yes(_) = blockchain
+            .is_last_request_to_recourse_block_waiting_for_payment(&bill_keys, timestamp)?
+        {
+            return Err(Error::BillIsInRecourseAndWaitingForPayment);
         }
 
         let bill = self
@@ -2519,11 +2986,31 @@ impl BillServiceApi for BillService {
         Ok(())
     }
 
+    async fn check_bills_in_recourse_payment(&self) -> Result<()> {
+        let identity = self.identity_store.get_full().await?;
+        let bill_ids_waiting_for_recourse_payment = self
+            .store
+            .get_bill_ids_waiting_for_recourse_payment()
+            .await?;
+        let now = external::time::TimeApi::get_atomic_time().await.timestamp;
+
+        for bill_id in bill_ids_waiting_for_recourse_payment {
+            if let Err(e) = self
+                .check_bill_in_recourse_payment(&bill_id, &identity, now)
+                .await
+            {
+                error!("Checking recourse payment for {bill_id} failed: {e}");
+            }
+        }
+        Ok(())
+    }
+
     async fn check_bills_timeouts(&self, now: u64) -> Result<()> {
         let op_codes = HashSet::from([
             BillOpCode::RequestToPay,
             BillOpCode::OfferToSell,
             BillOpCode::RequestToAccept,
+            BillOpCode::RequestRecourse,
         ]);
 
         let bill_ids_to_check = self
@@ -2563,6 +3050,12 @@ impl BillServiceApi for BillService {
 
         self.get_past_endorsees_for_bill(&chain, &bill_keys, current_identity_node_id)
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum RecourseReason {
+    Accept,
+    Pay(u64, String), // sum and currency
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
@@ -2655,8 +3148,12 @@ pub struct BitcreditBillToReturn {
     pub waiting_for_payment: bool,
     pub buyer: Option<IdentityPublicData>,
     pub seller: Option<IdentityPublicData>,
+    pub in_recourse: bool,
+    pub recourser: Option<IdentityPublicData>,
+    pub recoursee: Option<IdentityPublicData>,
     pub link_for_buy: String,
     pub link_to_pay: String,
+    pub link_to_pay_recourse: String,
     pub address_to_pay: String,
     pub chain_of_blocks: BillBlockchainToReturn,
     pub files: Vec<File>,
@@ -4811,7 +5308,7 @@ pub mod tests {
         // Request to sell event should be sent
         notification_service
             .expect_send_bill_is_sold_event()
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let service = get_service_base(
             storage,
@@ -4900,7 +5397,7 @@ pub mod tests {
         // Sold event should be sent
         notification_service
             .expect_send_bill_is_sold_event()
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let service = get_service_base(
             storage,
@@ -4964,7 +5461,7 @@ pub mod tests {
         // Request to sell event should be sent
         notification_service
             .expect_send_bill_is_sold_event()
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let service = get_service_base(
             storage,
@@ -5251,14 +5748,13 @@ pub mod tests {
         let (
             mut storage,
             mut chain_storage,
-            mut identity_storage,
+            identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
             contact_storage,
             company_storage,
         ) = get_storages();
-
         let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(identity.key_pair.get_public_key());
@@ -5271,11 +5767,6 @@ pub mod tests {
         chain_storage
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-
-        let identity_clone = identity.clone();
-        identity_storage
-            .expect_get()
-            .returning(move || Ok(identity_clone.identity.clone()));
 
         let service = get_service(
             storage,
@@ -5303,7 +5794,7 @@ pub mod tests {
         let (
             mut storage,
             mut chain_storage,
-            mut identity_storage,
+            identity_storage,
             file_upload_storage,
             identity_chain_store,
             company_chain_store,
@@ -5311,7 +5802,6 @@ pub mod tests {
             company_storage,
         ) = get_storages();
 
-        let identity = get_baseline_identity();
         let mut bill = get_baseline_bill("some id");
         bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
         storage.expect_get_keys().returning(|_| {
@@ -5323,10 +5813,6 @@ pub mod tests {
         chain_storage
             .expect_get_chain()
             .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-        let identity_clone = identity.clone();
-        identity_storage
-            .expect_get()
-            .returning(move || Ok(identity_clone.identity.clone()));
 
         let service = get_service(
             storage,
@@ -5339,11 +5825,12 @@ pub mod tests {
             company_storage,
         );
 
+        let non_participant_keys = BcrKeys::new();
         let res = service
             .get_combined_bitcoin_key_for_bill(
                 "some id",
-                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
-                &identity.key_pair,
+                &IdentityPublicData::new_only_node_id(non_participant_keys.get_public_key()),
+                &non_participant_keys,
             )
             .await;
         assert!(res.is_err());
@@ -5460,7 +5947,7 @@ pub mod tests {
         let mut notification_service = MockNotificationServiceApi::new();
         notification_service
             .expect_send_bill_is_sold_event()
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let service = get_service_base(
             storage,
@@ -5556,7 +6043,7 @@ pub mod tests {
         let mut notification_service = MockNotificationServiceApi::new();
         notification_service
             .expect_send_bill_is_sold_event()
-            .returning(|_| Ok(()));
+            .returning(|_, _| Ok(()));
 
         let service = get_service_base(
             storage,
@@ -5591,6 +6078,7 @@ pub mod tests {
             BillOpCode::RequestToAccept,
             BillOpCode::RequestToPay,
             BillOpCode::OfferToSell,
+            BillOpCode::RequestRecourse,
         ]);
 
         storage
@@ -5665,6 +6153,7 @@ pub mod tests {
             BillOpCode::RequestToAccept,
             BillOpCode::RequestToPay,
             BillOpCode::OfferToSell,
+            BillOpCode::RequestRecourse,
         ]);
 
         storage
@@ -5752,6 +6241,7 @@ pub mod tests {
             BillOpCode::RequestToAccept,
             BillOpCode::RequestToPay,
             BillOpCode::OfferToSell,
+            BillOpCode::RequestRecourse,
         ]);
 
         storage
@@ -6590,5 +7080,512 @@ pub mod tests {
             res.as_ref().unwrap().blocks()[2].op_code,
             BillOpCode::RejectToPayRecourse
         );
+    }
+
+    #[tokio::test]
+    async fn check_bills_in_recourse_payment_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+
+        let mut bill = get_baseline_bill("1234");
+        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+
+        storage
+            .expect_get_bill_ids_waiting_for_recourse_payment()
+            .returning(|| Ok(vec!["1234".to_string()]));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        let recoursee = BcrKeys::new().get_public_key();
+        chain_storage.expect_get_chain().returning(move |_| {
+            let now = util::date::now().timestamp() as u64;
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+            let req_to_recourse = BillBlock::create_block_for_request_recourse(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillRequestRecourseBlockData {
+                    recourser: IdentityPublicData::new(get_baseline_identity().identity)
+                        .unwrap()
+                        .into(),
+                    recoursee: IdentityPublicData::new_only_node_id(recoursee.clone()).into(),
+                    currency: "sat".to_string(),
+                    sum: 15000,
+                    signatory: None,
+                    signing_timestamp: now,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(req_to_recourse));
+            Ok(chain)
+        });
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        identity_storage
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity.clone()));
+        identity_storage
+            .expect_get_full()
+            .returning(|| Ok(get_baseline_identity().clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+        notification_service
+            .expect_send_bill_recourse_paid_event()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service.check_bills_in_recourse_payment().await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_bills_in_recourse_payment_company_is_recourser() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            mut company_storage,
+        ) = get_storages();
+
+        let mut identity = get_baseline_identity();
+        identity.key_pair = BcrKeys::new();
+        identity.identity.node_id = identity.key_pair.get_public_key();
+
+        let company = get_baseline_company_data();
+        let mut bill = get_baseline_bill("1234");
+        bill.payee = IdentityPublicData::from(company.1 .0.clone());
+
+        storage
+            .expect_get_bill_ids_waiting_for_recourse_payment()
+            .returning(|| Ok(vec!["1234".to_string()]));
+        let company_clone = company.clone();
+        company_storage.expect_get_all().returning(move || {
+            let mut map = HashMap::new();
+            map.insert(
+                company_clone.0.clone(),
+                (company_clone.1 .0.clone(), company_clone.1 .1.clone()),
+            );
+            Ok(map)
+        });
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        let company_clone = company.1 .0.clone();
+        let recoursee = BcrKeys::new().get_public_key();
+        chain_storage.expect_get_chain().returning(move |_| {
+            let now = util::date::now().timestamp() as u64;
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+            let req_to_recourse = BillBlock::create_block_for_request_recourse(
+                "1234".to_string(),
+                chain.get_latest_block(),
+                &BillRequestRecourseBlockData {
+                    recourser: IdentityPublicData::from(company_clone.clone()).into(),
+                    recoursee: IdentityPublicData::new_only_node_id(recoursee.clone()).into(),
+                    currency: "sat".to_string(),
+                    sum: 15000,
+                    signatory: Some(BillSignatoryBlockData {
+                        node_id: get_baseline_identity().identity.node_id.clone(),
+                        name: get_baseline_identity().identity.name.clone(),
+                    }),
+                    signing_timestamp: now,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                Some(&BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap()),
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                now,
+            )
+            .unwrap();
+            assert!(chain.try_add_block(req_to_recourse));
+            Ok(chain)
+        });
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        let identity_clone = identity.clone();
+        identity_storage
+            .expect_get_full()
+            .returning(move || Ok(identity_clone.clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+        notification_service
+            .expect_send_bill_recourse_paid_event()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service.check_bills_in_recourse_payment().await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn request_recourse_accept_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill("some id");
+        bill.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let recoursee = bill.payee.clone();
+        let endorsee_caller = IdentityPublicData::new(identity.identity.clone()).unwrap();
+
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        chain_storage.expect_get_chain().returning(move |_| {
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+            let endorse_block = BillBlock::create_block_for_endorse(
+                "some id".to_string(),
+                chain.get_latest_block(),
+                &BillEndorseBlockData {
+                    endorser: bill.payee.clone().into(),
+                    endorsee: endorsee_caller.clone().into(),
+                    signatory: None,
+                    signing_timestamp: 1731593927,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::new(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                1731593927,
+            )
+            .unwrap();
+            chain.try_add_block(endorse_block);
+            let req_to_accept = BillBlock::create_block_for_request_to_accept(
+                "some id".to_string(),
+                chain.get_latest_block(),
+                &BillRequestToAcceptBlockData {
+                    requester: bill.payee.clone().into(),
+                    signatory: None,
+                    signing_timestamp: 1731593927,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::new(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                1731593927,
+            )
+            .unwrap();
+            chain.try_add_block(req_to_accept);
+            let reject_accept = BillBlock::create_block_for_reject_to_accept(
+                "some id".to_string(),
+                chain.get_latest_block(),
+                &BillRejectBlockData {
+                    rejecter: bill.drawee.clone().into(),
+                    signatory: None,
+                    signing_timestamp: 1731593927,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::new(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                1731593927,
+            )
+            .unwrap();
+            chain.try_add_block(reject_accept);
+            Ok(chain)
+        });
+        let identity_clone = identity.clone();
+        identity_storage
+            .expect_get_full()
+            .returning(move || Ok(identity_clone.clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        // Request to recourse event should be sent
+        notification_service
+            .expect_send_recourse_action_event()
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .request_recourse(
+                "some id",
+                &recoursee,
+                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &identity.key_pair,
+                RecourseReason::Accept,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 5);
+        assert!(res.unwrap().blocks()[4].op_code == BillOpCode::RequestRecourse);
+    }
+
+    #[tokio::test]
+    async fn request_recourse_payment_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill("some id");
+        bill.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let recoursee = bill.payee.clone();
+        let endorsee_caller = IdentityPublicData::new(identity.identity.clone()).unwrap();
+
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        storage.expect_is_paid().returning(|_| Ok(false));
+        chain_storage.expect_get_chain().returning(move |_| {
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+            let endorse_block = BillBlock::create_block_for_endorse(
+                "some id".to_string(),
+                chain.get_latest_block(),
+                &BillEndorseBlockData {
+                    endorser: bill.payee.clone().into(),
+                    endorsee: endorsee_caller.clone().into(),
+                    signatory: None,
+                    signing_timestamp: 1731593927,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::new(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                1731593927,
+            )
+            .unwrap();
+            chain.try_add_block(endorse_block);
+            let req_to_pay = BillBlock::create_block_for_request_to_pay(
+                "some id".to_string(),
+                chain.get_latest_block(),
+                &BillRequestToPayBlockData {
+                    requester: bill.payee.clone().into(),
+                    currency: "sat".to_string(),
+                    signatory: None,
+                    signing_timestamp: 1731593927,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::new(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                1731593927,
+            )
+            .unwrap();
+            chain.try_add_block(req_to_pay);
+            let reject_pay = BillBlock::create_block_for_reject_to_pay(
+                "some id".to_string(),
+                chain.get_latest_block(),
+                &BillRejectBlockData {
+                    rejecter: bill.drawee.clone().into(),
+                    signatory: None,
+                    signing_timestamp: 1731593927,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::new(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                1731593927,
+            )
+            .unwrap();
+            chain.try_add_block(reject_pay);
+            Ok(chain)
+        });
+        let identity_clone = identity.clone();
+        identity_storage
+            .expect_get_full()
+            .returning(move || Ok(identity_clone.clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        // Request to recourse event should be sent
+        notification_service
+            .expect_send_recourse_action_event()
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .request_recourse(
+                "some id",
+                &recoursee,
+                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &identity.key_pair,
+                RecourseReason::Pay(15000, "sat".to_string()),
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert!(res.as_ref().unwrap().blocks().len() == 5);
+        assert!(res.unwrap().blocks()[4].op_code == BillOpCode::RequestRecourse);
+    }
+
+    #[tokio::test]
+    async fn recourse_bitcredit_bill_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let identity = get_baseline_identity();
+        let mut bill = get_baseline_bill("some id");
+        bill.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill.payee = IdentityPublicData::new(identity.identity.clone()).unwrap();
+        let recoursee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        let recoursee_clone = recoursee.clone();
+        let identity_clone = identity.identity.clone();
+
+        chain_storage.expect_add_block().returning(|_, _| Ok(()));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        storage.expect_is_paid().returning(|_| Ok(false));
+        chain_storage.expect_get_chain().returning(move |_| {
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+            let req_to_recourse = BillBlock::create_block_for_request_recourse(
+                "some id".to_string(),
+                chain.get_latest_block(),
+                &BillRequestRecourseBlockData {
+                    recourser: IdentityPublicData::new(identity_clone.clone())
+                        .unwrap()
+                        .into(),
+                    recoursee: recoursee_clone.clone().into(),
+                    sum: 15000,
+                    currency: "sat".to_string(),
+                    signatory: None,
+                    signing_timestamp: 1731593927,
+                    signing_address: PostalAddress::new_empty(),
+                },
+                &BcrKeys::new(),
+                None,
+                &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                1731593927,
+            )
+            .unwrap();
+            chain.try_add_block(req_to_recourse);
+            Ok(chain)
+        });
+        let identity_clone = identity.clone();
+        identity_storage
+            .expect_get_full()
+            .returning(move || Ok(identity_clone.clone()));
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        // Recourse paid event should be sent
+        notification_service
+            .expect_send_bill_recourse_paid_event()
+            .returning(|_, _| Ok(()));
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .recourse_bitcredit_bill(
+                "some id",
+                recoursee,
+                15000,
+                "sat",
+                &IdentityPublicData::new(identity.identity.clone()).unwrap(),
+                &identity.key_pair,
+                1731593928,
+            )
+            .await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().blocks().len(), 3);
+        assert_eq!(res.unwrap().blocks()[2].op_code, BillOpCode::Recourse);
     }
 }

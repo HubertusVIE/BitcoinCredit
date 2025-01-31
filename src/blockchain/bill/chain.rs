@@ -1,10 +1,12 @@
 use super::super::Result;
-use super::block::{BillBlock, BillIssueBlockData, BillOfferToSellBlockData};
-use super::BillOpCode;
+use super::block::{
+    BillBlock, BillIssueBlockData, BillOfferToSellBlockData, BillRequestRecourseBlockData,
+};
 use super::PaymentInfo;
-use super::WaitingForPayment;
+use super::{BillOpCode, RecourseWaitingForPayment};
+use super::{OfferToSellWaitingForPayment, RecoursePaymentInfo};
 use crate::blockchain::{Block, Blockchain, Error};
-use crate::constants::PAYMENT_DEADLINE_SECONDS;
+use crate::constants::{PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS};
 use crate::service::bill_service::BillKeys;
 use crate::util::{self, BcrKeys};
 use borsh_derive::{BorshDeserialize, BorshSerialize};
@@ -94,13 +96,50 @@ impl BillBlockchain {
             .any(|block| matches!(block.op_code, BillOpCode::Sell | BillOpCode::Endorse))
     }
 
+    /// Checks if the last block is a request to recourse block, if it's deadline is still active and if so,
+    /// returns the recoursee, recourser and sum
+    pub fn is_last_request_to_recourse_block_waiting_for_payment(
+        &self,
+        bill_keys: &BillKeys,
+        current_timestamp: u64,
+    ) -> Result<RecourseWaitingForPayment> {
+        let last_block = self.get_latest_block();
+        if let Some(last_version_block) =
+            self.get_last_version_block_with_op_code(BillOpCode::RequestRecourse)
+        {
+            // we only wait for payment, if the last block is a Request to Recourse block
+            if last_block.id == last_version_block.id {
+                // if the deadline is up, we're not waiting for payment anymore
+                if self.check_if_payment_deadline_has_passed(
+                    last_version_block.timestamp,
+                    current_timestamp,
+                    RECOURSE_DEADLINE_SECONDS,
+                ) {
+                    return Ok(RecourseWaitingForPayment::No);
+                }
+
+                let block_data_decrypted: BillRequestRecourseBlockData =
+                    last_version_block.get_decrypted_block_bytes(bill_keys)?;
+                return Ok(RecourseWaitingForPayment::Yes(Box::new(
+                    RecoursePaymentInfo {
+                        recoursee: block_data_decrypted.recoursee,
+                        recourser: block_data_decrypted.recourser,
+                        sum: block_data_decrypted.sum,
+                        currency: block_data_decrypted.currency,
+                    },
+                )));
+            }
+        }
+        Ok(RecourseWaitingForPayment::No)
+    }
+
     /// Checks if the last block is an offer to sell block, if it's deadline is still active and if so,
     /// returns the buyer, seller and sum
     pub fn is_last_offer_to_sell_block_waiting_for_payment(
         &self,
         bill_keys: &BillKeys,
         current_timestamp: u64,
-    ) -> Result<WaitingForPayment> {
+    ) -> Result<OfferToSellWaitingForPayment> {
         let last_block = self.get_latest_block();
         if let Some(last_version_block_offer_to_sell) =
             self.get_last_version_block_with_op_code(BillOpCode::OfferToSell)
@@ -111,13 +150,14 @@ impl BillBlockchain {
                 if self.check_if_payment_deadline_has_passed(
                     last_version_block_offer_to_sell.timestamp,
                     current_timestamp,
+                    PAYMENT_DEADLINE_SECONDS,
                 ) {
-                    return Ok(WaitingForPayment::No);
+                    return Ok(OfferToSellWaitingForPayment::No);
                 }
 
                 let block_data_decrypted: BillOfferToSellBlockData =
                     last_version_block_offer_to_sell.get_decrypted_block_bytes(bill_keys)?;
-                return Ok(WaitingForPayment::Yes(Box::new(PaymentInfo {
+                return Ok(OfferToSellWaitingForPayment::Yes(Box::new(PaymentInfo {
                     buyer: block_data_decrypted.buyer,
                     seller: block_data_decrypted.seller,
                     sum: block_data_decrypted.sum,
@@ -126,7 +166,7 @@ impl BillBlockchain {
                 })));
             }
         }
-        Ok(WaitingForPayment::No)
+        Ok(OfferToSellWaitingForPayment::No)
     }
 
     /// This function checks if the payment deadline associated with the most recent sell block
@@ -141,6 +181,7 @@ impl BillBlockchain {
         &self,
         block_timestamp: u64,
         current_timestamp: u64,
+        deadline_seconds: u64,
     ) -> bool {
         // We check this to avoid a u64 underflow, if the block timestamp is in the future, the
         // deadline can't be expired
@@ -148,7 +189,7 @@ impl BillBlockchain {
             return false;
         }
         let difference = current_timestamp - block_timestamp;
-        difference > PAYMENT_DEADLINE_SECONDS
+        difference > deadline_seconds
     }
 
     /// This function extracts the first block's data, decrypts it using the private key
@@ -289,7 +330,7 @@ mod tests {
         let result = chain.is_last_offer_to_sell_block_waiting_for_payment(&keys, 1751293728); // deadline
                                                                                                // passed
         assert!(result.is_ok());
-        assert_eq!(result.as_ref().unwrap(), &WaitingForPayment::No);
+        assert_eq!(result.as_ref().unwrap(), &OfferToSellWaitingForPayment::No);
     }
 
     #[test]
@@ -316,7 +357,7 @@ mod tests {
         let result = chain.is_last_offer_to_sell_block_waiting_for_payment(&keys, 1731593928);
 
         assert!(result.is_ok());
-        if let WaitingForPayment::Yes(info) = result.unwrap() {
+        if let OfferToSellWaitingForPayment::Yes(info) = result.unwrap() {
             assert_eq!(info.sum, 5000);
             assert_eq!(info.buyer.node_id, node_id_last_endorsee);
         } else {

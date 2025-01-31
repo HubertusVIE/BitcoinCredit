@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use super::Result;
 use crate::{
     blockchain::bill::BillOpCode,
-    constants::{DB_BILL_ID, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP, PAYMENT_DEADLINE_SECONDS},
+    constants::{
+        DB_BILL_ID, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP, PAYMENT_DEADLINE_SECONDS,
+        RECOURSE_DEADLINE_SECONDS,
+    },
     persistence::{bill::BillStoreApi, Error},
     service::bill_service::BillKeys,
     util,
@@ -142,6 +145,26 @@ impl BillStoreApi for SurrealBillStore {
         Ok(result.into_iter().map(|bid| bid.bill_id).collect())
     }
 
+    async fn get_bill_ids_waiting_for_recourse_payment(&self) -> Result<Vec<String>> {
+        let timestamp_now_minus_payment_deadline =
+            util::date::now().timestamp() - RECOURSE_DEADLINE_SECONDS as i64;
+        let query = r#"SELECT bill_id FROM 
+            (SELECT bill_id, math::max(block_id) as block_id, op_code, timestamp FROM type::table($table) GROUP BY bill_id)
+            .map(|$v| {
+                (SELECT bill_id, block_id, op_code, timestamp FROM bill_chain WHERE bill_id = $v.bill_id AND block_id = $v.block_id)[0]
+            })
+            .flatten() WHERE timestamp > $timestamp AND op_code = $op_code"#;
+        let result: Vec<BillIdDb> = self
+            .db
+            .query(query)
+            .bind((DB_TABLE, Self::CHAIN_TABLE))
+            .bind((DB_TIMESTAMP, timestamp_now_minus_payment_deadline))
+            .bind((DB_OP_CODE, BillOpCode::RequestRecourse))
+            .await?
+            .take(0)?;
+        Ok(result.into_iter().map(|bid| bid.bill_id).collect())
+    }
+
     async fn get_bill_ids_with_op_codes_since(
         &self,
         op_codes: HashSet<BillOpCode>,
@@ -205,7 +228,8 @@ pub mod tests {
     use crate::{
         blockchain::bill::{
             block::{
-                BillIssueBlockData, BillOfferToSellBlockData, BillRequestToAcceptBlockData,
+                BillIssueBlockData, BillOfferToSellBlockData, BillRecourseBlockData,
+                BillRequestRecourseBlockData, BillRequestToAcceptBlockData,
                 BillRequestToPayBlockData, BillSellBlockData,
             },
             tests::get_baseline_identity,
@@ -642,5 +666,135 @@ pub mod tests {
             1000,
         )
         .expect("block could not be created")
+    }
+
+    #[tokio::test]
+    async fn test_bills_waiting_for_payment_recourse() {
+        let db = get_db().await;
+        let chain_store = get_chain_store(db.clone()).await;
+        let store = get_store(db.clone()).await;
+        let now = util::date::now().timestamp() as u64;
+
+        let first_block = get_first_block("1234");
+        chain_store
+            .add_block("4321", &get_first_block("4321"))
+            .await
+            .unwrap(); // not returned, no req to recourse block
+        chain_store.add_block("1234", &first_block).await.unwrap();
+        let second_block = BillBlock::create_block_for_request_recourse(
+            "1234".to_string(),
+            &first_block,
+            &BillRequestRecourseBlockData {
+                recourser: IdentityPublicData::new_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+                recoursee: IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key())
+                    .into(),
+                currency: "sat".to_string(),
+                sum: 15000,
+                signatory: None,
+                signing_timestamp: now,
+                signing_address: PostalAddress::new_empty(),
+            },
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            None,
+            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            now,
+        )
+        .unwrap();
+        chain_store.add_block("1234", &second_block).await.unwrap();
+
+        let res = store.get_bill_ids_waiting_for_recourse_payment().await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 1);
+
+        chain_store
+            .add_block(
+                "1234",
+                &BillBlock::create_block_for_recourse(
+                    "1234".to_string(),
+                    &second_block,
+                    &BillRecourseBlockData {
+                        recourser: IdentityPublicData::new_only_node_id(
+                            BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                                .unwrap()
+                                .get_public_key(),
+                        )
+                        .into(),
+                        recoursee: IdentityPublicData::new_only_node_id(
+                            BcrKeys::new().get_public_key(),
+                        )
+                        .into(),
+                        currency: "sat".to_string(),
+                        sum: 15000,
+                        signatory: None,
+                        signing_timestamp: now,
+                        signing_address: PostalAddress::new_empty(),
+                    },
+                    &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+                    None,
+                    &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+                    now,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // add recourse block, shouldn't return anymore
+        let res_after_recourse = store.get_bill_ids_waiting_for_recourse_payment().await;
+        assert!(res_after_recourse.is_ok());
+        assert_eq!(res_after_recourse.as_ref().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_bills_waiting_for_payment_recourse_expired() {
+        let db = get_db().await;
+        let chain_store = get_chain_store(db.clone()).await;
+        let store = get_store(db.clone()).await;
+        let now_minus_one_month = util::date::now()
+            .checked_sub_months(Months::new(1))
+            .unwrap()
+            .timestamp() as u64;
+
+        let first_block = get_first_block("1234");
+        chain_store
+            .add_block("4321", &get_first_block("4321"))
+            .await
+            .unwrap(); // not returned, no offer to sell block
+        chain_store.add_block("1234", &first_block).await.unwrap();
+        let second_block = BillBlock::create_block_for_request_recourse(
+            "1234".to_string(),
+            &first_block,
+            &BillRequestRecourseBlockData {
+                recourser: IdentityPublicData::new_only_node_id(
+                    BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP)
+                        .unwrap()
+                        .get_public_key(),
+                )
+                .into(),
+                recoursee: IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key())
+                    .into(),
+                currency: "sat".to_string(),
+                sum: 15000,
+                signatory: None,
+                signing_timestamp: now_minus_one_month,
+                signing_address: PostalAddress::new_empty(),
+            },
+            &BcrKeys::from_private_key(TEST_PRIVATE_KEY_SECP).unwrap(),
+            None,
+            &BcrKeys::from_private_key(&get_bill_keys().private_key).unwrap(),
+            now_minus_one_month,
+        )
+        .unwrap();
+        chain_store.add_block("1234", &second_block).await.unwrap();
+
+        // nothing gets returned, because the req to recourse is expired
+        let res = store.get_bill_ids_waiting_for_recourse_payment().await;
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().len(), 0);
     }
 }

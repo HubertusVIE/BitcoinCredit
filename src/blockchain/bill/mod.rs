@@ -42,8 +42,14 @@ pub enum BillOpCode {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WaitingForPayment {
+pub enum OfferToSellWaitingForPayment {
     Yes(Box<PaymentInfo>),
+    No,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecourseWaitingForPayment {
+    Yes(Box<RecoursePaymentInfo>),
     No,
 }
 
@@ -54,6 +60,14 @@ pub struct PaymentInfo {
     pub sum: u64,
     pub currency: String,
     pub payment_address: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoursePaymentInfo {
+    pub recourser: BillIdentityBlockData,
+    pub recoursee: BillIdentityBlockData,
+    pub sum: u64,
+    pub currency: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]

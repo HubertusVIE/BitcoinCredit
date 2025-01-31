@@ -171,9 +171,21 @@ pub trait NotificationServiceApi: Send + Sync {
         buyer: &IdentityPublicData,
     ) -> Result<()>;
 
-    /// Sent when: A bill is sold by: Buyer (new holder)
-    /// Receiver: Seller (old holder), Action: CheckBill (with pr key to take money)
-    async fn send_bill_is_sold_event(&self, bill: &BitcreditBill) -> Result<()>;
+    /// Sent when: A bill is sold by: Seller (old holder)
+    /// Receiver: Buyer (new holder), Action: CheckBill
+    async fn send_bill_is_sold_event(
+        &self,
+        bill_id: &str,
+        buyer: &IdentityPublicData,
+    ) -> Result<()>;
+
+    /// Sent when: A bill recourse was paid, by: Recourser (old holder)
+    /// Receiver: Recoursee (new holder), Action: CheckBill
+    async fn send_bill_recourse_paid_event(
+        &self,
+        bill_id: &str,
+        recoursee: &IdentityPublicData,
+    ) -> Result<()>;
 
     /// In case a participant rejects one of the 'request to' actions (e.g. request to accept,
     /// request to pay) we send this event to all bill participants. Will only send the event

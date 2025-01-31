@@ -19,10 +19,12 @@ pub enum EventType {
     BillPaymentRejected,
     BillPaymentRecourse,
     BillRecourseRejected,
+    BillRecourseTimeout,
     BillPaymentTimeout,
     BillSellOffered,
     BillBuyingRejected,
     BillPaid,
+    BillRecoursePaid,
     BillEndorsed,
     BillSold,
     BillMintingRequested,
@@ -43,10 +45,12 @@ impl EventType {
             Self::BillPaymentRejected,
             Self::BillPaymentTimeout,
             Self::BillPaymentRecourse,
+            Self::BillRecourseTimeout,
             Self::BillRecourseRejected,
             Self::BillSellOffered,
             Self::BillBuyingRejected,
             Self::BillPaid,
+            Self::BillRecoursePaid,
             Self::BillEndorsed,
             Self::BillSold,
             Self::BillMintingRequested,
@@ -86,6 +90,7 @@ impl ActionType {
         match self {
             Self::AcceptBill => Some(EventType::BillAcceptanceTimeout),
             Self::PayBill => Some(EventType::BillPaymentTimeout),
+            Self::RecourseBill => Some(EventType::BillRecourseTimeout),
             _ => None,
         }
     }

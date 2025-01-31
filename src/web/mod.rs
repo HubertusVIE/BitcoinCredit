@@ -131,6 +131,8 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::reject_to_pay_bill,
                 handlers::bill::reject_to_buy_bill,
                 handlers::bill::reject_to_pay_recourse_bill,
+                handlers::bill::request_to_recourse_bill_payment,
+                handlers::bill::request_to_recourse_bill_acceptance,
             ],
         )
         .mount(
