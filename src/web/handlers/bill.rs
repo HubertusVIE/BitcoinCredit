@@ -743,13 +743,12 @@ pub async fn request_to_mint_bill(
         .get_bill_keys(&request_to_mint_bill_payload.bill_id)
         .await?;
 
-    let maturity_date_str = state
+    let bill = state
         .bill_service
         .get_bill(&request_to_mint_bill_payload.bill_id)
-        .await?
-        .maturity_date;
+        .await?;
 
-    let maturity_date_timestamp = date_string_to_i64_timestamp(&maturity_date_str, None).unwrap();
+    let maturity_date_timestamp = date_string_to_i64_timestamp(&bill.maturity_date, None).unwrap();
 
     // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
     // thread, but this logic will be replaced soon
@@ -758,6 +757,7 @@ pub async fn request_to_mint_bill(
             request_to_mint_bill_payload.into_inner(),
             bill_keys,
             maturity_date_timestamp,
+            bill.sum,
         )
     })
     .join()

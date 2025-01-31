@@ -140,6 +140,7 @@ pub async fn request_to_mint_bitcredit(
     payload: RequestToMintBitcreditBillPayload,
     bill_keys: LocalBillKeys,
     maturity_date_timestamp: i64,
+    bill_amount: u64,
 ) -> PostRequestToMintBitcreditResponse {
     let dir = PathBuf::from("./data/wallet".to_string());
     let db_path = dir.join("wallet.db").to_str().unwrap().to_string();
@@ -168,6 +169,7 @@ pub async fn request_to_mint_bitcredit(
         bill_id_hex.clone(),
         keys,
         maturity_date_timestamp,
+        bill_amount,
     );
 
     let quote: BitcreditEbillQuote = BitcreditEbillQuote {
