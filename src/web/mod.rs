@@ -164,10 +164,14 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
 
     info!("HTTP Server Listening on {}", conf.http_listen_url());
 
-    match open::that(format!("{}{}", conf.http_listen_url(), &CONFIG.frontend_url_path).as_str()) {
-        Ok(_) => {}
-        Err(_) => {
-            info!("Can't open browser.")
+    if CONFIG.launch_frontend_at_startup {
+        match open::that(
+            format!("{}{}", conf.http_listen_url(), &CONFIG.frontend_url_path).as_str(),
+        ) {
+            Ok(_) => {}
+            Err(_) => {
+                info!("Can't open browser.")
+            }
         }
     }
 
