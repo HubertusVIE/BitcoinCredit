@@ -11,6 +11,8 @@ The following options are available:
 * `RUST_LOG` - the log level, e.g.: info, trace, debug, error (default: error)
 * `NOSTR_RELAY` - nostr relay endpoint (default: ws://localhost:8080)
 * `MINT_URL` - cashu mint endpoint (default: http://127.0.0.1:3338)
+* `FRONTEND_URL_PATH` - default path to serve the frontend from (default: /)
+* `FRONTEND_SERVE_FOLDER` - folder where the static frontend is served from (default: ./frontend)
 
 ## Example
 

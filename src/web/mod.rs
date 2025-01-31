@@ -14,6 +14,7 @@ pub mod data;
 mod handlers;
 
 use crate::constants::MAX_FILE_SIZE_BYTES;
+use crate::CONFIG;
 use rocket::data::ByteUnit;
 use rocket::figment::Figment;
 use rocket::serde::json::Json;
@@ -73,7 +74,10 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::identity::upload_file,
             ],
         )
-        .mount("/bitcredit", FileServer::from("frontend_build"))
+        .mount(
+            &CONFIG.frontend_url_path,
+            FileServer::from(&CONFIG.frontend_serve_folder),
+        )
         .mount(
             "/contacts",
             routes![
@@ -159,7 +163,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
 
     info!("HTTP Server Listening on {}", conf.http_listen_url());
 
-    match open::that(format!("{}/bitcredit/", conf.http_listen_url()).as_str()) {
+    match open::that(format!("{}{}", conf.http_listen_url(), &CONFIG.frontend_url_path).as_str()) {
         Ok(_) => {}
         Err(_) => {
             info!("Can't open browser.")

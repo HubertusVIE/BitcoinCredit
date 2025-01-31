@@ -35,6 +35,10 @@ pub struct Config {
     pub job_runner_initial_delay_seconds: u64,
     #[arg(default_value_t = 600, long, env = "JOB_RUNNER_CHECK_INTERVAL_SECONDS")]
     pub job_runner_check_interval_seconds: u64,
+    #[arg(default_value_t = String::from("frontend"), long, env = "FRONTEND_SERVE_FOLDER")]
+    pub frontend_serve_folder: String,
+    #[arg(default_value_t = String::from("/"), long, env = "FRONTEND_URL_PATH")]
+    pub frontend_url_path: String,
 }
 
 impl Config {

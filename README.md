@@ -65,30 +65,14 @@ export P2P_ADDRESS=0.0.0.0
 cargo run --features embedded-db -- --surreal-db-connection rocksdb://data/surreal
 ```
 
-### Frontend
-
-Make sure to have a recent version of Node.js installed.
-
-Build the frontend:
-
-```bash
-cd frontend
-npm install --legacy-peer-deps
-npm run build
-```
 
 ### Development
 
-Start the app in development mode with frontend and backend hot reloading
+Start the app in development mode with hot reloading
 (requires two terminals):
 
 ```bash
-# Terminal 1
 RUST_LOG=info cargo watch -x run  # watch can be installed with cargo install cargo-watch
-
-# Terminal 2
-cd frontend
-npm run start
 ```
 
 ### Tests
