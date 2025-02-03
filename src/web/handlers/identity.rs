@@ -1,3 +1,5 @@
+use std::env;
+
 use super::middleware::IdentityCheck;
 use crate::external;
 use crate::service::Result;
@@ -263,6 +265,26 @@ pub async fn backup_identity(state: &State<ServiceContext>) -> Result<BinaryFile
         data: bytes,
         name: file_name.to_string(),
     })
+}
+
+#[utoipa::path(
+    post,
+    path = "/identity/restore",
+    request_body(content_type = "multipart/form-data", content = UploadFileForm, description = "Backup file to upload"),
+    responses(
+        (status = 200, description = "Indentity has been restored")
+    )
+)]
+#[post("/restore", data = "<data>")]
+pub async fn restore_identity(
+    state: &State<ServiceContext>,
+    mut data: Form<UploadFileForm<'_>>,
+) -> Result<()> {
+    let dir = env::temp_dir();
+    let target = dir.join("restore.ecies");
+    data.file.persist_to(target.as_path()).await?;
+    state.backup_service.restore(target.as_path()).await?;
+    Ok(())
 }
 
 /// Just a wrapper struct to allow setting a content disposition header

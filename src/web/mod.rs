@@ -73,6 +73,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::identity::get_file,
                 handlers::identity::upload_file,
                 handlers::identity::backup_identity,
+                handlers::identity::restore_identity,
             ],
         )
         .mount(

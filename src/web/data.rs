@@ -183,8 +183,9 @@ pub struct UploadBillFilesForm<'r> {
     pub files: Vec<TempFile<'r>>,
 }
 
-#[derive(Debug, FromForm)]
+#[derive(Debug, FromForm, ToSchema)]
 pub struct UploadFileForm<'r> {
+    #[schema(value_type = String, format = Binary)]
     pub file: TempFile<'r>,
 }
 

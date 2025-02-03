@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::persistence::backup::BackupStoreApi;
 
 use super::Result;
@@ -25,6 +27,16 @@ impl BackupStoreApi for SurrealBackupStore {
             buffer.extend_from_slice(&chunk);
         }
         Ok(buffer)
+    }
+
+    async fn restore(&self, file_path: &Path) -> Result<()> {
+        self.db.import(file_path).await?;
+        Ok(())
+    }
+
+    async fn drop_db(&self, name: &str) -> Result<()> {
+        let _ = self.db.query(format!("REMOVE DATABASE {}", name)).await?;
+        Ok(())
     }
 }
 

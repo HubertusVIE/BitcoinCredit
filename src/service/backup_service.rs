@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use crate::{
     persistence::{backup::BackupStoreApi, db::SurrealDbConfig, identity::IdentityStoreApi},
@@ -8,6 +8,10 @@ use crate::{
 use super::{Error, Result};
 #[cfg(test)]
 use mockall::automock;
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 /// Allows to backup and restore the database as an encrypted file.
 #[cfg_attr(test, automock)]
@@ -16,6 +20,9 @@ pub trait BackupServiceApi: Send + Sync {
     /// Creates an encrypted backup of the database and returns the
     /// data as a byte vector.
     async fn backup(&self) -> Result<Vec<u8>>;
+
+    /// Restores the database from the given encrypted file path.
+    async fn restore(&self, file: &Path) -> Result<()>;
 }
 
 pub struct BackupService {
@@ -60,6 +67,24 @@ impl BackupServiceApi for BackupService {
         let bytes = self.store.backup().await?;
         let encrypted_bytes = util::crypto::encrypt_ecies(&bytes, &public_key)?;
         Ok(encrypted_bytes)
+    }
+
+    async fn restore(&self, file_path: &Path) -> Result<()> {
+        let private_key = self
+            .identity_store
+            .get_key_pair()
+            .await?
+            .get_private_key_string();
+        let mut buffer = vec![];
+        let mut file = File::open(file_path).await?;
+        file.read_to_end(&mut buffer).await?;
+        let decrypted_bytes = util::crypto::decrypt_ecies(&buffer, &private_key)?;
+        let out_path = file_path.with_file_name("restore.surql");
+        let mut out = File::create(out_path.as_path()).await?;
+        out.write_all(&decrypted_bytes).await?;
+        self.store.drop_db(&self.surreal_db_config.database).await?;
+        self.store.restore(out_path.as_path()).await?;
+        Ok(())
     }
 }
 
