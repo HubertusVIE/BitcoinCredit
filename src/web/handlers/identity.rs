@@ -10,11 +10,12 @@ use crate::web::data::{
     UploadFilesResponse,
 };
 use crate::{service::identity_service::IdentityToReturn, service::ServiceContext};
+use log::info;
 use rocket::form::Form;
 use rocket::http::{ContentType, Status};
 use rocket::response::Responder;
 use rocket::serde::json::Json;
-use rocket::{get, post, put, Response, State};
+use rocket::{get, post, put, Response, Shutdown, State};
 
 #[get("/file/<file_name>")]
 pub async fn get_file(
@@ -279,12 +280,16 @@ pub async fn backup_identity(state: &State<ServiceContext>) -> Result<BinaryFile
 #[post("/restore", data = "<data>")]
 pub async fn restore_identity(
     state: &State<ServiceContext>,
+    shutdown: Shutdown,
     mut data: Form<UploadFileForm<'_>>,
 ) -> Result<()> {
     let dir = env::temp_dir();
     let target = dir.join("restore.ecies");
     data.file.persist_to(target.as_path()).await?;
     state.backup_service.restore(target.as_path()).await?;
+    info!("Identity has been restored. Restarting system ...");
+    shutdown.notify();
+    state.shutdown();
     Ok(())
 }
 
