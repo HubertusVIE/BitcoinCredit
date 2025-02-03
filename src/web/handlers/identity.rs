@@ -269,6 +269,7 @@ pub async fn backup_identity(state: &State<ServiceContext>) -> Result<BinaryFile
 
 #[utoipa::path(
     post,
+    tag = "Identity",
     path = "/identity/restore",
     request_body(content_type = "multipart/form-data", content = UploadFileForm, description = "Backup file to upload"),
     responses(
