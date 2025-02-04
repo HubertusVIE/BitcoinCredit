@@ -253,7 +253,7 @@ pub struct BillCombinedBitcoinKey {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SwitchIdentity {
     #[serde(rename = "type")]
-    pub t: IdentityType,
+    pub t: Option<IdentityType>,
     pub node_id: String,
 }
 

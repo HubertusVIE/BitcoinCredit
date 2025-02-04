@@ -172,7 +172,10 @@ pub async fn active(state: &State<ServiceContext>) -> Result<Json<SwitchIdentity
         None => (current_identity_state.personal, IdentityType::Person),
         Some(company_node_id) => (company_node_id, IdentityType::Company),
     };
-    Ok(Json(SwitchIdentity { t, node_id }))
+    Ok(Json(SwitchIdentity {
+        t: Some(t),
+        node_id,
+    }))
 }
 
 #[utoipa::path(
