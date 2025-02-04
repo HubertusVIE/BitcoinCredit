@@ -29,7 +29,7 @@ pub struct Config {
     pub environment: String,
     #[arg(default_value_t = String::from("ws://localhost:8080"), long, env = "NOSTR_RELAY")]
     pub nostr_relay: String,
-    #[arg(default_value_t = String::from("http://127.0.0.1:3338"), long, env = "MINT_URL")]
+    #[arg(default_value_t = String::from("https://moksha.minibill.tech"), long, env = "MINT_URL")]
     pub mint_url: String,
     #[arg(default_value_t = 1, long, env = "JOB_RUNNER_INITIAL_DELAY_SECONDS")]
     pub job_runner_initial_delay_seconds: u64,
