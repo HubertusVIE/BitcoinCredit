@@ -1,3 +1,4 @@
+use crate::service::identity_service::IdentityType;
 use crate::service::{
     bill_service::LightBitcreditBillToReturn,
     company_service::CompanyToReturn,
@@ -251,6 +252,8 @@ pub struct BillCombinedBitcoinKey {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SwitchIdentity {
+    #[serde(rename = "type")]
+    pub t: IdentityType,
     pub node_id: String,
 }
 

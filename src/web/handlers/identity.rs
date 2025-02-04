@@ -2,6 +2,7 @@ use std::env;
 
 use super::middleware::IdentityCheck;
 use crate::external;
+use crate::service::identity_service::IdentityType;
 use crate::service::Result;
 use crate::util::date::{format_date_string, now};
 use crate::util::file::{detect_content_type_for_bytes, UploadFileHandler};
@@ -167,11 +168,11 @@ pub async fn change_identity(
 #[get("/active")]
 pub async fn active(state: &State<ServiceContext>) -> Result<Json<SwitchIdentity>> {
     let current_identity_state = state.get_current_identity().await;
-    let node_id = match current_identity_state.company {
-        None => current_identity_state.personal,
-        Some(company_node_id) => company_node_id,
+    let (node_id, t) = match current_identity_state.company {
+        None => (current_identity_state.personal, IdentityType::Person),
+        Some(company_node_id) => (company_node_id, IdentityType::Company),
     };
-    Ok(Json(SwitchIdentity { node_id }))
+    Ok(Json(SwitchIdentity { t, node_id }))
 }
 
 #[utoipa::path(
