@@ -3227,7 +3227,7 @@ impl BitcreditBillToReturn {
     }
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, ToSchema)]
 pub struct BitcreditEbillQuote {
     pub bill_id: String,
     pub quote_id: String,

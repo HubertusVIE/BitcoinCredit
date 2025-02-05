@@ -10,6 +10,18 @@ use rocket::serde::json::Json;
 use rocket::{get, put, State};
 use std::thread;
 
+#[utoipa::path(
+    tag = "Quotes",
+    path = "/quote/return/{id}",
+    description = "Get a quote by id",
+    params(
+        ("id" = String, Path, description = "Id of the quote to return")
+    ),
+    responses(
+        (status = 200, description = "The quote with given id", body = BitcreditEbillQuote),
+        (status = 404, description = "Quote not found")
+    ),
+)]
 #[get("/return/<id>")]
 pub async fn return_quote(
     _identity: IdentityCheck,
@@ -36,6 +48,18 @@ pub async fn return_quote(
     Ok(Json(quote))
 }
 
+#[utoipa::path(
+    tag = "Quotes",
+    path = "/quote/accept/{id}",
+    description = "Accept a quote by id",
+    params(
+        ("id" = String, Path, description = "Id of the quote to accept")
+    ),
+    responses(
+        (status = 200, description = "The accepted quote", body = BitcreditEbillQuote),
+        (status = 404, description = "Quote not found")
+    ),
+)]
 #[put("/accept/<id>")]
 pub async fn accept_quote(
     _identity: IdentityCheck,

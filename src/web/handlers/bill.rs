@@ -717,7 +717,15 @@ pub async fn accept_bill(
 }
 
 // Mint
-
+#[utoipa::path(
+    tag = "Bills",
+    path = "/bill/request_to_mint",
+    description = "Request to mint",
+    responses(
+        (status = 200, description = "Success")
+    ),
+    request_body(description = "Request to mint payload", content((RequestToMintBitcreditBillPayload))),
+)]
 #[put(
     "/request_to_mint",
     format = "json",
@@ -766,6 +774,15 @@ pub async fn request_to_mint_bill(
 }
 
 //This is function for mint software
+#[utoipa::path(
+    tag = "Bills",
+    path = "/bill/accept_mint",
+    description = "Accept request to mint",
+    responses(
+        (status = 200, description = "Success")
+    ),
+    request_body(description = "Accept request to mint payload", content((AcceptMintBitcreditBillPayload))),
+)]
 #[put("/accept_mint", format = "json", data = "<accept_mint_bill_payload>")]
 pub async fn accept_mint_bill(
     _identity: IdentityCheck,
