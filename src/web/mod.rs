@@ -178,7 +178,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDocs::openapi()),
         )
-        .attach(cors.to_cors().unwrap());
+        .attach(cors.to_cors().expect("Cors setup failed"));
 
     info!("HTTP Server Listening on {}", conf.http_listen_url());
 
