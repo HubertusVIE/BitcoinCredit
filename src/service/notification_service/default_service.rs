@@ -291,8 +291,8 @@ impl NotificationServiceApi for DefaultNotificationService {
         Ok(())
     }
 
-    async fn get_client_notifications(&self) -> Result<Vec<Notification>> {
-        let result = self.notification_store.list().await?;
+    async fn get_client_notifications(&self, active: Option<bool>) -> Result<Vec<Notification>> {
+        let result = self.notification_store.list(active).await?;
         Ok(result)
     }
 
@@ -346,6 +346,7 @@ mod tests {
 
     use crate::persistence::nostr::MockNostrEventOffsetStoreApi;
     use crate::persistence::notification::MockNotificationStoreApi;
+    use crate::service::bill_service::MockBillServiceApi;
     use crate::service::contact_service::MockContactServiceApi;
     use crate::service::notification_service::create_nostr_consumer;
     use crate::service::notification_service::push_notification::MockPushApi;
@@ -777,11 +778,12 @@ mod tests {
     #[tokio::test]
     async fn get_client_notifications() {
         let mut mock_store = MockNotificationStoreApi::new();
-        let result = Notification::new_bill_notification("bill_id", "desc", None);
+        let result = Notification::new_bill_notification("bill_id", "node_id", "desc", None);
         let returning = result.clone();
         mock_store
             .expect_list()
-            .returning(move || Ok(vec![returning.clone()]));
+            .with(eq(Some(true)))
+            .returning(move |_| Ok(vec![returning.clone()]));
 
         let service = DefaultNotificationService::new(
             Box::new(MockNotificationJsonTransportApi::new()),
@@ -789,7 +791,7 @@ mod tests {
         );
 
         let res = service
-            .get_client_notifications()
+            .get_client_notifications(Some(true))
             .await
             .expect("could not get notifications");
         assert!(!res.is_empty());
@@ -861,12 +863,14 @@ mod tests {
         let store = Arc::new(MockNostrEventOffsetStoreApi::new());
         let notification_store = Arc::new(MockNotificationStoreApi::new());
         let push_service = Arc::new(MockPushApi::new());
+        let bill_service = Arc::new(MockBillServiceApi::new());
         let _ = create_nostr_consumer(
             client,
             contact_service,
             store,
             notification_store,
             push_service,
+            bill_service,
         )
         .await;
     }

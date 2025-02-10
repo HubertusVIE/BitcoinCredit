@@ -39,6 +39,7 @@ pub use transport::NotificationJsonTransportApi;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::bill_service::BillServiceApi;
 use super::contact_service::ContactServiceApi;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -117,6 +118,7 @@ pub async fn create_nostr_consumer(
     nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     notification_store: Arc<dyn NotificationStoreApi>,
     push_service: Arc<dyn PushApi>,
+    bill_service: Arc<dyn BillServiceApi>,
 ) -> Result<NostrConsumer> {
     // register the logging event handler for all events for now. Later we will probably
     // setup the handlers outside and pass them to the consumer via this functions arguments.
@@ -126,6 +128,7 @@ pub async fn create_nostr_consumer(
         }),
         Box::new(BillActionEventHandler::new(
             notification_store,
+            bill_service,
             push_service,
         )),
     ];
@@ -243,7 +246,7 @@ pub trait NotificationServiceApi: Send + Sync {
     async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> Result<()>;
 
     /// Returns active client notifications
-    async fn get_client_notifications(&self) -> Result<Vec<Notification>>;
+    async fn get_client_notifications(&self, active: Option<bool>) -> Result<Vec<Notification>>;
 
     /// Marks the notification with given id as done
     async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
@@ -278,6 +281,8 @@ pub trait NotificationServiceApi: Send + Sync {
 pub struct Notification {
     /// The unique id of the notification
     pub id: String,
+    /// Id of the identity that the notification is for
+    pub node_id: Option<String>,
     /// The type/topic of the notification
     pub notification_type: NotificationType,
     /// An optional reference to some other entity
@@ -295,9 +300,15 @@ pub struct Notification {
 }
 
 impl Notification {
-    pub fn new_bill_notification(bill_id: &str, description: &str, payload: Option<Value>) -> Self {
+    pub fn new_bill_notification(
+        bill_id: &str,
+        node_id: &str,
+        description: &str,
+        payload: Option<Value>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
+            node_id: Some(node_id.to_string()),
             notification_type: NotificationType::Bill,
             reference_id: Some(bill_id.to_string()),
             description: description.to_string(),

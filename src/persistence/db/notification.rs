@@ -46,10 +46,18 @@ impl NotificationStoreApi for SurrealNotificationStore {
         }
     }
     /// Returns all currently active notifications from the database
-    async fn list(&self) -> Result<Vec<Notification>> {
+    async fn list(&self, active: Option<bool>) -> Result<Vec<Notification>> {
+        let active_query = if let Some(flag) = active {
+            format!("WHERE active = {}", flag)
+        } else {
+            "".to_string()
+        };
         let result: Vec<NotificationDb> = self
             .db
-            .query("SELECT * FROM type::table($table) WHERE active = true ORDER BY datetime DESC")
+            .query(format!(
+                "SELECT * FROM type::table($table) {} ORDER BY datetime DESC",
+                active_query
+            ))
             .bind(("table", Self::TABLE))
             .await?
             .take(0)?;
@@ -135,6 +143,7 @@ impl NotificationStoreApi for SurrealNotificationStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NotificationDb {
     pub id: Thing,
+    pub node_id: Option<String>,
     pub notification_type: NotificationType,
     pub reference_id: Option<String>,
     pub description: String,
@@ -147,6 +156,7 @@ impl From<NotificationDb> for Notification {
     fn from(value: NotificationDb) -> Self {
         Self {
             id: value.id.id.to_raw(),
+            node_id: value.node_id,
             notification_type: value.notification_type,
             reference_id: value.reference_id,
             description: value.description,
@@ -165,6 +175,7 @@ impl From<Notification> for NotificationDb {
                 value.id.to_owned(),
             )
                 .into(),
+            node_id: value.node_id,
             notification_type: value.notification_type,
             reference_id: value.reference_id,
             description: value.description,
@@ -251,7 +262,10 @@ mod tests {
             .await
             .expect("could not create notification");
 
-        let all = store.list().await.expect("could not list notifications");
+        let all = store
+            .list(None)
+            .await
+            .expect("could not list notifications");
         assert!(!all.is_empty());
         assert_eq!(notification.id, r.id);
     }
@@ -265,14 +279,20 @@ mod tests {
             .await
             .expect("could not create notification");
 
-        let all = store.list().await.expect("could not list notifications");
+        let all = store
+            .list(None)
+            .await
+            .expect("could not list notifications");
         assert!(!all.is_empty());
 
         store
             .delete(&r.id)
             .await
             .expect("could not delete notification");
-        let all = store.list().await.expect("could not list notifications");
+        let all = store
+            .list(None)
+            .await
+            .expect("could not list notifications");
         assert!(all.is_empty());
     }
 
@@ -285,7 +305,10 @@ mod tests {
             .await
             .expect("could not create notification");
 
-        let all = store.list().await.expect("could not list notifications");
+        let all = store
+            .list(Some(true))
+            .await
+            .expect("could not list notifications");
         assert!(!all.is_empty());
 
         store
@@ -293,7 +316,10 @@ mod tests {
             .await
             .expect("could not mark notification as done");
 
-        let all = store.list().await.expect("could not list notifications");
+        let all = store
+            .list(Some(true))
+            .await
+            .expect("could not list notifications");
         assert!(all.is_empty());
     }
 
@@ -369,7 +395,7 @@ mod tests {
     }
 
     fn test_notification(bill_id: &str, payload: Option<Value>) -> Notification {
-        Notification::new_bill_notification(bill_id, "test_notification", payload)
+        Notification::new_bill_notification(bill_id, "node_id", "test_notification", payload)
     }
 
     fn test_payload() -> Value {
@@ -379,6 +405,7 @@ mod tests {
     fn test_general_notification() -> Notification {
         Notification {
             id: Uuid::new_v4().to_string(),
+            node_id: Some("node_id".to_string()),
             notification_type: NotificationType::General,
             reference_id: Some("general".to_string()),
             description: "general desc".to_string(),

@@ -12,13 +12,19 @@ use serde_json::Value;
     description = "Get all active notifications",
     responses(
         (status = 200, description = "List of notifications", body = Vec<Notification>)
+    ),
+    params(
+        ("active" = bool, description = "Returns only active notifications when true, inactive when false and all when left out")
     )
 )]
-#[get("/notifications")]
-pub async fn list_notifications(state: &State<ServiceContext>) -> Result<Json<Vec<Notification>>> {
+#[get("/notifications?<active>")]
+pub async fn list_notifications(
+    state: &State<ServiceContext>,
+    active: Option<bool>,
+) -> Result<Json<Vec<Notification>>> {
     let notifications: Vec<Notification> = state
         .notification_service
-        .get_client_notifications()
+        .get_client_notifications(active)
         .await?;
     Ok(Json(notifications))
 }

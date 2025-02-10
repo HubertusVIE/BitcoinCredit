@@ -11,7 +11,7 @@ pub trait NotificationStoreApi: Send + Sync {
     /// Stores a new notification into the database
     async fn add(&self, notification: Notification) -> Result<Notification>;
     /// Returns all currently active notifications from the database
-    async fn list(&self) -> Result<Vec<Notification>>;
+    async fn list(&self, active: Option<bool>) -> Result<Vec<Notification>>;
     /// Returns the latest active notification for the given reference and notification type
     async fn get_latest_by_reference(
         &self,
