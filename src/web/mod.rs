@@ -4,7 +4,7 @@ use log::info;
 use rocket::fs::FileServer;
 use rocket::http::{Method, Status};
 use rocket::{catch, catchers, routes, Build, Config, Request, Rocket};
-use rocket_cors::{AllowedOrigins, CorsOptions};
+use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
 use serde::Serialize;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -55,6 +55,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
 
     let cors = CorsOptions::default()
         .allowed_origins(AllowedOrigins::all())
+        .allowed_headers(AllowedHeaders::all())
         .allowed_methods(
             vec![
                 Method::Get,
@@ -68,11 +69,16 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             .map(From::from)
             .collect(),
         )
-        .allow_credentials(true);
+        .allow_credentials(true)
+        .to_cors()
+        .expect("Cors setup failed");
 
     let rocket = rocket::custom(config)
+        .attach(cors.clone())
+        .mount("/", rocket_cors::catch_all_options_routes())
         .register("/", catchers![default_catcher, not_found])
         .manage(context)
+        .manage(cors)
         .mount("/exit", routes![handlers::exit])
         .mount("/currencies", routes![handlers::currencies])
         .mount("/overview", routes![handlers::overview])
@@ -150,6 +156,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::holder,
                 handlers::bill::search,
                 handlers::bill::get_past_endorsees_for_bill,
+                handlers::bill::get_endorsements_for_bill,
                 handlers::bill::reject_to_accept_bill,
                 handlers::bill::reject_to_pay_bill,
                 handlers::bill::reject_to_buy_bill,
@@ -178,8 +185,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .mount(
             "/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDocs::openapi()),
-        )
-        .attach(cors.to_cors().expect("Cors setup failed"));
+        );
 
     info!("HTTP Server Listening on {}", conf.http_listen_url());
 
