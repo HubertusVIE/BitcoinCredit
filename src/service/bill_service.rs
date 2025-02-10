@@ -306,13 +306,8 @@ pub trait BillServiceApi: Send + Sync {
     /// Gets the bill for the given bill id
     async fn get_bill(&self, bill_id: &str) -> Result<BitcreditBill>;
 
-    /// Try to get the given bill from the dht and saves it locally, if found
-    async fn find_bill_in_dht(
-        &self,
-        bill_id: &str,
-        caller_public_data: &IdentityPublicData,
-        caller_keys: &BcrKeys,
-    ) -> Result<()>;
+    /// Try to get the given bill chain from the dht and sync the blocks, if found
+    async fn find_and_sync_with_bill_in_dht(&self, bill_id: &str) -> Result<()>;
 
     /// Gets the keys for a given bill
     async fn get_bill_keys(&self, bill_id: &str) -> Result<BillKeys>;
@@ -1930,20 +1925,12 @@ impl BillServiceApi for BillService {
         Ok(bill)
     }
 
-    async fn find_bill_in_dht(
-        &self,
-        bill_id: &str,
-        caller_public_data: &IdentityPublicData,
-        caller_keys: &BcrKeys,
-    ) -> Result<()> {
-        self.client
-            .clone()
-            .get_bill_data_from_the_network(
-                bill_id,
-                &caller_public_data.node_id,
-                &caller_keys.get_private_key_string(),
-            )
-            .await?;
+    async fn find_and_sync_with_bill_in_dht(&self, bill_id: &str) -> Result<()> {
+        if !self.store.exists(bill_id).await {
+            return Err(Error::NotFound);
+        }
+        let mut dht_client = self.client.clone();
+        dht_client.receive_updates_for_bill_topic(bill_id).await?;
         Ok(())
     }
 
