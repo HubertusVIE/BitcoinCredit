@@ -840,11 +840,7 @@ impl BillService {
             }
         };
 
-        let mut payee = bill_first_version.payee;
-
-        if let Some(ref endorsee) = last_endorsee {
-            payee = endorsee.clone();
-        }
+        let payee = bill_first_version.payee;
 
         let drawee_contact = self
             .extend_bill_chain_identity_data_from_contacts_or_identity(
