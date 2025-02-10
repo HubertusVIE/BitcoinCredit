@@ -145,7 +145,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
                 handlers::bill::check_payment,
                 handlers::bill::bitcoin_key,
                 handlers::bill::numbers_to_words_for_sum,
-                handlers::bill::find_bill_in_dht,
+                handlers::bill::find_and_sync_with_bill_in_dht,
                 handlers::bill::check_dht_for_bills,
                 handlers::bill::holder,
                 handlers::bill::search,

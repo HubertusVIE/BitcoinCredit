@@ -249,15 +249,14 @@ pub async fn numbers_to_words_for_sum(
 }
 
 #[get("/dht/<bill_id>")]
-pub async fn find_bill_in_dht(
+pub async fn find_and_sync_with_bill_in_dht(
     _identity: IdentityCheck,
     state: &State<ServiceContext>,
     bill_id: &str,
 ) -> Result<Status> {
-    let (caller_public_data, caller_keys) = get_signer_public_data_and_keys(state).await?;
     state
         .bill_service
-        .find_bill_in_dht(bill_id, &caller_public_data, &caller_keys)
+        .find_and_sync_with_bill_in_dht(bill_id)
         .await?;
     Ok(Status::Ok)
 }
