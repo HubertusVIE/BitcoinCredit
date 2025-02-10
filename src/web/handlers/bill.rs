@@ -363,7 +363,7 @@ pub async fn issue_bill(
 
     if bill_payload.drawee == bill_payload.payee {
         return Err(service::Error::Validation(String::from(
-            "Drawer can't be Payee at the same time",
+            "Drawee can't be Payee at the same time",
         )));
     }
 
