@@ -219,6 +219,23 @@ pub async fn list(
     Ok(Json(BillsResponse { bills }))
 }
 
+#[utoipa::path(
+    tag = "All Bills from all identities",
+    path = "/bill/list_all",
+    description = "Get all local bills regardless of the selected identity",
+    responses(
+        (status = 200, description = "List of all local bills", body = BillsResponse<BitcreditBillToReturn>)
+    )
+)]
+#[get("/list_all")]
+pub async fn all_bills_from_all_identities(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+) -> Result<Json<BillsResponse<BitcreditBillToReturn>>> {
+    let bills = state.bill_service.get_bills_from_all_identities().await?;
+    Ok(Json(BillsResponse { bills }))
+}
+
 #[get("/numbers_to_words_for_sum/<id>")]
 pub async fn numbers_to_words_for_sum(
     _identity: IdentityCheck,

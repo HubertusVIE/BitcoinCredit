@@ -283,6 +283,9 @@ pub trait BillServiceApi: Send + Sync {
     async fn get_bills(&self, current_identity_node_id: &str)
         -> Result<Vec<BitcreditBillToReturn>>;
 
+    /// Gets all bills from all identities
+    async fn get_bills_from_all_identities(&self) -> Result<Vec<BitcreditBillToReturn>>;
+
     /// Gets the combined bitcoin private key for a given bill
     async fn get_combined_bitcoin_key_for_bill(
         &self,
@@ -1813,6 +1816,22 @@ impl BillServiceApi for BillService {
         }
 
         Ok(result)
+    }
+
+    async fn get_bills_from_all_identities(&self) -> Result<Vec<BitcreditBillToReturn>> {
+        let mut res = vec![];
+        let bill_ids = self.store.get_ids().await?;
+        let identity = self.identity_store.get().await?;
+        let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+
+        for bill_id in bill_ids {
+            let bill = self
+                .get_full_bill(&bill_id, &identity, &identity.node_id, current_timestamp)
+                .await?;
+            res.push(bill)
+        }
+
+        Ok(res)
     }
 
     async fn get_bills(
@@ -4082,6 +4101,87 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn get_bills_from_all_identities_baseline() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
+        let company_node_id = BcrKeys::new().get_public_key();
+        let mut bill1 = get_baseline_bill("1234");
+        bill1.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill1.drawer = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill1.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let mut bill2 = get_baseline_bill("5555");
+        bill2.drawee = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill2.drawer = IdentityPublicData::new_only_node_id(BcrKeys::new().get_public_key());
+        bill2.payee = IdentityPublicData::new_only_node_id(company_node_id.clone());
+
+        let mut notification_service = MockNotificationServiceApi::new();
+
+        identity_storage
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "1234")
+            .returning(move |_| {
+                let chain = get_genesis_chain(Some(bill1.clone()));
+                Ok(chain)
+            });
+        chain_storage
+            .expect_get_chain()
+            .withf(|id| id == "5555")
+            .returning(move |_| {
+                let chain = get_genesis_chain(Some(bill2.clone()));
+                Ok(chain)
+            });
+        storage
+            .expect_get_ids()
+            .returning(|| Ok(vec!["1234".to_string(), "5555".to_string()]));
+        storage.expect_is_paid().returning(|_| Ok(true));
+
+        notification_service
+            .expect_get_active_bill_notification()
+            .returning(|_| None);
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res_personal = service
+            .get_bills(&get_baseline_identity().identity.node_id)
+            .await;
+        let res_company = service.get_bills(&company_node_id).await;
+        let res_both = service.get_bills_from_all_identities().await;
+        assert!(res_personal.is_ok());
+        assert!(res_company.is_ok());
+        assert!(res_both.is_ok());
+        assert!(res_personal.as_ref().unwrap().len() == 1);
+        assert!(res_company.as_ref().unwrap().len() == 1);
+        assert!(res_both.as_ref().unwrap().len() == 2);
+    }
+
+    #[tokio::test]
     async fn get_bills_baseline() {
         let (
             mut storage,
@@ -4093,8 +4193,71 @@ pub mod tests {
             contact_storage,
             company_storage,
         ) = get_storages();
+        let mut bill = get_baseline_bill("1234");
+        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+
         let mut notification_service = MockNotificationServiceApi::new();
+
+        identity_storage
+            .expect_get()
+            .returning(|| Ok(get_baseline_identity().identity));
+        storage.expect_get_keys().returning(|_| {
+            Ok(BillKeys {
+                private_key: TEST_PRIVATE_KEY_SECP.to_owned(),
+                public_key: TEST_PUB_KEY_SECP.to_owned(),
+            })
+        });
+        chain_storage.expect_get_chain().returning(move |_| {
+            let chain = get_genesis_chain(Some(bill.clone()));
+            Ok(chain)
+        });
+        storage
+            .expect_get_ids()
+            .returning(|| Ok(vec!["1234".to_string()]));
+        storage.expect_is_paid().returning(|_| Ok(true));
+
+        notification_service
+            .expect_get_active_bill_notification()
+            .with(eq("1234"))
+            .returning(|_| None);
+
+        let service = get_service_base(
+            storage,
+            chain_storage,
+            identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            notification_service,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        );
+
+        let res = service
+            .get_bills(&get_baseline_identity().identity.node_id)
+            .await;
+        assert!(res.is_ok());
+        let returned_bills = res.unwrap();
+        assert!(returned_bills.len() == 1);
+        assert_eq!(returned_bills[0].id, "1234".to_string());
+    }
+
+    #[tokio::test]
+    async fn get_bills_baseline_company() {
+        let (
+            mut storage,
+            mut chain_storage,
+            mut identity_storage,
+            file_upload_storage,
+            identity_chain_store,
+            company_chain_store,
+            contact_storage,
+            company_storage,
+        ) = get_storages();
         let company_node_id = BcrKeys::new().get_public_key();
+        let mut bill = get_baseline_bill("1234");
+        bill.payee = IdentityPublicData::new(get_baseline_identity().identity).unwrap();
+        let mut notification_service = MockNotificationServiceApi::new();
 
         identity_storage
             .expect_get()

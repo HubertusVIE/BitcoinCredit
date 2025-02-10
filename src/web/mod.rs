@@ -127,6 +127,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .mount(
             "/bill",
             routes![
+                handlers::bill::all_bills_from_all_identities,
                 handlers::bill::issue_bill,
                 handlers::bill::bill_detail,
                 handlers::bill::list,
