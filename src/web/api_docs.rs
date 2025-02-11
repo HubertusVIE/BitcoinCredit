@@ -18,6 +18,8 @@ use utoipa::OpenApi;
         handlers::bill::list_light,
         handlers::bill::search,
         handlers::bill::bill_detail,
+        handlers::bill::get_past_endorsees_for_bill,
+        handlers::bill::get_endorsements_for_bill,
         handlers::identity::return_identity,
         handlers::identity::create_identity,
         handlers::identity::change_identity,
