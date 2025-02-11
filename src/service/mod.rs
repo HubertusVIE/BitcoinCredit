@@ -83,6 +83,10 @@ pub enum Error {
     /// std io
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// error returned if the given file upload id is not a temp file we have
+    #[error("No file found for file upload id")]
+    NoFileForFileUploadId,
 }
 
 /// Map from service errors directly to rocket status codes. This allows us to
@@ -91,6 +95,15 @@ pub enum Error {
 impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     fn respond_to(self, req: &rocket::Request) -> rocket::response::Result<'o> {
         match self {
+            Error::NoFileForFileUploadId => {
+                let body =
+                    ErrorResponse::new("bad_request", self.to_string(), 400).to_json_string();
+                Response::build()
+                    .status(Status::BadRequest)
+                    .header(ContentType::JSON)
+                    .sized_body(body.len(), Cursor::new(body))
+                    .ok()
+            }
             // for now, DHT errors are InternalServerError
             Error::Dht(e) => {
                 error!("{e}");

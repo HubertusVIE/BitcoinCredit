@@ -158,6 +158,10 @@ pub enum Error {
     #[error("Bill is in recourse and waiting for payment")]
     BillIsInRecourseAndWaitingForPayment,
 
+    /// error returned if the given file upload id is not a temp file we have
+    #[error("No file found for file upload id")]
+    NoFileForFileUploadId,
+
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] blockchain::Error),
@@ -209,6 +213,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
             | Error::CallerIsNotRecoursee
             | Error::RequestAlreadyRejected
             | Error::CallerIsNotHolder
+            | Error::NoFileForFileUploadId
             | Error::InvalidOperation => {
                 let body =
                     ErrorResponse::new("bad_request", self.to_string(), 400).to_json_string();
@@ -2030,7 +2035,8 @@ impl BillServiceApi for BillService {
             let files = self
                 .file_upload_store
                 .read_temp_upload_files(upload_id)
-                .await?;
+                .await
+                .map_err(|_| Error::NoFileForFileUploadId)?;
             for (file_name, file_bytes) in files {
                 bill_files.push(
                     self.encrypt_and_save_uploaded_file(

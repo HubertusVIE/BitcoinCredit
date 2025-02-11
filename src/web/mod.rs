@@ -85,6 +85,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .mount("/api/currencies", routes![handlers::currencies])
         .mount("/api/overview", routes![handlers::overview])
         .mount("/api/search", routes![handlers::search])
+        .mount("/api/temp_file", routes![handlers::get_temp_file])
         .mount(
             "/api/identity",
             routes![
@@ -188,7 +189,9 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         // Routes for the frontend - lower rank means higher prio
         .mount(
             &CONFIG.frontend_url_path,
-            FileServer::from(&CONFIG.frontend_serve_folder).rank(5),
+            FileServer::from(&CONFIG.frontend_serve_folder).rank(5), // lower rank than index.html
+                                                                     // fallback, means it's higher
+                                                                     // prio
         )
         .mount(&CONFIG.frontend_url_path, routes![handlers::serve_frontend]);
 
