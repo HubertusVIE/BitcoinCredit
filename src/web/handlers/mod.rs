@@ -1,6 +1,9 @@
-use super::data::{
-    BalanceResponse, CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload,
-    GeneralSearchResponse, OverviewBalanceResponse, OverviewResponse, SuccessResponse,
+use super::{
+    data::{
+        BalanceResponse, CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload,
+        GeneralSearchResponse, OverviewBalanceResponse, OverviewResponse, SuccessResponse,
+    },
+    ErrorResponse,
 };
 use crate::{
     constants::VALID_CURRENCIES,
@@ -10,7 +13,7 @@ use crate::{
 };
 use bill::get_current_identity_node_id;
 use rocket::{fs::NamedFile, get, http::ContentType, post, serde::json::Json, Shutdown, State};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub mod bill;
 pub mod company;
