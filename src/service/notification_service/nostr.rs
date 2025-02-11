@@ -162,7 +162,7 @@ impl NostrConsumer {
         // move dependencies into thread scope
         let client = self.client.clone();
         let event_handlers = self.event_handlers.clone();
-        let contact_service = self.contact_service.clone();
+        let _contact_service = self.contact_service.clone();
         let offset_store = self.offset_store.clone();
 
         // continue where we left off
@@ -194,10 +194,10 @@ impl NostrConsumer {
                                 let sender_node_id = sender.to_hex();
                                 trace!("Received event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id})");
                                 // We use hex here, so we can compare it with our node_ids
-                                if contact_service.is_known_npub(&sender_node_id).await? {
-                                    trace!("Received event: {envelope:?} from {sender_node_id:?} (hex: {sender_node_id})");
+                                // TODO: re-enable after presentation: if contact_service.is_known_npub(&sender_node_id).await? {
+                                    trace!("Processing event: {envelope:?}");
                                     handle_event(envelope, &node_id, &event_handlers).await?;
-                                }
+                                // }
                             }
 
                             // store the new event offset
@@ -256,14 +256,14 @@ fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
 /// Handle extracted event with given handlers.
 async fn handle_event(
     event: EventEnvelope,
-    identity: &str,
+    node_id: &str,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<()> {
     let event_type = &event.event_type;
     let mut times = 0;
     for handler in handlers.iter() {
         if handler.handles_event(event_type) {
-            match handler.handle_event(event.to_owned(), identity).await {
+            match handler.handle_event(event.to_owned(), node_id).await {
                 Ok(_) => times += 1,
                 Err(e) => error!("Nostr event handler failed: {e}"),
             }
