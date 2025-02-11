@@ -1,6 +1,9 @@
-use super::data::{
-    BalanceResponse, CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload,
-    GeneralSearchResponse, OverviewBalanceResponse, OverviewResponse,
+use super::{
+    data::{
+        BalanceResponse, CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload,
+        GeneralSearchResponse, OverviewBalanceResponse, OverviewResponse,
+    },
+    ErrorResponse,
 };
 use crate::{
     constants::VALID_CURRENCIES,
@@ -9,7 +12,7 @@ use crate::{
 };
 use bill::get_current_identity_node_id;
 use rocket::{fs::NamedFile, get, post, serde::json::Json, Shutdown, State};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub mod bill;
 pub mod company;
@@ -19,11 +22,22 @@ pub mod middleware;
 pub mod notifications;
 pub mod quotes;
 
+// Lowest prio, fall back to index.html if nothing matches
 #[get("/<_..>", rank = 10)]
 pub async fn serve_frontend() -> Option<NamedFile> {
     NamedFile::open(Path::new(&CONFIG.frontend_serve_folder).join("index.html"))
         .await
         .ok()
+}
+
+// Higher prio than file server and index.html fallback
+#[get("/<path..>", rank = 3)]
+pub async fn default_api_error_catcher(path: PathBuf) -> Json<ErrorResponse> {
+    Json(ErrorResponse::new(
+        "not_found",
+        format!("We couldn't find the requested path '{}'", path.display()),
+        404,
+    ))
 }
 
 #[get("/")]
