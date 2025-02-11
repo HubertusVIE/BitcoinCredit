@@ -1,7 +1,6 @@
 use crate::service::ServiceContext;
 use api_docs::ApiDocs;
 use log::info;
-use rocket::fs::FileServer;
 use rocket::http::{Method, Status};
 use rocket::{catch, catchers, routes, Build, Config, Request, Rocket};
 use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
@@ -75,16 +74,16 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
 
     let rocket = rocket::custom(config)
         .attach(cors.clone())
-        .mount("/", rocket_cors::catch_all_options_routes())
+        .mount("/api/", rocket_cors::catch_all_options_routes())
         .register("/", catchers![default_catcher, not_found])
         .manage(context)
         .manage(cors)
-        .mount("/exit", routes![handlers::exit])
-        .mount("/currencies", routes![handlers::currencies])
-        .mount("/overview", routes![handlers::overview])
-        .mount("/search", routes![handlers::search])
+        .mount("/api/exit", routes![handlers::exit])
+        .mount("/api/currencies", routes![handlers::currencies])
+        .mount("/api/overview", routes![handlers::overview])
+        .mount("/api/search", routes![handlers::search])
         .mount(
-            "/identity",
+            "/api/identity",
             routes![
                 handlers::identity::create_identity,
                 handlers::identity::change_identity,
@@ -100,11 +99,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             ],
         )
         .mount(
-            &CONFIG.frontend_url_path,
-            FileServer::from(&CONFIG.frontend_serve_folder),
-        )
-        .mount(
-            "/contacts",
+            "/api/contacts",
             routes![
                 handlers::contacts::new_contact,
                 handlers::contacts::edit_contact,
@@ -116,7 +111,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             ],
         )
         .mount(
-            "/company",
+            "/api/company",
             routes![
                 handlers::company::check_companies_in_dht,
                 handlers::company::list,
@@ -131,7 +126,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             ],
         )
         .mount(
-            "/bill",
+            "/api/bill",
             routes![
                 handlers::bill::all_bills_from_all_identities,
                 handlers::bill::issue_bill,
@@ -166,14 +161,14 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             ],
         )
         .mount(
-            "/quote",
+            "/api/quote",
             routes![
                 handlers::quotes::return_quote,
                 handlers::quotes::accept_quote
             ],
         )
         .mount(
-            "/",
+            "/api/",
             routes![
                 handlers::notifications::list_notifications,
                 handlers::notifications::mark_notification_done,
@@ -183,9 +178,10 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             ],
         )
         .mount(
-            "/",
+            "/api/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDocs::openapi()),
-        );
+        )
+        .mount(&CONFIG.frontend_url_path, routes![handlers::serve_frontend]);
 
     info!("HTTP Server Listening on {}", conf.http_listen_url());
 
