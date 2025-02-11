@@ -162,7 +162,7 @@ impl NostrConsumer {
         // move dependencies into thread scope
         let client = self.client.clone();
         let event_handlers = self.event_handlers.clone();
-        let contact_service = self.contact_service.clone();
+        let _contact_service = self.contact_service.clone();
         let offset_store = self.offset_store.clone();
 
         // continue where we left off
@@ -192,10 +192,10 @@ impl NostrConsumer {
                                 let sender_node_id = sender.to_hex();
                                 trace!("Received event: {envelope:?} from {sender_npub:?} (hex: {sender_node_id})");
                                 // We use hex here, so we can compare it with our node_ids
-                                if contact_service.is_known_npub(&sender_node_id).await? {
-                                    trace!("Received event: {envelope:?} from {sender_node_id:?} (hex: {sender_node_id})");
+                                // TODO: re-enable after presentation: if contact_service.is_known_npub(&sender_node_id).await? {
+                                    trace!("Processing event: {envelope:?}");
                                     handle_event(envelope, &event_handlers).await?;
-                                }
+                                // }
                             }
 
                             // store the new event offset
