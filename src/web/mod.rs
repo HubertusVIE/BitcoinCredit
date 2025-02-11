@@ -179,8 +179,9 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             ],
         )
         .mount(
-            "/api/",
-            SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDocs::openapi()),
+            "/",
+            SwaggerUi::new("/api/swagger-ui/<_..>")
+                .url("/api/api-docs/openapi.json", ApiDocs::openapi()),
         )
         .mount(
             &CONFIG.frontend_url_path,

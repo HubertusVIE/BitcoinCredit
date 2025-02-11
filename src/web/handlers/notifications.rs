@@ -15,11 +15,11 @@ use serde_json::Value;
         (status = 200, description = "List of notifications", body = Vec<Notification>)
     ),
     params(
-        ("active" = bool, Query, description = "Returns only active notifications when true, inactive when false and all when left out"),
-        ("reference_id" = String, Query, description = "The id of the entity to filter by (eg. a bill id)"),
-        ("notification_type" = String, Query, description = "The type of notifications to return (eg. Bill)"),
-        ("limit" = i64, Query, description = "The max number of notifications to return"),
-        ("offset" = i64, Query, description = "The number of notifications to skip at the start of the result")
+        ("active" = Option<bool>, Query, description = "Returns only active notifications when true, inactive when false and all when left out"),
+        ("reference_id" = Option<String>, Query, description = "The id of the entity to filter by (eg. a bill id)"),
+        ("notification_type" = Option<String>, Query, description = "The type of notifications to return (eg. Bill)"),
+        ("limit" = Option<i64>, Query, description = "The max number of notifications to return"),
+        ("offset" = Option<i64>, Query, description = "The number of notifications to skip at the start of the result")
     )
 )]
 #[get("/notifications?<active>&<reference_id>&<notification_type>&<limit>&<offset>")]
