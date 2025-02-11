@@ -240,7 +240,7 @@ pub async fn create_service_context(
     let notification_service =
         create_notification_service(nostr_client.clone(), db.notification_store.clone()).await?;
 
-    let bill_service = BillService::new(
+    let bill_service = Arc::new(BillService::new(
         client.clone(),
         db.bill_store,
         db.bill_blockchain_store.clone(),
@@ -252,7 +252,7 @@ pub async fn create_service_context(
         db.company_chain_store.clone(),
         db.contact_store.clone(),
         db.company_store.clone(),
-    );
+    ));
     let identity_service = IdentityService::new(
         db.identity_store.clone(),
         db.file_upload_store.clone(),
@@ -281,7 +281,7 @@ pub async fn create_service_context(
     .await?;
 
     let search_service = SearchService::new(
-        Arc::new(bill_service.clone()),
+        bill_service.clone(),
         contact_service.clone(),
         Arc::new(company_service.clone()),
     );
@@ -298,7 +298,7 @@ pub async fn create_service_context(
         dht_client: client,
         contact_service,
         search_service: Arc::new(search_service),
-        bill_service: Arc::new(bill_service),
+        bill_service,
         identity_service: Arc::new(identity_service),
         company_service: Arc::new(company_service),
         file_upload_service: Arc::new(file_upload_service),

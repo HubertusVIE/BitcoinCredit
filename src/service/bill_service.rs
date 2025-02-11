@@ -42,6 +42,8 @@ use async_trait::async_trait;
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
 use log::info;
+#[cfg(test)]
+use mockall::automock;
 use rocket::http::ContentType;
 use rocket::Response;
 use rocket::{http::Status, response::Responder};
@@ -264,6 +266,7 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for Error {
     }
 }
 
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BillServiceApi: Send + Sync {
     /// Get bill balances

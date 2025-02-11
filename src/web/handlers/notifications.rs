@@ -1,3 +1,4 @@
+use crate::persistence::notification::NotificationFilter;
 use crate::service::notification_service::Notification;
 use crate::service::{Result, ServiceContext};
 use crate::web::data::SuccessResponse;
@@ -12,13 +13,33 @@ use serde_json::Value;
     description = "Get all active notifications",
     responses(
         (status = 200, description = "List of notifications", body = Vec<Notification>)
+    ),
+    params(
+        ("active" = Option<bool>, Query, description = "Returns only active notifications when true, inactive when false and all when left out"),
+        ("reference_id" = Option<String>, Query, description = "The id of the entity to filter by (eg. a bill id)"),
+        ("notification_type" = Option<String>, Query, description = "The type of notifications to return (eg. Bill)"),
+        ("limit" = Option<i64>, Query, description = "The max number of notifications to return"),
+        ("offset" = Option<i64>, Query, description = "The number of notifications to skip at the start of the result")
     )
 )]
-#[get("/notifications")]
-pub async fn list_notifications(state: &State<ServiceContext>) -> Result<Json<Vec<Notification>>> {
+#[get("/notifications?<active>&<reference_id>&<notification_type>&<limit>&<offset>")]
+pub async fn list_notifications(
+    state: &State<ServiceContext>,
+    active: Option<bool>,
+    reference_id: Option<String>,
+    notification_type: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Json<Vec<Notification>>> {
     let notifications: Vec<Notification> = state
         .notification_service
-        .get_client_notifications()
+        .get_client_notifications(NotificationFilter {
+            active,
+            reference_id,
+            notification_type,
+            limit,
+            offset,
+        })
         .await?;
     Ok(Json(notifications))
 }
