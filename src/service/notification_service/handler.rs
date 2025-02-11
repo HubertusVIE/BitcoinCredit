@@ -17,7 +17,7 @@ pub trait NotificationHandlerApi: Send + Sync {
     /// should be able to deserialize the data into its T type because the EventType
     /// determines the T type. Identity represents the active identity that is receiving
     /// the event.
-    async fn handle_event(&self, event: EventEnvelope, identity: &str) -> Result<()>;
+    async fn handle_event(&self, event: EventEnvelope, node_id: &str) -> Result<()>;
 }
 
 /// Logs all events that are received and registered in the event_types.
