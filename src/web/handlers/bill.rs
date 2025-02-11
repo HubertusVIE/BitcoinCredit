@@ -9,9 +9,9 @@ use crate::util::{self, base58_encode, BcrKeys};
 use crate::web::data::{
     AcceptBitcreditBillPayload, AcceptMintBitcreditBillPayload, BillCombinedBitcoinKey, BillId,
     BillNumbersToWordsForSum, BillType, BillsResponse, BillsSearchFilterPayload,
-    BitcreditBillPayload, EndorseBitcreditBillPayload, MintBitcreditBillPayload,
-    OfferToSellBitcreditBillPayload, PastEndorseesResponse, RejectActionBillPayload,
-    RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
+    BitcreditBillPayload, EndorseBitcreditBillPayload, EndorsementsResponse,
+    MintBitcreditBillPayload, OfferToSellBitcreditBillPayload, PastEndorseesResponse,
+    RejectActionBillPayload, RequestRecourseForAcceptancePayload, RequestRecourseForPaymentPayload,
     RequestToAcceptBitcreditBillPayload, RequestToMintBitcreditBillPayload,
     RequestToPayBitcreditBillPayload, UploadBillFilesForm, UploadFilesResponse,
 };
@@ -68,6 +68,37 @@ pub async fn get_signer_public_data_and_keys(
     Ok((signer_public_data, signer_keys))
 }
 
+#[utoipa::path(
+    tag = "Endorsements",
+    path = "/bill/endorsements/{id}",
+    description = "Get endorsements of the given bill",
+    responses(
+        (status = 200, description = "Endorsements", body = EndorsementsResponse)
+    )
+)]
+#[get("/endorsements/<id>")]
+pub async fn get_endorsements_for_bill(
+    _identity: IdentityCheck,
+    state: &State<ServiceContext>,
+    id: &str,
+) -> Result<Json<EndorsementsResponse>> {
+    let result = state
+        .bill_service
+        .get_endorsements(id, &get_current_identity_node_id(state).await)
+        .await?;
+    Ok(Json(EndorsementsResponse {
+        endorsements: result,
+    }))
+}
+
+#[utoipa::path(
+    tag = "Past Endorsees",
+    path = "/bill/past_endorsees/{id}",
+    description = "Get all past endorsees of the given bill",
+    responses(
+        (status = 200, description = "Past Endorsees", body = PastEndorseesResponse)
+    )
+)]
 #[get("/past_endorsees/<id>")]
 pub async fn get_past_endorsees_for_bill(
     _identity: IdentityCheck,
