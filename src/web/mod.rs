@@ -85,6 +85,7 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
         .mount("/api/currencies", routes![handlers::currencies])
         .mount("/api/overview", routes![handlers::overview])
         .mount("/api/search", routes![handlers::search])
+        .mount("/api/temp_file", routes![handlers::get_temp_file])
         .mount(
             "/api/identity",
             routes![
