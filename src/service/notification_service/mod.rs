@@ -1,6 +1,7 @@
+use std::fmt::Display;
 use std::sync::Arc;
 
-use crate::persistence::notification::NotificationStoreApi;
+use crate::persistence::notification::{NotificationFilter, NotificationStoreApi};
 use crate::persistence::NostrEventOffsetStoreApi;
 use crate::persistence::{self, identity::IdentityStoreApi};
 use crate::service::contact_service::IdentityPublicData;
@@ -242,8 +243,11 @@ pub trait NotificationServiceApi: Send + Sync {
     /// Receiver: Mint (new holder), Action: CheckBill
     async fn send_quote_is_approved_event(&self, quote: &BitcreditBill) -> Result<()>;
 
-    /// Returns active client notifications
-    async fn get_client_notifications(&self, active: Option<bool>) -> Result<Vec<Notification>>;
+    /// Returns filtered client notifications
+    async fn get_client_notifications(
+        &self,
+        filter: NotificationFilter,
+    ) -> Result<Vec<Notification>>;
 
     /// Marks the notification with given id as done
     async fn mark_notification_as_done(&self, notification_id: &str) -> Result<()>;
@@ -321,4 +325,10 @@ impl Notification {
 pub enum NotificationType {
     General,
     Bill,
+}
+
+impl Display for NotificationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{:?}", self).as_str())
+    }
 }

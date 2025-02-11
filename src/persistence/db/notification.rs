@@ -5,7 +5,7 @@ use serde_json::Value;
 use surrealdb::{engine::any::Any, sql::Thing, Surreal};
 
 use crate::{
-    persistence::notification::NotificationStoreApi,
+    persistence::notification::{NotificationFilter, NotificationStoreApi},
     service::notification_service::{ActionType, Notification, NotificationType},
     util::date::{now, DateTimeUtc},
 };
@@ -46,22 +46,28 @@ impl NotificationStoreApi for SurrealNotificationStore {
         }
     }
     /// Returns all currently active notifications from the database
-    async fn list(&self, active: Option<bool>) -> Result<Vec<Notification>> {
-        let active_query = if let Some(flag) = active {
-            format!("WHERE active = {}", flag)
-        } else {
-            "".to_string()
-        };
-        let result: Vec<NotificationDb> = self
+    async fn list(&self, filter: NotificationFilter) -> Result<Vec<Notification>> {
+        let filters = filter.filters();
+        let mut query = self
             .db
             .query(format!(
-                "SELECT * FROM type::table($table) {} ORDER BY datetime DESC",
-                active_query
+                "SELECT * FROM type::table($table) {} ORDER BY datetime DESC LIMIT $limit START $offset",
+                filters
             ))
             .bind(("table", Self::TABLE))
-            .await?
-            .take(0)?;
+            .bind(("limit", filter.get_limit()))
+            .bind(("offset", filter.get_offset()));
 
+        if let Some(active) = filter.get_active() {
+            query = query.bind(active.to_owned());
+        }
+        if let Some(reference_id) = filter.get_reference_id() {
+            query = query.bind(reference_id.to_owned());
+        }
+        if let Some(notification_type) = filter.get_notification_type() {
+            query = query.bind(notification_type.to_owned());
+        }
+        let result: Vec<NotificationDb> = query.await?.take(0)?;
         Ok(result.into_iter().map(|n| n.into()).collect())
     }
     /// Returns the latest active notification for the given reference and notification type
@@ -70,24 +76,27 @@ impl NotificationStoreApi for SurrealNotificationStore {
         reference: &str,
         notification_type: NotificationType,
     ) -> Result<Option<Notification>> {
-        let result: Vec<NotificationDb> = self.db.query("SELECT * FROM type::table($table) WHERE active = true AND reference_id = $reference_id AND notification_type = $notification_type ORDER BY datetime desc")
-            .bind(("table", Self::TABLE))
-            .bind(("reference_id", reference.to_owned()))
-            .bind(("notification_type", notification_type))
-            .await?
-            .take(0)?;
-
-        Ok(result.first().map(|n| n.clone().into()))
+        let result = self
+            .list(NotificationFilter {
+                active: Some(true),
+                reference_id: Some(reference.to_owned()),
+                notification_type: Some(notification_type.to_string()),
+                limit: Some(1),
+                ..Default::default()
+            })
+            .await?;
+        Ok(result.first().cloned())
     }
     /// Returns all notifications for the given reference and notification type that are active
     async fn list_by_type(&self, notification_type: NotificationType) -> Result<Vec<Notification>> {
-        let result: Vec<NotificationDb> = self.db.query("SELECT * FROM type::table($table) WHERE active = true AND notification_type = $notification_type ORDER BY datetime desc")
-            .bind(("table", Self::TABLE))
-            .bind(("notification_type", notification_type))
-            .await?
-        .take(0)?;
-
-        Ok(result.into_iter().map(|n| n.into()).collect())
+        let result = self
+            .list(NotificationFilter {
+                active: Some(true),
+                notification_type: Some(notification_type.to_string()),
+                ..Default::default()
+            })
+            .await?;
+        Ok(result)
     }
     /// Marks an active notification as done
     async fn mark_as_done(&self, notification_id: &str) -> Result<()> {
@@ -254,7 +263,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_inserts_and_queries_notifiction() {
+    async fn test_inserts_and_queries_notification() {
         let store = get_store().await;
         let notification = test_notification("bill_id", Some(test_payload()));
         let r = store
@@ -263,7 +272,7 @@ mod tests {
             .expect("could not create notification");
 
         let all = store
-            .list(None)
+            .list(NotificationFilter::default())
             .await
             .expect("could not list notifications");
         assert!(!all.is_empty());
@@ -271,7 +280,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_deletes_existing_notifiction() {
+    async fn test_deletes_existing_notification() {
         let store = get_store().await;
         let notification = test_notification("bill_id", Some(test_payload()));
         let r = store
@@ -280,7 +289,7 @@ mod tests {
             .expect("could not create notification");
 
         let all = store
-            .list(None)
+            .list(NotificationFilter::default())
             .await
             .expect("could not list notifications");
         assert!(!all.is_empty());
@@ -290,7 +299,7 @@ mod tests {
             .await
             .expect("could not delete notification");
         let all = store
-            .list(None)
+            .list(NotificationFilter::default())
             .await
             .expect("could not list notifications");
         assert!(all.is_empty());
@@ -305,8 +314,10 @@ mod tests {
             .await
             .expect("could not create notification");
 
+        let mut filter = NotificationFilter::default();
+        filter.active = Some(true);
         let all = store
-            .list(Some(true))
+            .list(filter.clone())
             .await
             .expect("could not list notifications");
         assert!(!all.is_empty());
@@ -317,7 +328,7 @@ mod tests {
             .expect("could not mark notification as done");
 
         let all = store
-            .list(Some(true))
+            .list(filter)
             .await
             .expect("could not list notifications");
         assert!(all.is_empty());
