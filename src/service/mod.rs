@@ -264,7 +264,6 @@ pub async fn create_service_context(
         db.nostr_event_offset_store.clone(),
         db.notification_store.clone(),
         push_service.clone(),
-        bill_service.clone(),
     )
     .await?;
 

@@ -346,7 +346,6 @@ mod tests {
 
     use crate::persistence::nostr::MockNostrEventOffsetStoreApi;
     use crate::persistence::notification::MockNotificationStoreApi;
-    use crate::service::bill_service::MockBillServiceApi;
     use crate::service::contact_service::MockContactServiceApi;
     use crate::service::notification_service::create_nostr_consumer;
     use crate::service::notification_service::push_notification::MockPushApi;
@@ -863,14 +862,12 @@ mod tests {
         let store = Arc::new(MockNostrEventOffsetStoreApi::new());
         let notification_store = Arc::new(MockNotificationStoreApi::new());
         let push_service = Arc::new(MockPushApi::new());
-        let bill_service = Arc::new(MockBillServiceApi::new());
         let _ = create_nostr_consumer(
             client,
             contact_service,
             store,
             notification_store,
             push_service,
-            bill_service,
         )
         .await;
     }

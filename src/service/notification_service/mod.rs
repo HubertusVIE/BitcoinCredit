@@ -39,7 +39,6 @@ pub use transport::NotificationJsonTransportApi;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::bill_service::BillServiceApi;
 use super::contact_service::ContactServiceApi;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -118,7 +117,6 @@ pub async fn create_nostr_consumer(
     nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     notification_store: Arc<dyn NotificationStoreApi>,
     push_service: Arc<dyn PushApi>,
-    bill_service: Arc<dyn BillServiceApi>,
 ) -> Result<NostrConsumer> {
     // register the logging event handler for all events for now. Later we will probably
     // setup the handlers outside and pass them to the consumer via this functions arguments.
@@ -128,7 +126,6 @@ pub async fn create_nostr_consumer(
         }),
         Box::new(BillActionEventHandler::new(
             notification_store,
-            bill_service,
             push_service,
         )),
     ];

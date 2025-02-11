@@ -3,10 +3,7 @@ use std::sync::Arc;
 
 use crate::{
     persistence::notification::NotificationStoreApi,
-    service::{
-        bill_service::BillServiceApi,
-        notification_service::event::{BillActionEventPayload, Event},
-    },
+    service::notification_service::event::{BillActionEventPayload, Event},
 };
 
 use super::{
@@ -18,19 +15,16 @@ use async_trait::async_trait;
 #[derive(Clone)]
 pub struct BillActionEventHandler {
     notification_store: Arc<dyn NotificationStoreApi>,
-    bill_service: Arc<dyn BillServiceApi>,
     push_service: Arc<dyn PushApi>,
 }
 
 impl BillActionEventHandler {
     pub fn new(
         notification_store: Arc<dyn NotificationStoreApi>,
-        bill_service: Arc<dyn BillServiceApi>,
         push_service: Arc<dyn PushApi>,
     ) -> Self {
         Self {
             notification_store,
-            bill_service,
             push_service,
         }
     }
@@ -68,16 +62,13 @@ impl NotificationHandlerApi for BillActionEventHandler {
         true
     }
 
-    async fn handle_event(&self, event: EventEnvelope) -> Result<()> {
+    async fn handle_event(&self, event: EventEnvelope, identity: &str) -> Result<()> {
         let event: Option<Event<BillActionEventPayload>> = event.try_into().ok();
         if let Some(event) = event {
-            // Lookup the bill
-            let _bill = self.bill_service.get_bill(&event.data.bill_id).await;
-
             // create notification
             let notification = Notification::new_bill_notification(
                 &event.data.bill_id,
-                "the identity this notification is for",
+                identity,
                 &self.event_description(&event.event_type),
                 Some(serde_json::to_value(&event.data)?),
             );
