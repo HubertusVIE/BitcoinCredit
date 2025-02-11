@@ -16,6 +16,7 @@ use crate::constants::MAX_FILE_SIZE_BYTES;
 use crate::CONFIG;
 use rocket::data::ByteUnit;
 use rocket::figment::Figment;
+use rocket::fs::FileServer;
 use rocket::serde::json::Json;
 use serde_json::json;
 
@@ -181,6 +182,11 @@ pub fn rocket_main(context: ServiceContext) -> Rocket<Build> {
             "/api/",
             SwaggerUi::new("/swagger-ui/<_..>").url("/api-docs/openapi.json", ApiDocs::openapi()),
         )
+        .mount(
+            &CONFIG.frontend_url_path,
+            FileServer::from(&CONFIG.frontend_serve_folder).rank(5),
+        )
+        // TODO: fall back to index, but serve static files first
         .mount(&CONFIG.frontend_url_path, routes![handlers::serve_frontend]);
 
     info!("HTTP Server Listening on {}", conf.http_listen_url());
