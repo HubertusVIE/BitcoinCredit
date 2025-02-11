@@ -196,7 +196,7 @@ impl NostrConsumer {
                                 // We use hex here, so we can compare it with our node_ids
                                 // TODO: re-enable after presentation: if contact_service.is_known_npub(&sender_node_id).await? {
                                     trace!("Processing event: {envelope:?}");
-                                    handle_event(envelope, &event_handlers).await?;
+                                    handle_event(envelope, &node_id, &event_handlers).await?;
                                 // }
                             }
 
@@ -256,14 +256,14 @@ fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
 /// Handle extracted event with given handlers.
 async fn handle_event(
     event: EventEnvelope,
-    identity: &str,
+    node_id: &str,
     handlers: &Arc<Vec<Box<dyn NotificationHandlerApi>>>,
 ) -> Result<()> {
     let event_type = &event.event_type;
     let mut times = 0;
     for handler in handlers.iter() {
         if handler.handles_event(event_type) {
-            match handler.handle_event(event.to_owned(), identity).await {
+            match handler.handle_event(event.to_owned(), node_id).await {
                 Ok(_) => times += 1,
                 Err(e) => error!("Nostr event handler failed: {e}"),
             }
