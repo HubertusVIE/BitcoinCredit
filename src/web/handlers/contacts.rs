@@ -138,7 +138,12 @@ pub async fn edit_contact(
             payload.name,
             payload.email,
             payload.postal_address,
+            payload.date_of_birth_or_registration,
+            payload.country_of_birth_or_registration,
+            payload.city_of_birth_or_registration,
+            payload.identification_number,
             payload.avatar_file_upload_id,
+            payload.proof_document_file_upload_id,
         )
         .await?;
     Ok(Json(SuccessResponse::new()))

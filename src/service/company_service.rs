@@ -64,7 +64,12 @@ pub trait CompanyServiceApi: Send + Sync {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        country_of_registration: Option<String>,
+        city_of_registration: Option<String>,
+        registration_number: Option<String>,
+        registration_date: Option<String>,
         logo_file_upload_id: Option<String>,
+        proof_of_registration_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()>;
 
@@ -313,7 +318,12 @@ impl CompanyServiceApi for CompanyService {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        country_of_registration: Option<String>,
+        city_of_registration: Option<String>,
+        registration_number: Option<String>,
+        registration_date: Option<String>,
         logo_file_upload_id: Option<String>,
+        proof_of_registration_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()> {
         if !self.store.exists(id).await {
@@ -351,30 +361,45 @@ impl CompanyServiceApi for CompanyService {
             changed = true;
         }
 
-        match company.postal_address.zip {
-            Some(_) => {
-                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-                    company.postal_address.zip = Some(postal_address_zip_to_set.clone());
-                    changed = true;
-                } else {
-                    company.postal_address.zip = None;
-                    changed = true;
-                }
-            }
-            None => {
-                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-                    company.postal_address.zip = Some(postal_address_zip_to_set.clone());
-                    changed = true;
-                }
-            }
-        };
+        util::update_optional_field(
+            &mut company.postal_address.zip,
+            &postal_address.zip,
+            &mut changed,
+        );
+
+        util::update_optional_field(
+            &mut company.country_of_registration,
+            &country_of_registration,
+            &mut changed,
+        );
+
+        util::update_optional_field(
+            &mut company.city_of_registration,
+            &city_of_registration,
+            &mut changed,
+        );
+
+        util::update_optional_field(
+            &mut company.registration_date,
+            &registration_date,
+            &mut changed,
+        );
+
+        util::update_optional_field(
+            &mut company.registration_number,
+            &registration_number,
+            &mut changed,
+        );
 
         if let Some(ref postal_address_address_to_set) = postal_address.address {
             company.postal_address.address = postal_address_address_to_set.clone();
             changed = true;
         }
 
-        if !changed && logo_file_upload_id.is_none() {
+        if !changed
+            && logo_file_upload_id.is_none()
+            && proof_of_registration_file_upload_id.is_none()
+        {
             return Ok(());
         }
 
@@ -389,6 +414,17 @@ impl CompanyServiceApi for CompanyService {
         if logo_file.is_some() {
             company.logo_file = logo_file.clone();
         }
+        let proof_of_registration_file = self
+            .process_upload_file(
+                &proof_of_registration_file_upload_id,
+                id,
+                &full_identity.key_pair.get_public_key(),
+            )
+            .await?;
+        // only override the document, if there is a new one
+        if proof_of_registration_file.is_some() {
+            company.proof_of_registration_file = proof_of_registration_file.clone();
+        }
 
         self.store.update(id, &company).await?;
 
@@ -400,7 +436,12 @@ impl CompanyServiceApi for CompanyService {
                 name,
                 email,
                 postal_address,
+                country_of_registration,
+                city_of_registration,
+                registration_number,
+                registration_date,
                 logo_file,
+                proof_of_registration_file,
             },
             &full_identity.key_pair,
             &company_keys,
@@ -1101,7 +1142,12 @@ pub mod tests {
                 Some("name".to_string()),
                 Some("company@example.com".to_string()),
                 OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
                 Some("some_file_id".to_string()),
+                None,
                 1731593928,
             )
             .await;
@@ -1133,6 +1179,11 @@ pub mod tests {
                 Some("name".to_string()),
                 Some("company@example.com".to_string()),
                 OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 1731593928,
             )
@@ -1177,6 +1228,11 @@ pub mod tests {
                 Some("name".to_string()),
                 Some("company@example.com".to_string()),
                 OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 1731593928,
             )
@@ -1234,6 +1290,11 @@ pub mod tests {
                 Some("name".to_string()),
                 Some("company@example.com".to_string()),
                 OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 1731593928,
             )

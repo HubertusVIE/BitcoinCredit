@@ -22,7 +22,12 @@ pub trait IdentityServiceApi: Send + Sync {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        date_of_birth: Option<String>,
+        country_of_birth: Option<String>,
+        city_of_birth: Option<String>,
+        identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()>;
     /// Gets the full local identity, including the key pair and node id
@@ -167,7 +172,12 @@ impl IdentityServiceApi for IdentityService {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        date_of_birth: Option<String>,
+        country_of_birth: Option<String>,
+        city_of_birth: Option<String>,
+        identification_number: Option<String>,
         profile_picture_file_upload_id: Option<String>,
+        identity_document_file_upload_id: Option<String>,
         timestamp: u64,
     ) -> Result<()> {
         let mut identity = self.store.get().await?;
@@ -187,79 +197,50 @@ impl IdentityServiceApi for IdentityService {
             }
         }
 
-        match identity.postal_address.country {
-            Some(_) => {
-                if let Some(ref postal_address_country_to_set) = postal_address.country {
-                    identity.postal_address.country = Some(postal_address_country_to_set.clone());
-                    changed = true;
-                } else {
-                    identity.postal_address.country = None;
-                    changed = true;
-                }
-            }
-            None => {
-                if let Some(ref postal_address_country_to_set) = postal_address.country {
-                    identity.postal_address.country = Some(postal_address_country_to_set.clone());
-                    changed = true;
-                }
-            }
-        };
+        util::update_optional_field(
+            &mut identity.postal_address.country,
+            &postal_address.country,
+            &mut changed,
+        );
 
-        match identity.postal_address.city {
-            Some(_) => {
-                if let Some(ref postal_address_city_to_set) = postal_address.city {
-                    identity.postal_address.city = Some(postal_address_city_to_set.clone());
-                    changed = true;
-                } else {
-                    identity.postal_address.city = None;
-                    changed = true;
-                }
-            }
-            None => {
-                if let Some(ref postal_address_city_to_set) = postal_address.city {
-                    identity.postal_address.city = Some(postal_address_city_to_set.clone());
-                    changed = true;
-                }
-            }
-        };
+        util::update_optional_field(
+            &mut identity.postal_address.city,
+            &postal_address.city,
+            &mut changed,
+        );
 
-        match identity.postal_address.zip {
-            Some(_) => {
-                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-                    identity.postal_address.zip = Some(postal_address_zip_to_set.clone());
-                    changed = true;
-                } else {
-                    identity.postal_address.zip = None;
-                    changed = true;
-                }
-            }
-            None => {
-                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-                    identity.postal_address.zip = Some(postal_address_zip_to_set.clone());
-                    changed = true;
-                }
-            }
-        };
+        util::update_optional_field(
+            &mut identity.postal_address.zip,
+            &postal_address.zip,
+            &mut changed,
+        );
 
-        match identity.postal_address.address {
-            Some(_) => {
-                if let Some(ref postal_address_address_to_set) = postal_address.address {
-                    identity.postal_address.address = Some(postal_address_address_to_set.clone());
-                    changed = true;
-                } else {
-                    identity.postal_address.address = None;
-                    changed = true;
-                }
-            }
-            None => {
-                if let Some(ref postal_address_address_to_set) = postal_address.address {
-                    identity.postal_address.address = Some(postal_address_address_to_set.clone());
-                    changed = true;
-                }
-            }
-        };
+        util::update_optional_field(
+            &mut identity.postal_address.address,
+            &postal_address.address,
+            &mut changed,
+        );
 
-        if !changed && profile_picture_file_upload_id.is_none() {
+        util::update_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
+
+        util::update_optional_field(
+            &mut identity.country_of_birth,
+            &country_of_birth,
+            &mut changed,
+        );
+
+        util::update_optional_field(&mut identity.city_of_birth, &city_of_birth, &mut changed);
+
+        util::update_optional_field(
+            &mut identity.identification_number,
+            &identification_number,
+            &mut changed,
+        );
+
+        if !changed
+            && profile_picture_file_upload_id.is_none()
+            && identity_document_file_upload_id.is_none()
+        {
             return Ok(());
         }
 
@@ -275,6 +256,17 @@ impl IdentityServiceApi for IdentityService {
         if profile_picture_file.is_some() {
             identity.profile_picture_file = profile_picture_file.clone();
         }
+        let identity_document_file = self
+            .process_upload_file(
+                &identity_document_file_upload_id,
+                &identity.node_id,
+                &keys.get_public_key(),
+            )
+            .await?;
+        // only override the document, if there is a new one
+        if identity_document_file.is_some() {
+            identity.identity_document_file = identity_document_file.clone();
+        }
 
         let previous_block = self.blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_update(
@@ -283,7 +275,12 @@ impl IdentityServiceApi for IdentityService {
                 name,
                 email,
                 postal_address,
+                date_of_birth,
+                country_of_birth,
+                city_of_birth,
+                identification_number,
                 profile_picture_file,
+                identity_document_file,
             },
             &keys,
             timestamp,
@@ -560,6 +557,11 @@ mod tests {
                 None,
                 OptionalPostalAddress::new_empty(),
                 None,
+                None,
+                None,
+                None,
+                None,
+                None,
                 1731593928,
             )
             .await;
@@ -586,6 +588,11 @@ mod tests {
                 Some("name".to_string()),
                 None,
                 OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 1731593928,
             )
@@ -628,6 +635,11 @@ mod tests {
                 Some("new_name".to_string()),
                 None,
                 OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 1731593928,
             )

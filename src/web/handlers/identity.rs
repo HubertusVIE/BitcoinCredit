@@ -143,7 +143,12 @@ pub async fn change_identity(
     if identity_payload.name.is_none()
         && identity_payload.email.is_none()
         && identity_payload.postal_address.is_none()
+        && identity_payload.date_of_birth.is_none()
+        && identity_payload.country_of_birth.is_none()
+        && identity_payload.city_of_birth.is_none()
+        && identity_payload.identification_number.is_none()
         && identity_payload.profile_picture_file_upload_id.is_none()
+        && identity_payload.identity_document_file_upload_id.is_none()
     {
         return Ok(Json(SuccessResponse::new()));
     }
@@ -154,7 +159,12 @@ pub async fn change_identity(
             identity_payload.name,
             identity_payload.email,
             identity_payload.postal_address,
+            identity_payload.date_of_birth,
+            identity_payload.country_of_birth,
+            identity_payload.city_of_birth,
+            identity_payload.identification_number,
             identity_payload.profile_picture_file_upload_id,
+            identity_payload.identity_document_file_upload_id,
             timestamp,
         )
         .await?;

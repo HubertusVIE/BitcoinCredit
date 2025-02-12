@@ -182,7 +182,12 @@ pub async fn edit(
             payload.name,
             payload.email,
             payload.postal_address,
+            payload.country_of_registration,
+            payload.city_of_registration,
+            payload.registration_number,
+            payload.registration_date,
             payload.logo_file_upload_id,
+            payload.proof_of_registration_file_upload_id,
             timestamp,
         )
         .await?;

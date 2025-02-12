@@ -315,7 +315,12 @@ pub struct ChangeIdentityPayload {
     pub email: Option<String>,
     #[serde(flatten)]
     pub postal_address: OptionalPostalAddress,
+    pub date_of_birth: Option<String>,
+    pub country_of_birth: Option<String>,
+    pub city_of_birth: Option<String>,
+    pub identification_number: Option<String>,
     pub profile_picture_file_upload_id: Option<String>,
+    pub identity_document_file_upload_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -356,7 +361,12 @@ pub struct EditContactPayload {
     pub email: Option<String>,
     #[serde(flatten)]
     pub postal_address: OptionalPostalAddress,
+    pub date_of_birth_or_registration: Option<String>,
+    pub country_of_birth_or_registration: Option<String>,
+    pub city_of_birth_or_registration: Option<String>,
+    pub identification_number: Option<String>,
     pub avatar_file_upload_id: Option<String>,
+    pub proof_document_file_upload_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -485,7 +495,12 @@ pub struct EditCompanyPayload {
     pub email: Option<String>,
     #[serde(flatten)]
     pub postal_address: OptionalPostalAddress,
+    pub country_of_registration: Option<String>,
+    pub city_of_registration: Option<String>,
+    pub registration_number: Option<String>,
+    pub registration_date: Option<String>,
     pub logo_file_upload_id: Option<String>,
+    pub proof_of_registration_file_upload_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

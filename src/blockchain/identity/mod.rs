@@ -79,7 +79,12 @@ pub struct IdentityUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
+    pub date_of_birth: Option<String>,
+    pub country_of_birth: Option<String>,
+    pub city_of_birth: Option<String>,
+    pub identification_number: Option<String>,
     pub profile_picture_file: Option<File>,
+    pub identity_document_file: Option<File>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -410,7 +415,12 @@ mod tests {
                 name: Some("newname".to_string()),
                 email: None,
                 postal_address: OptionalPostalAddress::new_empty(),
+                date_of_birth: None,
+                country_of_birth: None,
+                city_of_birth: None,
+                identification_number: None,
                 profile_picture_file: None,
+                identity_document_file: None,
             },
             &keys,
             1731593928,
