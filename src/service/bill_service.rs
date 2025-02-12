@@ -1560,16 +1560,6 @@ impl BillService {
                 if blockchain.block_with_operation_code_exists(BillOpCode::Accept) {
                     return Err(Error::BillAlreadyAccepted);
                 }
-                // there has to be a request to accept block that is not expired
-                if let Some(req_to_accept) =
-                    blockchain.get_last_version_block_with_op_code(BillOpCode::RequestToAccept)
-                {
-                    if req_to_accept.timestamp + ACCEPT_DEADLINE_SECONDS < timestamp {
-                        return Err(Error::RequestAlreadyExpired);
-                    }
-                } else {
-                    return Err(Error::BillWasNotRequestedToAccept);
-                }
             }
             BillOpCode::RejectToBuy => {
                 if let RecourseWaitingForPayment::Yes(_) = waiting_for_recourse {
