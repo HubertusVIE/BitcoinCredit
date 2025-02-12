@@ -782,8 +782,10 @@ mod tests {
         let mut mock_store = MockNotificationStoreApi::new();
         let result = Notification::new_bill_notification("bill_id", "node_id", "desc", None);
         let returning = result.clone();
-        let mut filter = NotificationFilter::default();
-        filter.active = Some(true);
+        let filter = NotificationFilter {
+            active: Some(true),
+            ..Default::default()
+        };
         mock_store
             .expect_list()
             .with(eq(filter.clone()))

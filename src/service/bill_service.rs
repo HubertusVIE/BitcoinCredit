@@ -41,6 +41,7 @@ use crate::{error, CONFIG};
 use async_trait::async_trait;
 use borsh::to_vec;
 use borsh_derive::{BorshDeserialize, BorshSerialize};
+use futures::future::try_join_all;
 use log::info;
 #[cfg(test)]
 use mockall::automock;
@@ -934,13 +935,30 @@ impl BillService {
             .await?;
         let first_version_bill = chain.get_first_version_bill(&bill_keys)?;
         let time_of_drawing = first_version_bill.signing_timestamp;
-        let bill_participants = chain.get_all_nodes_from_bill(&bill_keys)?;
-        let endorsements_count = chain.get_endorsements_count();
 
+        // handle expensive deserialization and decryption logic in parallel on a blocking thread
+        // pool as not to block the task queue
+        let chain_clone = chain.clone();
+        let keys_clone = bill_keys.clone();
+        let bill_participants_handle =
+            tokio::task::spawn_blocking(move || chain_clone.get_all_nodes_from_bill(&keys_clone));
+        let chain_clone = chain.clone();
+        let keys_clone = bill_keys.clone();
+        let chain_to_return_handle = tokio::task::spawn_blocking(move || {
+            BillBlockchainToReturn::new(chain_clone, &keys_clone)
+        });
+        let (bill_participants_res, chain_to_return_res) =
+            tokio::try_join!(bill_participants_handle, chain_to_return_handle).map_err(|e| {
+                error!("couldn't get data from bill chain blocks {bill_id}: {e}");
+                Error::Blockchain(blockchain::Error::BlockchainParse)
+            })?;
+        let bill_participants = bill_participants_res?;
+        let chain_to_return = chain_to_return_res?;
+
+        let endorsements_count = chain.get_endorsements_count();
         let mut in_recourse = false;
         let mut link_to_pay_recourse = "".to_string();
         let mut link_for_buy = "".to_string();
-        let chain_to_return = BillBlockchainToReturn::new(chain.clone(), &bill_keys)?;
         let endorsed = chain.block_with_operation_code_exists(BillOpCode::Endorse);
         let accepted = chain.block_with_operation_code_exists(BillOpCode::Accept);
         let last_offer_to_sell_block_waiting_for_payment =
@@ -1838,50 +1856,57 @@ impl BillServiceApi for BillService {
     }
 
     async fn get_bills_from_all_identities(&self) -> Result<Vec<BitcreditBillToReturn>> {
-        let mut res = vec![];
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
-        let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let current_timestamp = util::date::now().timestamp() as u64;
 
-        for bill_id in bill_ids {
-            let bill = self
-                .get_full_bill(&bill_id, &identity, &identity.node_id, current_timestamp)
-                .await?;
-            res.push(bill)
-        }
+        let tasks = bill_ids.iter().map(|id| {
+            let identity_clone = identity.clone();
+            async move {
+                self.get_full_bill(
+                    id,
+                    &identity_clone,
+                    &identity_clone.node_id,
+                    current_timestamp,
+                )
+                .await
+            }
+        });
+        let bills = try_join_all(tasks).await?;
 
-        Ok(res)
+        Ok(bills)
     }
 
     async fn get_bills(
         &self,
         current_identity_node_id: &str,
     ) -> Result<Vec<BitcreditBillToReturn>> {
-        let mut res = vec![];
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
-        let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+        let current_timestamp = util::date::now().timestamp() as u64;
 
-        for bill_id in bill_ids {
-            let bill = self
-                .get_full_bill(
-                    &bill_id,
-                    &identity,
+        let tasks = bill_ids.iter().map(|id| {
+            let identity_clone = identity.clone();
+            async move {
+                self.get_full_bill(
+                    id,
+                    &identity_clone,
                     current_identity_node_id,
                     current_timestamp,
                 )
-                .await?;
-            // filter for currently active identity
-            if bill
-                .bill_participants
-                .iter()
-                .any(|p| p == current_identity_node_id)
-            {
-                res.push(bill);
+                .await
             }
-        }
+        });
+        let bills = try_join_all(tasks).await?;
 
-        Ok(res)
+        Ok(bills
+            .into_iter()
+            .filter(|b| {
+                b.bill_participants
+                    .iter()
+                    .any(|p| p == current_identity_node_id)
+            })
+            .collect())
     }
 
     async fn get_combined_bitcoin_key_for_bill(

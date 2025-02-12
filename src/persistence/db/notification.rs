@@ -314,8 +314,10 @@ mod tests {
             .await
             .expect("could not create notification");
 
-        let mut filter = NotificationFilter::default();
-        filter.active = Some(true);
+        let filter = NotificationFilter {
+            active: Some(true),
+            ..Default::default()
+        };
         let all = store
             .list(filter.clone())
             .await

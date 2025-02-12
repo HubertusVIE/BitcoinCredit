@@ -63,6 +63,7 @@ pub trait ContactServiceApi: Send + Sync {
     ) -> Result<Contact>;
 
     /// Returns whether a given npub (as hex) is in our contact list.
+    #[allow(dead_code)]
     async fn is_known_npub(&self, npub: &str) -> Result<bool>;
 
     /// opens and decrypts the attached file from the given contact
