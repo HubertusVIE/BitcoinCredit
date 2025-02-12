@@ -26,6 +26,10 @@ pub enum Error {
     #[error("Blockchain is invalid")]
     BlockchainInvalid,
 
+    /// If there is an error deserializing and decrypting blocks
+    #[error("Could not parse and decrypt blockchain")]
+    BlockchainParse,
+
     /// If certain block is not valid and can't be added
     #[error("Block is invalid")]
     BlockInvalid,

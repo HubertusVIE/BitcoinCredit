@@ -10,7 +10,7 @@ pub struct TimeApi {
 
 impl TimeApi {
     pub async fn get_atomic_time() -> Self {
-        match reqwest::get("https://api.timezonedb.com/v2.1/get-time-zone?key=RQ6ZFDOXPVLR&format=json&by=zone&zone=Europe/Vienna")
+        match reqwest::get("https://vip.timezonedb.com/v2.1/get-time-zone?key=AY3Q7V1JPPNX&format=json&fields=timestamp&by=zone&zone=UTC")
             .await
             {
                 Err(e) => {

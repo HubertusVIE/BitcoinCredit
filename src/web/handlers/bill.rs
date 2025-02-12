@@ -310,7 +310,7 @@ pub async fn bill_detail(
     state: &State<ServiceContext>,
     id: &str,
 ) -> Result<Json<BitcreditBillToReturn>> {
-    let current_timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let current_timestamp = util::date::now().timestamp() as u64;
     let identity = state.identity_service.get_identity().await?;
     let bill_detail = state
         .bill_service
