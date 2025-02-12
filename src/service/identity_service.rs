@@ -271,7 +271,10 @@ impl IdentityServiceApi for IdentityService {
                 &keys.get_public_key(),
             )
             .await?;
-        identity.profile_picture_file = profile_picture_file.clone();
+        // only override the picture, if there is a new one
+        if profile_picture_file.is_some() {
+            identity.profile_picture_file = profile_picture_file.clone();
+        }
 
         let previous_block = self.blockchain_store.get_latest_block().await?;
         let new_block = IdentityBlock::create_block_for_update(
