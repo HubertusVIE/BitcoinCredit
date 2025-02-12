@@ -1056,6 +1056,9 @@ impl BillService {
         let address_to_pay = self
             .bitcoin_client
             .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
+        let mempool_link_for_address_to_pay = self
+            .bitcoin_client
+            .get_mempool_link_for_address(&address_to_pay);
         let mut paid = false;
         if requested_to_pay {
             paid = self.store.is_paid(&bill.id).await?;
@@ -1101,6 +1104,7 @@ impl BillService {
             recoursee,
             link_to_pay_recourse,
             address_to_pay,
+            mempool_link_for_address_to_pay,
             chain_of_blocks: chain_to_return,
             files: bill.files,
             active_notification,
@@ -3258,6 +3262,7 @@ pub struct BitcreditBillToReturn {
     pub link_to_pay: String,
     pub link_to_pay_recourse: String,
     pub address_to_pay: String,
+    pub mempool_link_for_address_to_pay: String,
     pub chain_of_blocks: BillBlockchainToReturn,
     pub files: Vec<File>,
     /// The currently active notification for this bill if any
@@ -3504,6 +3509,13 @@ pub mod tests {
         bitcoin_client
             .expect_get_address_to_pay()
             .returning(|_, _| Ok(String::from("1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2")));
+        bitcoin_client
+            .expect_get_mempool_link_for_address()
+            .returning(|_| {
+                String::from(
+                    "http://blockstream.info/testnet/address/1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2",
+                )
+            });
         bitcoin_client.expect_generate_link_to_pay().returning(|_,_,_| String::from("bitcoin:1Jfn2nZcJ4T7bhE8FdMRz8T3P3YV4LsWn2?amount=0.01&message=Payment in relation to bill some bill"));
         BillService::new(
             Client::new(

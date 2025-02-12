@@ -56,6 +56,8 @@ pub trait BitcoinClientApi: Send + Sync {
         pkey: &bitcoin::PrivateKey,
         pkey_to_combine: &bitcoin::PrivateKey,
     ) -> Result<String>;
+
+    fn get_mempool_link_for_address(&self, address: &str) -> String;
 }
 
 #[derive(Clone)]
@@ -73,6 +75,17 @@ impl BitcoinClient {
             }
             _ => {
                 format!("https://blockstream.info/testnet/api{path}")
+            }
+        }
+    }
+
+    pub fn link_url(&self, path: &str) -> String {
+        match CONFIG.bitcoin_network() {
+            Network::Bitcoin => {
+                format!("https://blockstream.info{path}")
+            }
+            _ => {
+                format!("https://blockstream.info/testnet{path}")
             }
         }
     }
@@ -168,6 +181,10 @@ impl BitcoinClientApi for BitcoinClient {
             .add_tweak(&Scalar::from(pkey_to_combine.inner))
             .map_err(Error::from)?;
         Ok(bitcoin::PrivateKey::new(private_key_bill, CONFIG.bitcoin_network()).to_string())
+    }
+
+    fn get_mempool_link_for_address(&self, address: &str) -> String {
+        self.link_url(&format!("/address/{address}"))
     }
 }
 
