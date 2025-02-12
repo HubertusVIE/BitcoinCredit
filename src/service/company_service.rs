@@ -46,12 +46,12 @@ pub trait CompanyServiceApi: Send + Sync {
     async fn create_company(
         &self,
         name: String,
-        country_of_registration: String,
-        city_of_registration: String,
+        country_of_registration: Option<String>,
+        city_of_registration: Option<String>,
         postal_address: PostalAddress,
         email: String,
-        registration_number: String,
-        registration_date: String,
+        registration_number: Option<String>,
+        registration_date: Option<String>,
         proof_of_registration_file_upload_id: Option<String>,
         logo_file_upload_id: Option<String>,
         timestamp: u64,
@@ -209,12 +209,12 @@ impl CompanyServiceApi for CompanyService {
     async fn create_company(
         &self,
         name: String,
-        country_of_registration: String,
-        city_of_registration: String,
+        country_of_registration: Option<String>,
+        city_of_registration: Option<String>,
         postal_address: PostalAddress,
         email: String,
-        registration_number: String,
-        registration_date: String,
+        registration_number: Option<String>,
+        registration_date: Option<String>,
         proof_of_registration_file_upload_id: Option<String>,
         logo_file_upload_id: Option<String>,
         timestamp: u64,
@@ -385,7 +385,10 @@ impl CompanyServiceApi for CompanyService {
                 &full_identity.key_pair.get_public_key(),
             )
             .await?;
-        company.logo_file = logo_file.clone();
+        // only override the picture, if there is a new one
+        if logo_file.is_some() {
+            company.logo_file = logo_file.clone();
+        }
 
         self.store.update(id, &company).await?;
 
@@ -603,13 +606,13 @@ impl CompanyServiceApi for CompanyService {
 pub struct CompanyToReturn {
     pub id: String,
     pub name: String,
-    pub country_of_registration: String,
-    pub city_of_registration: String,
+    pub country_of_registration: Option<String>,
+    pub city_of_registration: Option<String>,
     #[serde(flatten)]
     pub postal_address: PostalAddress,
     pub email: String,
-    pub registration_number: String,
-    pub registration_date: String,
+    pub registration_number: Option<String>,
+    pub registration_date: Option<String>,
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
     pub signatories: Vec<String>,
@@ -637,12 +640,12 @@ impl CompanyToReturn {
 pub struct Company {
     pub id: String,
     pub name: String,
-    pub country_of_registration: String,
-    pub city_of_registration: String,
+    pub country_of_registration: Option<String>,
+    pub city_of_registration: Option<String>,
     pub postal_address: PostalAddress,
     pub email: String,
-    pub registration_number: String,
-    pub registration_date: String,
+    pub registration_number: Option<String>,
+    pub registration_date: Option<String>,
     pub proof_of_registration_file: Option<File>,
     pub logo_file: Option<File>,
     pub signatories: Vec<String>,
@@ -717,12 +720,12 @@ pub mod tests {
                 Company {
                     id: TEST_PUB_KEY_SECP.to_owned(),
                     name: "some_name".to_string(),
-                    country_of_registration: "AT".to_string(),
-                    city_of_registration: "Vienna".to_string(),
+                    country_of_registration: Some("AT".to_string()),
+                    city_of_registration: Some("Vienna".to_string()),
                     postal_address: PostalAddress::new_empty(),
                     email: "company@example.com".to_string(),
-                    registration_number: "some_number".to_string(),
-                    registration_date: "2012-01-01".to_string(),
+                    registration_number: Some("some_number".to_string()),
+                    registration_date: Some("2012-01-01".to_string()),
                     proof_of_registration_file: None,
                     logo_file: None,
                     signatories: vec![TEST_PUB_KEY_SECP.to_string()],
@@ -955,12 +958,12 @@ pub mod tests {
         let res = service
             .create_company(
                 "name".to_string(),
-                "AT".to_string(),
-                "Vienna".to_string(),
+                Some("AT".to_string()),
+                Some("Vienna".to_string()),
                 PostalAddress::new_empty(),
                 "company@example.com".to_string(),
-                "some_number".to_string(),
-                "2012-01-01".to_string(),
+                Some("some_number".to_string()),
+                Some("2012-01-01".to_string()),
                 Some("some_file_id".to_string()),
                 Some("some_other_file_id".to_string()),
                 1731593928,
@@ -1019,12 +1022,12 @@ pub mod tests {
         let res = service
             .create_company(
                 "name".to_string(),
-                "AT".to_string(),
-                "Vienna".to_string(),
+                Some("AT".to_string()),
+                Some("Vienna".to_string()),
                 PostalAddress::new_empty(),
                 "company@example.com".to_string(),
-                "some_number".to_string(),
-                "2012-01-01".to_string(),
+                Some("some_number".to_string()),
+                Some("2012-01-01".to_string()),
                 None,
                 None,
                 1731593928,

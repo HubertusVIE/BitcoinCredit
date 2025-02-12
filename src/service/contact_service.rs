@@ -239,7 +239,10 @@ impl ContactServiceApi for ContactService {
         let avatar_file = self
             .process_upload_file(&avatar_file_upload_id, node_id, &identity_public_key)
             .await?;
-        contact.avatar_file = avatar_file;
+        // only override the picture, if there is a new one
+        if avatar_file.is_some() {
+            contact.avatar_file = avatar_file;
+        }
 
         self.store.update(node_id, contact).await?;
 

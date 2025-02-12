@@ -467,13 +467,13 @@ pub struct SeedPhrase {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CreateCompanyPayload {
     pub name: String,
-    pub country_of_registration: String,
-    pub city_of_registration: String,
+    pub country_of_registration: Option<String>,
+    pub city_of_registration: Option<String>,
     #[serde(flatten)]
     pub postal_address: PostalAddress,
     pub email: String,
-    pub registration_number: String,
-    pub registration_date: String,
+    pub registration_number: Option<String>,
+    pub registration_date: Option<String>,
     pub proof_of_registration_file_upload_id: Option<String>,
     pub logo_file_upload_id: Option<String>,
 }
