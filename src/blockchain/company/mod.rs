@@ -97,7 +97,12 @@ pub struct CompanyUpdateBlockData {
     pub name: Option<String>,
     pub email: Option<String>,
     pub postal_address: OptionalPostalAddress,
+    pub country_of_registration: Option<String>,
+    pub city_of_registration: Option<String>,
+    pub registration_number: Option<String>,
+    pub registration_date: Option<String>,
     pub logo_file: Option<File>,
+    pub proof_of_registration_file: Option<File>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
@@ -506,7 +511,12 @@ mod tests {
                 name: Some("new_name".to_string()),
                 email: None,
                 postal_address: OptionalPostalAddress::new_empty(),
+                country_of_registration: None,
+                city_of_registration: None,
+                registration_number: None,
+                registration_date: None,
                 logo_file: None,
+                proof_of_registration_file: None,
             },
             &identity_keys,
             &company_keys,
