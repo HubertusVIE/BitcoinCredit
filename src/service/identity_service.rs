@@ -158,31 +158,6 @@ impl IdentityService {
             hash: file_hash,
         })
     }
-
-    fn update_optional_field(
-        &self,
-        identity_field: &mut Option<String>,
-        field: &Option<String>,
-        changed: &mut bool,
-    ) {
-        match identity_field {
-            Some(_) => {
-                if let Some(ref field_to_set) = field {
-                    *identity_field = Some(field_to_set.clone());
-                    *changed = true;
-                } else {
-                    *identity_field = None;
-                    *changed = true;
-                }
-            }
-            None => {
-                if let Some(ref field_to_set) = field {
-                    *identity_field = Some(field_to_set.clone());
-                    *changed = true;
-                }
-            }
-        };
-    }
 }
 
 #[async_trait]
@@ -222,41 +197,41 @@ impl IdentityServiceApi for IdentityService {
             }
         }
 
-        self.update_optional_field(
+        util::update_optional_field(
             &mut identity.postal_address.country,
             &postal_address.country,
             &mut changed,
         );
 
-        self.update_optional_field(
+        util::update_optional_field(
             &mut identity.postal_address.city,
             &postal_address.city,
             &mut changed,
         );
 
-        self.update_optional_field(
+        util::update_optional_field(
             &mut identity.postal_address.zip,
             &postal_address.zip,
             &mut changed,
         );
 
-        self.update_optional_field(
+        util::update_optional_field(
             &mut identity.postal_address.address,
             &postal_address.address,
             &mut changed,
         );
 
-        self.update_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
+        util::update_optional_field(&mut identity.date_of_birth, &date_of_birth, &mut changed);
 
-        self.update_optional_field(
+        util::update_optional_field(
             &mut identity.country_of_birth,
             &country_of_birth,
             &mut changed,
         );
 
-        self.update_optional_field(&mut identity.city_of_birth, &city_of_birth, &mut changed);
+        util::update_optional_field(&mut identity.city_of_birth, &city_of_birth, &mut changed);
 
-        self.update_optional_field(
+        util::update_optional_field(
             &mut identity.identification_number,
             &identification_number,
             &mut changed,

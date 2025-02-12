@@ -43,7 +43,12 @@ pub trait ContactServiceApi: Send + Sync {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        date_of_birth_or_registration: Option<String>,
+        country_of_birth_or_registration: Option<String>,
+        city_of_birth_or_registration: Option<String>,
+        identification_number: Option<String>,
         avatar_file_upload_id: Option<String>,
+        proof_document_file_upload_id: Option<String>,
     ) -> Result<()>;
 
     /// Adds a new contact
@@ -177,7 +182,12 @@ impl ContactServiceApi for ContactService {
         name: Option<String>,
         email: Option<String>,
         postal_address: OptionalPostalAddress,
+        date_of_birth_or_registration: Option<String>,
+        country_of_birth_or_registration: Option<String>,
+        city_of_birth_or_registration: Option<String>,
+        identification_number: Option<String>,
         avatar_file_upload_id: Option<String>,
+        proof_document_file_upload_id: Option<String>,
     ) -> Result<()> {
         let mut contact = match self.store.get(node_id).await? {
             Some(contact) => contact,
@@ -209,30 +219,42 @@ impl ContactServiceApi for ContactService {
             changed = true;
         }
 
-        match contact.postal_address.zip {
-            Some(_) => {
-                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-                    contact.postal_address.zip = Some(postal_address_zip_to_set.clone());
-                    changed = true;
-                } else {
-                    contact.postal_address.zip = None;
-                    changed = true;
-                }
-            }
-            None => {
-                if let Some(ref postal_address_zip_to_set) = postal_address.zip {
-                    contact.postal_address.zip = Some(postal_address_zip_to_set.clone());
-                    changed = true;
-                }
-            }
-        };
+        util::update_optional_field(
+            &mut contact.postal_address.zip,
+            &postal_address.zip,
+            &mut changed,
+        );
 
         if let Some(ref postal_address_address_to_set) = postal_address.address {
             contact.postal_address.address = postal_address_address_to_set.clone();
             changed = true;
         }
 
-        if !changed && avatar_file_upload_id.is_none() {
+        util::update_optional_field(
+            &mut contact.date_of_birth_or_registration,
+            &date_of_birth_or_registration,
+            &mut changed,
+        );
+
+        util::update_optional_field(
+            &mut contact.country_of_birth_or_registration,
+            &country_of_birth_or_registration,
+            &mut changed,
+        );
+
+        util::update_optional_field(
+            &mut contact.city_of_birth_or_registration,
+            &city_of_birth_or_registration,
+            &mut changed,
+        );
+
+        util::update_optional_field(
+            &mut contact.identification_number,
+            &identification_number,
+            &mut changed,
+        );
+
+        if !changed && avatar_file_upload_id.is_none() && proof_document_file_upload_id.is_none() {
             return Ok(());
         }
 
@@ -242,6 +264,17 @@ impl ContactServiceApi for ContactService {
         // only override the picture, if there is a new one
         if avatar_file.is_some() {
             contact.avatar_file = avatar_file;
+        }
+        let proof_document_file = self
+            .process_upload_file(
+                &proof_document_file_upload_id,
+                node_id,
+                &identity_public_key,
+            )
+            .await?;
+        // only override the document, if there is a new one
+        if proof_document_file.is_some() {
+            contact.proof_document_file = proof_document_file;
         }
 
         self.store.update(node_id, contact).await?;
@@ -611,6 +644,11 @@ pub mod tests {
                 Some("new_name".to_string()),
                 None,
                 OptionalPostalAddress::new_empty(),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
             )
             .await;
