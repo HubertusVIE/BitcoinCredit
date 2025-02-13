@@ -47,7 +47,6 @@ pub async fn get_file(
 
 #[post("/upload_file", data = "<file_upload_form>")]
 pub async fn upload_file(
-    _identity: IdentityCheck,
     state: &State<ServiceContext>,
     file_upload_form: Form<UploadFileForm<'_>>,
 ) -> Result<Json<UploadFilesResponse>> {
