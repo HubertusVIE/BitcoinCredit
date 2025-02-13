@@ -1,4 +1,4 @@
-use super::bill::get_signer_public_data_and_keys;
+use super::bill::{get_current_identity_node_id, get_signer_public_data_and_keys};
 use super::middleware::IdentityCheck;
 use crate::external;
 use crate::external::mint::{
@@ -24,7 +24,7 @@ pub async fn return_quote(
     let bill_id_hex = hex::encode(bill_id_u8);
     let copy_id_hex = bill_id_hex.clone();
 
-    let local_node_id = state.identity_service.get_identity().await?.node_id;
+    let local_node_id = get_current_identity_node_id(&state).await;
     if !quote.bill_id.is_empty() && quote.quote_id.is_empty() {
         // Usage of thread::spawn is necessary here, because we spawn a new tokio runtime in the
         // thread, but this logic will be replaced soon
