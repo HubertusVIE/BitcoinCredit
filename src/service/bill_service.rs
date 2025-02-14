@@ -1076,6 +1076,8 @@ impl BillService {
         Ok(BitcreditBillToReturn {
             id: bill.id,
             time_of_drawing,
+            time_of_maturity: util::date::date_string_to_i64_timestamp(&bill.maturity_date, None)
+                .unwrap_or(0) as u64,
             country_of_issuing: bill.country_of_issuing,
             city_of_issuing: bill.city_of_issuing,
             drawee: bill.drawee,
@@ -3248,6 +3250,7 @@ impl From<BitcreditBillToReturn> for LightBitcreditBillToReturn {
 pub struct BitcreditBillToReturn {
     pub id: String,
     pub time_of_drawing: u64,
+    pub time_of_maturity: u64,
     pub country_of_issuing: String,
     pub city_of_issuing: String,
     /// The party obliged to pay a Bill
