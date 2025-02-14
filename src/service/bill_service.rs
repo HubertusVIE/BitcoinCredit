@@ -1123,29 +1123,20 @@ impl BillService {
             .get_last_version_bill(&chain, &bill_keys, identity)
             .await?;
 
-        // We only check payment, if the maturity date hasn't expired
-        if let Some(maturity_date_timestamp) =
-            util::date::date_string_to_i64_timestamp(&bill.maturity_date, None)
+        let holder_public_key = match bill.endorsee {
+            None => &bill.payee.node_id,
+            Some(ref endorsee) => &endorsee.node_id,
+        };
+        let address_to_pay = self
+            .bitcoin_client
+            .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
+        if let Ok((paid, sum)) = self
+            .bitcoin_client
+            .check_if_paid(&address_to_pay, bill.sum)
+            .await
         {
-            if maturity_date_timestamp
-                > (util::date::now().timestamp() - PAYMENT_DEADLINE_SECONDS as i64)
-            {
-                let holder_public_key = match bill.endorsee {
-                    None => &bill.payee.node_id,
-                    Some(ref endorsee) => &endorsee.node_id,
-                };
-                let address_to_pay = self
-                    .bitcoin_client
-                    .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
-                if let Ok((paid, sum)) = self
-                    .bitcoin_client
-                    .check_if_paid(&address_to_pay, bill.sum)
-                    .await
-                {
-                    if paid && sum > 0 {
-                        self.store.set_to_paid(bill_id, &address_to_pay).await?;
-                    }
-                }
+            if paid && sum > 0 {
+                self.store.set_to_paid(bill_id, &address_to_pay).await?;
             }
         }
         Ok(())
