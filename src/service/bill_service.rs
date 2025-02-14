@@ -3221,6 +3221,8 @@ pub struct LightBitcreditBillToReturn {
     pub sum: String,
     pub currency: String,
     pub issue_date: String,
+    pub time_of_drawing: u64,
+    pub time_of_maturity: u64,
 }
 
 impl From<BitcreditBillToReturn> for LightBitcreditBillToReturn {
@@ -3235,6 +3237,9 @@ impl From<BitcreditBillToReturn> for LightBitcreditBillToReturn {
             sum: value.sum,
             currency: value.currency,
             issue_date: value.issue_date,
+            time_of_drawing: value.time_of_drawing,
+            time_of_maturity: util::date::date_string_to_i64_timestamp(&value.maturity_date, None)
+                .unwrap_or(0) as u64,
         }
     }
 }

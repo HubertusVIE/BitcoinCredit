@@ -60,6 +60,7 @@ lettre = { version = "0.11.10", features = [
   "tokio1-native-tls",
   "file-transport",
 ] }
+rust_decimal = { version = "1.35.0", default-features = false, features = ["std"] }
 nostr-sdk = { version = "0.38.0", features = ["nip59"] }
 uuid = { version = "1.11.0", features = ["v4"] }
 infer = { version = "0.16", default-features = false }
