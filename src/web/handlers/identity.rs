@@ -68,7 +68,7 @@ pub async fn upload_file(
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/detail",
+    path = "/api/identity/detail",
     description = "Returns the current identity",
     responses(
         (status = 200, description = "The current identity data", body = IdentityToReturn)
@@ -87,7 +87,7 @@ pub async fn return_identity(state: &State<ServiceContext>) -> Result<Json<Ident
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/create",
+    path = "/api/identity/create",
     description = "Creates a new identity with given data",
     responses(
         (status = 200, description = "The identity has been created")
@@ -125,7 +125,7 @@ pub async fn create_identity(
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/change",
+    path = "/api/identity/change",
     description = "Updates the identity with given data",
     responses(
         (status = 200, description = "The identity has been updated")
@@ -172,7 +172,7 @@ pub async fn change_identity(
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/active",
+    path = "/api/identity/active",
     description = "Returns the currently active identity data",
     responses(
         (status = 200, description = "The identity that is currently active", body = SwitchIdentity)
@@ -193,7 +193,7 @@ pub async fn active(state: &State<ServiceContext>) -> Result<Json<SwitchIdentity
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/switch",
+    path = "/api/identity/switch",
     description = "Switches the currently active identity to the given identity",
     responses(
         (status = 200, description = "The active identity has been switched")
@@ -234,7 +234,7 @@ pub async fn switch(
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/seed/backup",
+    path = "/api/identity/seed/backup",
     description = "Returns the seed phrase key backup of current private key",
     responses(
         (status = 200, description = "The seed phrase of the current private key", body = SeedPhrase)
@@ -248,7 +248,7 @@ pub async fn get_seed_phrase(state: &State<ServiceContext>) -> Result<Json<SeedP
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/seed/recover",
+    path = "/api/identity/seed/recover",
     description = "Restores a private key from the given seed phrase backup",
     responses(
         (status = 200, description = "Private key has been recovered from seed")
@@ -269,7 +269,7 @@ pub async fn recover_from_seed_phrase(
 
 #[utoipa::path(
     tag = "Identity",
-    path = "/identity/backup",
+    path = "/api/identity/backup",
     description = "Creates an encrypted backup of all the data for current identity and returns the backup file",
     responses(
         (status = 200, description = "The encrypted backup that has been created")
@@ -288,7 +288,7 @@ pub async fn backup_identity(state: &State<ServiceContext>) -> Result<BinaryFile
 #[utoipa::path(
     post,
     tag = "Identity",
-    path = "/identity/restore",
+    path = "/api/identity/restore",
     request_body(content_type = "multipart/form-data", content = UploadFileForm, description = "Backup file to upload"),
     responses(
         (status = 200, description = "Indentity has been restored")
