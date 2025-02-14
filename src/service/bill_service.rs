@@ -1076,6 +1076,8 @@ impl BillService {
         Ok(BitcreditBillToReturn {
             id: bill.id,
             time_of_drawing,
+            time_of_maturity: util::date::date_string_to_i64_timestamp(&bill.maturity_date, None)
+                .unwrap_or(0) as u64,
             country_of_issuing: bill.country_of_issuing,
             city_of_issuing: bill.city_of_issuing,
             drawee: bill.drawee,
@@ -1121,29 +1123,20 @@ impl BillService {
             .get_last_version_bill(&chain, &bill_keys, identity)
             .await?;
 
-        // We only check payment, if the maturity date hasn't expired
-        if let Some(maturity_date_timestamp) =
-            util::date::date_string_to_i64_timestamp(&bill.maturity_date, None)
+        let holder_public_key = match bill.endorsee {
+            None => &bill.payee.node_id,
+            Some(ref endorsee) => &endorsee.node_id,
+        };
+        let address_to_pay = self
+            .bitcoin_client
+            .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
+        if let Ok((paid, sum)) = self
+            .bitcoin_client
+            .check_if_paid(&address_to_pay, bill.sum)
+            .await
         {
-            if maturity_date_timestamp
-                > (util::date::now().timestamp() - PAYMENT_DEADLINE_SECONDS as i64)
-            {
-                let holder_public_key = match bill.endorsee {
-                    None => &bill.payee.node_id,
-                    Some(ref endorsee) => &endorsee.node_id,
-                };
-                let address_to_pay = self
-                    .bitcoin_client
-                    .get_address_to_pay(&bill_keys.public_key, holder_public_key)?;
-                if let Ok((paid, sum)) = self
-                    .bitcoin_client
-                    .check_if_paid(&address_to_pay, bill.sum)
-                    .await
-                {
-                    if paid && sum > 0 {
-                        self.store.set_to_paid(bill_id, &address_to_pay).await?;
-                    }
-                }
+            if paid && sum > 0 {
+                self.store.set_to_paid(bill_id, &address_to_pay).await?;
             }
         }
         Ok(())
@@ -3221,6 +3214,8 @@ pub struct LightBitcreditBillToReturn {
     pub sum: String,
     pub currency: String,
     pub issue_date: String,
+    pub time_of_drawing: u64,
+    pub time_of_maturity: u64,
 }
 
 impl From<BitcreditBillToReturn> for LightBitcreditBillToReturn {
@@ -3235,6 +3230,9 @@ impl From<BitcreditBillToReturn> for LightBitcreditBillToReturn {
             sum: value.sum,
             currency: value.currency,
             issue_date: value.issue_date,
+            time_of_drawing: value.time_of_drawing,
+            time_of_maturity: util::date::date_string_to_i64_timestamp(&value.maturity_date, None)
+                .unwrap_or(0) as u64,
         }
     }
 }
@@ -3243,6 +3241,7 @@ impl From<BitcreditBillToReturn> for LightBitcreditBillToReturn {
 pub struct BitcreditBillToReturn {
     pub id: String,
     pub time_of_drawing: u64,
+    pub time_of_maturity: u64,
     pub country_of_issuing: String,
     pub city_of_issuing: String,
     /// The party obliged to pay a Bill

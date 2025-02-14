@@ -1141,6 +1141,7 @@ dependencies = [
  "rocket_cors",
  "rocket_dyn_templates",
  "rocket_ws",
+ "rust_decimal",
  "serde",
  "serde_json",
  "serde_repr",
