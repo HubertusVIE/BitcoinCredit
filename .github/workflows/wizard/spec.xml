@@ -1,11 +1,13 @@
 <project>
-    <shortName>bitcredit</shortName>
-    <fullName>Bitcredit Client</fullName>
+    <shortName>bitcreditcore</shortName>
+    <fullName>Bitcredit Core</fullName>
     <version>0.0</version>
-    <splashImage>${build_project_directory}/bitcredit_logo_long.png</splashImage>
-    <windowsExecutableIcon>${build_project_directory}/bitcredit.ico</windowsExecutableIcon>
-    <windowsUninstallerExecutableIcon>${build_project_directory}/bitcredit.ico</windowsUninstallerExecutableIcon>
-    <logoImage>${build_project_directory}/bitcredit_logo_long.png</logoImage>
+    <splashImage>${build_project_directory}/images/bitcredit_logo.png</splashImage>
+    <windowsExecutableIcon>${build_project_directory}/windows/bitcredit.ico</windowsExecutableIcon>
+    <windowsUninstallerExecutableIcon>${build_project_directory}/windows/bitcredit.ico</windowsUninstallerExecutableIcon>
+    <osxApplicationBundleIcon>${build_project_directory}/macos/bitcredit.icns</osxApplicationBundleIcon>
+    <!-- <osxUninstallerApplicationBundleIcon>${build_project_directory}/macos/bitcredit.icns</osxUninstallerApplicationBundleIcon> -->
+    <logoImage>${build_project_directory}/images/bitcredit_logo.png</logoImage>
     <createOsxBundleDmg>1</createOsxBundleDmg>
     <initializationActionList>
         <setInstallerVariable>
@@ -66,7 +68,7 @@
                     </shortcutList>
                     <distributionFileList>
                         <distributionFile>
-                            <origin>${build_project_directory}/bitcredit.png</origin>
+                            <origin>${build_project_directory}/images/bitcredit.png</origin>
                         </distributionFile>
                     </distributionFileList>
                 </folder>
@@ -89,18 +91,10 @@
                         <distributionFile>
                             <origin>${besourcedir}/bitcredit.exe</origin>
                         </distributionFile>
-                        <distributionFile>
-                            <origin>${build_project_directory}/nssm.exe</origin>
-                        </distributionFile>
-                        <distributionFile>
-                            <origin>${build_project_directory}/bitcredit.ico</origin>
-                        </distributionFile>
-                        <distributionFile>
-                            <origin>${build_project_directory}/Win64OpenSSL_Light-3_4_0.exe</origin>
-                        </distributionFile>
-                        <distributionFile>
-                            <origin>${build_project_directory}/VC_redist.x64.v14_42.exe</origin>
-                        </distributionFile>
+                        <distributionDirectory>
+                            <origin>${build_project_directory}/windows/*</origin>
+                            <allowWildcards>1</allowWildcards>
+                        </distributionDirectory>
                     </distributionFileList>
                 </folder>
                 <folder>
@@ -111,12 +105,10 @@
                         <distributionFile>
                             <origin>${besourcedir}/bitcredit</origin>
                         </distributionFile>
-                        <distributionFile>
-                            <origin>${build_project_directory}/install.sh</origin>
-                        </distributionFile>
-                        <distributionFile>
-                            <origin>${build_project_directory}/askpass.sh</origin>
-                        </distributionFile>
+                        <distributionDirectory>
+                            <origin>${build_project_directory}/macos/*</origin>
+                            <allowWildcards>1</allowWildcards>
+                        </distributionDirectory>
                     </distributionFileList>
                 </folder>
             </folderList>
@@ -151,7 +143,12 @@
         <setInstallerVariable>
             <name>be_service_name</name>
             <persist>1</persist>
-            <value>bitcreditclient</value>
+            <value>org.bitcr.core.service</value>
+        </setInstallerVariable>
+        <setInstallerVariable>
+            <name>osx_service_name</name>
+            <persist>1</persist>
+            <value>org.bitcr.core.service</value>
         </setInstallerVariable>
     </preInstallationActionList>
     <postInstallationActionList>
@@ -205,7 +202,7 @@
                 <runProgram>
                     <runAs>Administrator</runAs>
                     <program>${installdir}/nssm.exe</program>
-                    <programArguments>set "${be_service_name}" DisplayName "Bitcredit Client"</programArguments>
+                    <programArguments>set "${be_service_name}" DisplayName "Bitcredit Core"</programArguments>
                     <workingDirectory>${installdir}</workingDirectory>
                     <progressText>Installing Bitcredit Client Service</progressText>
                 </runProgram>
@@ -259,7 +256,7 @@
                 <runProgram>
                     <program>./install.sh</program>
                     <workingDirectory>${installdir}</workingDirectory>
-                    <progressText>Installing Dependencies</progressText>
+                    <progressText>Installing dependencies</progressText>
                 </runProgram>
                 <runProgram>
                     <program>chmod</program>
@@ -274,14 +271,14 @@
                     <progressText>Creating Logs folder</progressText>
                 </runProgram>
                 <writeFile>
-                    <path>${installdir}/org.bitcr.service.plist</path>
+                    <path>${installdir}/${osx_service_name}.plist</path>
                     <encoding>utf-8</encoding>
                     <text><![CDATA[<?xml version="1.0" encoding="UTF-8"?>
                 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
                 <plist version="1.0">
                 <dict>
                     <key>Label</key>
-                    <string>org.bitcr.service</string>
+                    <string>${osx_service_name}</string>
                     <key>ProgramArguments</key>
                     <array>
                         <string>${installdir}/bitcredit</string>
@@ -312,19 +309,25 @@
                     <progressText>Creating Bitcredit Client Service specification</progressText>
                 </writeFile>
                 <copyFile>
-                    <origin>${installdir}/org.bitcr.service.plist</origin>
-                    <destination>~/Library/LaunchAgents/org.bitcr.service.plist</destination>
+                    <origin>${installdir}/${osx_service_name}.plist</origin>
+                    <destination>~/Library/LaunchAgents/${osx_service_name}.plist</destination>
                     <progressText>Creating Bitcredit Client Service specification</progressText>
                 </copyFile>
                 <runProgram>
                     <program>chmod</program>
-                    <programArguments>+x ~/Library/LaunchAgents/org.bitcr.service.plist</programArguments>
+                    <programArguments>+x ~/Library/LaunchAgents/${osx_service_name}.plist</programArguments>
                     <progressText>Adjusting permissions</progressText>
                 </runProgram>
                 <runProgram>
                     <program>launchctl</program>
-                    <programArguments>bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.bitcr.service.plist</programArguments>
+                    <programArguments>bootstrap gui/$(id -u) ~/Library/LaunchAgents/${osx_service_name}.plist</programArguments>
                     <progressText>Bootstrapping Bitcredit Client Service</progressText>
+                </runProgram>
+                <runProgram>
+                    <program>cp</program>
+                    <programArguments>'./BitCredit Core.webloc' ~/Desktop/</programArguments>
+                    <workingDirectory>${installdir}</workingDirectory>
+                    <progressText>Creating Shortcut on the Desktop</progressText>
                 </runProgram>
             </actionList>
             <conditionRuleList>
@@ -344,23 +347,31 @@
             <actionList>
                 <runProgram>
                     <program>launchctl</program>
-                    <programArguments>bootout gui/$(id -u) ~/Library/LaunchAgents/org.bitcr.service.plist</programArguments>
+                    <programArguments>bootout gui/$(id -u) ~/Library/LaunchAgents/${osx_service_name}.plist</programArguments>
                     <progressText>Bootout Bitcredit Client Service</progressText>
                 </runProgram>
-                <runProgram>
-                    <program>rm</program>
-                    <programArguments>~/Library/LaunchAgents/org.bitcr.service.plist</programArguments>
-                    <progressText>Removing Service definition file</progressText>
-                </runProgram>
+                <deleteFile path="~/Library/LaunchAgents/${osx_service_name}.plist"/>
+                <deleteFile path="${installdir}/${osx_service_name}.plist"/>
+                <deleteFile path="~/Desktop/BitCredit Core.webloc"/>
             </actionList>
             <conditionRuleList>
                 <platformTest type="osx"/>
             </conditionRuleList>
         </if>
+        <deleteFile path="${installdir}/files"/>
+        <deleteFile path="${installdir}/quotes"/>
+        <deleteFile path="${installdir}/logs"/>
+        <showQuestion text="Do you want the uninstallation to also remove the database data?" variable="remove_data" />
+        <deleteFile>
+            <path>${installdir}/data</path>
+            <ruleList>
+                <compareText text="${remove_data}" value="yes" logic="equals" />
+            </ruleList>
+        </deleteFile>
     </preUninstallationActionList>
     <enableRollback>1</enableRollback>
     <enableTimestamp>1</enableTimestamp>
-    <vendor>Bitcredit Foundation</vendor>
+    <vendor></vendor>
     <outputDirectory>.</outputDirectory>
     <parameterList>
         <directoryParameter>
