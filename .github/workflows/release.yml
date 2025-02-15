@@ -1,0 +1,108 @@
+name: Release E-Bill installers
+
+# Trigger the workflow manually
+on:
+  push:
+    branches:
+      - feature/wizard-build
+#   workflow_dispatch:
+#     inputs:
+#       version:
+#         description: 'Version number for the release'
+#         required: true
+#       release_notes:
+#         description: 'Release notes for the version'
+#         required: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        config: 
+          - os: windows-latest
+            pck: |
+              choco install protoc openssl -y
+              echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $GITHUB_ENV
+              echo "OPENSSL_LIB_DIR=C:\Program Files\OpenSSL\lib\VC\x64\MD" >> $GITHUB_ENV
+            installer: 
+                ver: windows-x64-installer.exe
+                target: windows-x64
+                exec: c:/Program Files/InstallBuilder Professional 24.11.1/bin/builder-cli.exe
+          - os: macos-latest
+            pck: brew install protobuf
+            installer: 
+                ver: osx-installer.dmg
+                target: osx
+                exec: /Applications/InstallBuilder Professional 24.11.1/bin/builder
+    
+    runs-on: ${{ matrix.config.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      version: 0.2.0
+    steps:
+      - name: Checkout FE repo
+        uses: actions/checkout@v4
+        with:
+            repository: BitcreditProtocol/E-Bill-frontend
+            path: fe
+      
+      - name: Prepare FE for PROD
+        run: |
+          cat > .env.production << EOF
+          VITE_API_BASE_URL=%BITCR_BE_URL%
+          EOF
+        working-directory: ./fe
+
+      - name: Build FE
+        run: |
+            rm -f package-lock.json
+            npm install
+            NODE_ENV=production npm run build
+        working-directory: ./fe
+      
+      - name: Checkout BE repo
+        uses: actions/checkout@v4
+        with:
+            path: be
+    
+      - name: Install BE dependencies
+        run: |
+          ${{ matrix.config.pck }}
+
+      - name: Build BE         
+        run: cargo build --features embedded-db --release
+        working-directory: ./be
+
+      - name: Install InstallBuilder
+        if: matrix.config.os == 'windows-latest'
+        run: |
+            curl -L -o installbuilder-${{ matrix.config.installer.ver }} https://releases.installbuilder.com/installbuilder/installbuilder-professional-24.11.1-${{ matrix.config.installer.ver }}
+            ./installbuilder-${{ matrix.config.installer.ver }} --mode unattended
+        
+      - name: Install InstallBuilder
+        if: matrix.config.os == 'macos-latest'
+        run: |
+            dmgFilePath='installbuilder-${{ matrix.config.installer.ver }}'
+            curl -L -o $dmgFilePath https://releases.installbuilder.com/installbuilder/installbuilder-professional-24.11.1-${{ matrix.config.installer.ver }}
+            
+            MOUNTDEV=$(hdiutil mount $dmgFilePath | awk '/dev.disk/{print$1}')
+            MOUNTDIR="$(mount | grep $MOUNTDEV | awk '{$1=$2="";sub(" [(].*","");sub("^  ","");print}')"            
+            cd "$MOUNTDIR/installbuilder-professional-24.11.1-osx-installer.app/Contents/MacOS"
+
+            ./installbuilder.sh --mode unattended
+
+      - name: Build installer
+        run: |
+            "${{ matrix.config.installer.exec }}" build spec.xml ${{ matrix.config.installer.target }} --setvars fesourcedir="${{ github.workspace }}/fe/dist" besourcedir="${{ github.workspace }}/be/target/release" version=${{ env.version }}
+        working-directory: ./be/.github/workflows/wizard
+
+      - name: Upload BE artifacts
+        uses: actions/upload-artifact@v4
+        with:
+            name: bitcredit-${{ env.version }}-${{ matrix.config.installer.ver }}
+            path: ./be/.github/workflows/wizard/bitcredit-${{ env.version }}-${{ matrix.config.installer.ver }}
+
+#       - name: Discover filesystem
+#         run: find ~ -type d
