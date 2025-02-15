@@ -25,7 +25,7 @@ pub struct Config {
     pub surreal_db_connection: String,
     #[arg(default_value_t = false, long, env = "TERMINAL_CLIENT")]
     pub terminal_client: bool,
-    #[arg(default_value_t = String::from("bitcoin_network"),  env = "BITCOIN_NETWORK")]
+    #[arg(default_value_t = String::from("testnet"),  long, env = "BITCOIN_NETWORK")]
     pub bitcoin_network: String,
     #[arg(default_value_t = String::from("ws://localhost:8080"), long, env = "NOSTR_RELAY")]
     pub nostr_relay: String,
