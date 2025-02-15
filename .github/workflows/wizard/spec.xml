@@ -166,6 +166,7 @@
             </substitutionList>
             <progressText>Configuring Frontend</progressText>
         </substitute>
+        <createDirectory path="${installdir}/logs"/>
         <if>
             <actionList>
                 <runProgram>
@@ -185,12 +186,6 @@
                         <isFalse value="${skip_openssl_install}"/>
                     </ruleList>
                     <progressText>Installing OpenSSL</progressText>
-                </runProgram>
-                <runProgram>
-                    <program>cmd</program>
-                    <programArguments>/c md logs</programArguments>
-                    <workingDirectory>${installdir}</workingDirectory>
-                    <progressText>Creating Logs folder</progressText>
                 </runProgram>
                 <runProgram>
                     <runAs>Administrator</runAs>
@@ -263,12 +258,6 @@
                     <programArguments>+x bitcredit</programArguments>
                     <workingDirectory>${installdir}</workingDirectory>
                     <progressText>Adjusting permissions</progressText>
-                </runProgram>
-                <runProgram>
-                    <program>mkdir</program>
-                    <programArguments>logs</programArguments>
-                    <workingDirectory>${installdir}</workingDirectory>
-                    <progressText>Creating Logs folder</progressText>
                 </runProgram>
                 <writeFile>
                     <path>${installdir}/${osx_service_name}.plist</path>
