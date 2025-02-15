@@ -190,8 +190,8 @@
                     <progressText>Installing OpenSSL</progressText>
                 </runProgram>
                 <runProgram>
-                    <program>md</program>
-                    <programArguments>logs</programArguments>
+                    <program>cmd</program>
+                    <programArguments>/c md logs</programArguments>
                     <workingDirectory>${installdir}</workingDirectory>
                     <progressText>Creating Logs folder</progressText>
                 </runProgram>
