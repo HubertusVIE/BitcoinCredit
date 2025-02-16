@@ -147,7 +147,11 @@
                     <program>chmod</program>
                     <programArguments>+x install.sh</programArguments>
                     <workingDirectory>${installdir}</workingDirectory>
-                    <progressText>Adjusting permissions</progressText>
+                </runProgram>
+                <runProgram>
+                    <program>chmod</program>
+                    <programArguments>+x askpass.sh</programArguments>
+                    <workingDirectory>${installdir}</workingDirectory>
                 </runProgram>
                 <runProgram>
                     <program>./install.sh</program>
