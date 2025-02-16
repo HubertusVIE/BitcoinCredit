@@ -9,7 +9,6 @@
     <!-- <osxUninstallerApplicationBundleIcon>${build_project_directory}/macos/bitcredit.icns</osxUninstallerApplicationBundleIcon> -->
     <logoImage>${build_project_directory}/images/bitcredit_logo.png</logoImage>
     <createOsxBundleDmg>1</createOsxBundleDmg>
-    <requestedExecutionLevel>asInvoker</requestedExecutionLevel>
     <enableRollback>1</enableRollback>
     <enableTimestamp>1</enableTimestamp>
     <vendor></vendor>
