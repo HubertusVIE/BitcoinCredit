@@ -45,20 +45,21 @@ serde_repr = "0.1.19"
 log = "0.4.25"
 futures = "0.3.31"
 bitcoin = { version = "0.32.5", features = ["rand", "rand-std"] }
-reqwest = { version = "0.12.12", features = ["json"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "charset", "http2", "macos-system-configuration"] }
 anyhow = "1.0.95"
 clap = { version = "4.5.29", features = ["derive", "env"] }
-url = "2.5.4"
 thiserror = "2.0.11"
-moksha-core = { git = "https://github.com/mtbitcr/moksha" }
-moksha-wallet = { git = "https://github.com/mtbitcr/moksha" }
 hf = { version = "0.3.10", default-features = false }
-lettre = { version = "0.11.12", features = [
+lettre = { version = "0.11.12", default-features = false, features = [
+  "builder",
+  "hostname",
+  "pool",
+  "smtp-transport",
   "tokio1",
-  "tokio1-native-tls",
+  "tokio1-rustls-tls",
   "file-transport",
 ] }
-rust_decimal = { version = "1.36.0", default-features = false, features = ["std"] }
+rust_decimal = { version = "1.36.0", default-features = false }
 nostr-sdk = { version = "0.39.0", features = ["nip59"] }
 uuid = { version = "1.13.1", features = ["v4"] }
 infer = { version = "0.19.0", default-features = false }
