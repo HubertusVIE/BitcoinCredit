@@ -1,0 +1,27 @@
+[package]
+name = "bcr-ebill-persistence"
+version = "0.2.0"
+edition = "2024"
+
+[lib]
+doctest = false
+
+[dependencies]
+borsh.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+log.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+futures.workspace = true
+surrealdb = { version = "2.2.0", default-features = false, features = ["protocol-ws"] }
+bcr-ebill-core = { path = "../bcr-ebill-core"}
+
+[dev-dependencies]
+surrealdb = { version = "2.2.0", features = ["kv-mem"], default-features = false }
+
+[features]
+embedded-db = ["surrealdb/kv-rocksdb"]
