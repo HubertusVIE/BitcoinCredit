@@ -1,0 +1,38 @@
+[package]
+name = "bcr-ebill-api"
+version = "0.2.0"
+edition = "2024"
+
+[lib]
+doctest = false
+
+[dependencies]
+borsh.workspace = true
+borsh-derive.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+libp2p.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+serde_repr.workspace = true
+log.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+bitcoin.workspace = true
+nostr-sdk.workspace = true
+futures.workspace = true
+reqwest = { version = "0.12.12", default-features = false, features = ["__rustls-ring", "json"] }
+lettre = { version = "0.11.12", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
+rust_decimal = { version = "1.36.0", default-features = false }
+infer = { version = "0.19.0", default-features = false }
+bcr-ebill-core = { path = "../bcr-ebill-core"}
+bcr-ebill-persistence = { path = "../bcr-ebill-persistence"}
+
+[dev-dependencies]
+mockall = "0.13.1"
+nostr-relay-builder = "0.39.0"
+
+[features]
+embedded-db = ["bcr-ebill-persistence/embedded-db"]

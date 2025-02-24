@@ -36,12 +36,12 @@ jobs:
           RUSTFLAGS: "-Cinstrument-coverage"
 
       - name: Test crate
-        run: cargo test --verbose
+        run: cargo test --workspace --verbose
         env:
           LLVM_PROFILE_FILE: "target/coverage/prof/%p-%m.profraw"
           RUSTFLAGS: "-Cinstrument-coverage"
 
-      - name: Create coverage report
+      - name: Create coverage report for core
         run: |
           grcov \
             --source-dir . \
@@ -50,13 +50,74 @@ jobs:
             --excl-start 'mod tests \{' \
             --ignore 'tests/*' \
             -t lcov \
-            -o lcov.info \
-            target/coverage/prof
+            -o lcov_core.info \
+            crates/bcr-ebill-core/target/coverage/prof
+
+      - name: Upload coverage to Codecov for core
+        uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: lcov_core.info
+          fail_ci_if_error: false
+
+      - name: Create coverage report for persistence
+        run: |
+          grcov \
+            --source-dir . \
+            --binary-path target/debug \
+            --branch \
+            --excl-start 'mod tests \{' \
+            --ignore 'tests/*' \
+            -t lcov \
+            -o lcov_persistence.info \
+            crates/bcr-ebill-persistence/target/coverage/prof
+
+      - name: Upload coverage to Codecov for persistence
+        uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: lcov_persistence.info
+          fail_ci_if_error: false
+
+
+      - name: Create coverage report for api
+        run: |
+          grcov \
+            --source-dir . \
+            --binary-path target/debug \
+            --branch \
+            --excl-start 'mod tests \{' \
+            --ignore 'tests/*' \
+            -t lcov \
+            -o lcov_api.info \
+            crates/bcr-ebill-api/target/coverage/prof
+
+      - name: Upload coverage to Codecov for API
+        uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          files: lcov_api.info
+          fail_ci_if_error: false
+
+      - name: Create coverage report for web
+        run: |
+          grcov \
+            --source-dir . \
+            --binary-path target/debug \
+            --branch \
+            --excl-start 'mod tests \{' \
+            --ignore 'tests/*' \
+            -t lcov \
+            -o lcov_web.info \
+            crates/bcr-ebill-web/target/coverage/prof
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          files: lcov.info
+          files: lcov_web.info
           fail_ci_if_error: false

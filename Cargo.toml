@@ -1,81 +1,28 @@
-[package]
-name = "bitcredit"
-version = "0.2.0"
-edition = "2021"
+[workspace]
+resolver = "3"
+members = [ "crates/bcr-ebill-web", "crates/bcr-ebill-core", "crates/bcr-ebill-api", "crates/bcr-ebill-persistence" ]
 
-[dependencies]
-sha2 = "0.10.8"
+
+[workspace.dependencies]
+bs58 = "0.5.1"
+sha2 = { version = "0.10.8", default-features = false }
 borsh = "1.5.5"
 borsh-derive = "1.5.5"
-env_logger = "0.11.6"
-chrono = "0.4.39"
-libp2p = { version = "0.51.4", features = [
-  "tcp",
-  "dns",
-  "async-std",
-  "noise",
-  "yamux",
-  "tokio",
-  "macros",
-  "kad",
-  "request-response",
-  "identify",
-  "gossipsub",
-  "relay",
-  "dcutr",
-  "secp256k1",
-] }
-tokio = { version = "1.43.0", features = [
-  "rt",
-  "rt-multi-thread",
-  "macros",
-  "io-util",
-  "time",
-  "io-std",
-  "fs",
-] }
-async-trait = "0.1.86"
-rocket = { version = "0.5.1", features = ["json"] }
-rocket_cors = "0.6.0"
-rocket_ws = "0.1.1"
-open = "5.3.2"
-serde_json = "1.0.138"
-serde = { version = "1.0.217", features = ["derive"] }
-serde_repr = "0.1.19"
+env_logger = { version = "0.11.6", default-features = false }
 log = "0.4.25"
-futures = "0.3.31"
-bitcoin = { version = "0.32.5", features = ["rand", "rand-std"] }
-reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "charset", "http2", "macos-system-configuration"] }
-anyhow = "1.0.95"
-clap = { version = "4.5.29", features = ["derive", "env"] }
-thiserror = "2.0.11"
-hf = { version = "0.3.10", default-features = false }
-lettre = { version = "0.11.12", default-features = false, features = [
-  "builder",
-  "hostname",
-  "pool",
-  "smtp-transport",
-  "tokio1",
-  "tokio1-rustls-tls",
-  "file-transport",
-] }
-rust_decimal = { version = "1.36.0", default-features = false }
-nostr-sdk = { version = "0.39.0", features = ["nip59"] }
-uuid = { version = "1.13.1", features = ["v4"] }
-infer = { version = "0.19.0", default-features = false }
-surrealdb = "2.2.0"
+chrono = { version = "0.4.39", default-features = false, features = ["serde", "clock"] }
+tokio = "1.43.0"
+async-trait = "0.1.86"
+serde_json = "1.0.138"
+serde = { version = "1.0.217", default-features = false }
+serde_repr = "0.1.19"
+futures = { version = "0.3.31", default-features = false }
+anyhow = { version = "1.0.95", default-features = false }
+thiserror = { version = "2.0.11", default-features = false }
 lazy_static = "1.5.0"
-bs58 = "0.5.1"
-utoipa = { version = "5.3.1", features = ["rocket_extras", "chrono"] }
-utoipa-swagger-ui = { version = "9.0.0", features = ["rocket", "vendored"] }
-ecies = { version = "0.2.6", default-features = false, features = ["pure"] }
+uuid = { version = "1.13.1", default-features = false, features = ["v4"] }
+libp2p = { version = "0.51.4", features = ["async-std", "dcutr", "dns", "gossipsub", "identify", "kad", "macros", "noise", "relay", "request-response", "secp256k1", "tcp", "tokio", "yamux"] }
+bitcoin = { version = "0.32.5",  default-features = false }
 bip39 = { version = "2.1.0", features = ["rand"] }
-hex = "0.4.3"
-
-[dev-dependencies]
-mockall = "0.13.1"
-nostr-relay-builder = "0.39.0"
-surrealdb = { version = "2.2.0", features = ["kv-mem"] }
-
-[features]
-embedded-db = ["surrealdb/kv-rocksdb"]
+ecies = { version = "0.2.6", default-features = false, features = ["pure"] }
+nostr-sdk = { version = "0.39.0", features = ["nip59"] }
