@@ -253,12 +253,16 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for BillServiceError {
             | bill_service::Error::BillWasNotRequestedToRecourse
             | bill_service::Error::BillIsNotOfferToSellWaitingForPayment
             | bill_service::Error::BillIsOfferedToSellAndWaitingForPayment
+            | bill_service::Error::BillIsRequestedToPay
             | bill_service::Error::BillIsInRecourseAndWaitingForPayment
             | bill_service::Error::BillRequestToAcceptDidNotExpireAndWasNotRejected
             | bill_service::Error::BillRequestToPayDidNotExpireAndWasNotRejected
             | bill_service::Error::BillIsNotRequestedToRecourseAndWaitingForPayment
             | bill_service::Error::BillSellDataInvalid
             | bill_service::Error::BillAlreadyPaid
+            | bill_service::Error::BillNotAccepted
+            | bill_service::Error::BillAlreadyRequestedToAccept
+            | bill_service::Error::BillIsRequestedToPayAndWaitingForPayment
             | bill_service::Error::BillRecourseDataInvalid
             | bill_service::Error::RecourseeNotPastHolder
             | bill_service::Error::CallerIsNotDrawee

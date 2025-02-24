@@ -14,11 +14,11 @@ use bcr_ebill_api::service::ServiceContext;
 use bcr_ebill_api::util::file::{UploadFileHandler, detect_content_type_for_bytes};
 use bcr_ebill_api::util::{self, BcrKeys};
 use bcr_ebill_api::{
-    Blockchain,
     data::{
         bill::{BillsFilterRole, LightBitcreditBillResult, RecourseReason},
         contact::IdentityPublicData,
     },
+    service::bill_service::BillAction,
 };
 use bcr_ebill_api::{external, service};
 use log::{error, info};
@@ -518,36 +518,6 @@ pub async fn issue_bill(
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-    let bill_clone = bill.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_bill(
-                &bill_clone.id,
-                &bill_clone.drawer.node_id,
-                &bill_clone.drawee.node_id,
-                &bill_clone.payee.node_id,
-            )
-            .await
-        {
-            error!("Error propagating bill on DHT: {e}");
-        }
-    });
-
-    // If we're the drawee, we immediately accept the bill
-    if bill.drawer == bill.drawee {
-        let timestamp_accept = external::time::TimeApi::get_atomic_time().await.timestamp;
-        state
-            .bill_service
-            .accept_bill(
-                &bill.id,
-                &drawer_public_data,
-                &drawer_keys,
-                timestamp_accept,
-            )
-            .await?;
-    }
-
     Ok(Json(BillId {
         id: bill.id.clone(),
     }))
@@ -577,38 +547,21 @@ pub async fn offer_to_sell_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .offer_to_sell_bitcredit_bill(
+        .execute_bill_action(
             &offer_to_sell_payload.bill_id,
-            public_data_buyer.clone(),
-            sum,
-            &offer_to_sell_payload.currency,
+            BillAction::OfferToSell(
+                public_data_buyer.clone(),
+                sum,
+                offer_to_sell_payload.currency.clone(),
+            ),
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&offer_to_sell_payload.bill_id, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-
-        if let Err(e) = bill_service_clone
-            .propagate_bill_for_node(
-                &offer_to_sell_payload.bill_id,
-                &public_data_buyer.node_id.to_string(),
-            )
-            .await
-        {
-            error!("Error propagating bill for node on DHT: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -634,36 +587,17 @@ pub async fn endorse_bill(
 
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
-    let chain = state
+    state
         .bill_service
-        .endorse_bitcredit_bill(
+        .execute_bill_action(
             &endorse_bill_payload.bill_id,
-            public_data_endorsee.clone(),
+            BillAction::Endorse(public_data_endorsee.clone()),
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&endorse_bill_payload.bill_id, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-
-        if let Err(e) = bill_service_clone
-            .propagate_bill_for_node(
-                &endorse_bill_payload.bill_id,
-                &public_data_endorsee.node_id.to_string(),
-            )
-            .await
-        {
-            error!("Error propagating bill for node on DHT: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -680,29 +614,17 @@ pub async fn request_to_pay_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .request_pay(
+        .execute_bill_action(
             &request_to_pay_bill_payload.bill_id,
-            &request_to_pay_bill_payload.currency,
+            BillAction::RequestToPay(request_to_pay_bill_payload.currency.clone()),
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(
-                &request_to_pay_bill_payload.bill_id,
-                chain.get_latest_block(),
-            )
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -719,29 +641,17 @@ pub async fn request_to_accept_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .request_acceptance(
+        .execute_bill_action(
             &request_to_accept_bill_payload.bill_id,
+            BillAction::RejectAcceptance,
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(
-                &request_to_accept_bill_payload.bill_id,
-                chain.get_latest_block(),
-            )
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -754,25 +664,17 @@ pub async fn accept_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .accept_bill(
+        .execute_bill_action(
             &accept_bill_payload.bill_id,
+            BillAction::Accept,
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&accept_bill_payload.bill_id, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -795,10 +697,38 @@ pub async fn request_to_mint_bill(
 #[put("/mint", format = "json", data = "<mint_bill_payload>")]
 pub async fn mint_bill(
     _identity: IdentityCheck,
-    _state: &State<ServiceContext>,
+    state: &State<ServiceContext>,
     mint_bill_payload: Json<MintBitcreditBillPayload>,
 ) -> Result<Json<SuccessResponse>> {
     info!("mint bill called with payload {mint_bill_payload:?} - not implemented");
+    let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
+    let sum = util::currency::parse_sum(&mint_bill_payload.sum)?;
+
+    let public_mint_node = match state
+        .contact_service
+        .get_identity_by_node_id(&mint_bill_payload.mint_node)
+        .await
+    {
+        Ok(Some(drawee)) => drawee,
+        Ok(None) | Err(_) => {
+            return Err(service::Error::Validation(String::from(
+                "Can not get public mint node identity from contacts.",
+            ))
+            .into());
+        }
+    };
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
+
+    state
+        .bill_service
+        .execute_bill_action(
+            &mint_bill_payload.bill_id,
+            BillAction::Mint(public_mint_node, sum, mint_bill_payload.currency.clone()),
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+        )
+        .await?;
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -812,26 +742,17 @@ pub async fn reject_to_accept_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .reject_acceptance(
+        .execute_bill_action(
             &reject_payload.bill_id,
+            BillAction::RejectAcceptance,
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -844,26 +765,17 @@ pub async fn reject_to_pay_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .reject_payment(
+        .execute_bill_action(
             &reject_payload.bill_id,
+            BillAction::RejectPayment,
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -876,26 +788,17 @@ pub async fn reject_to_buy_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .reject_buying(
+        .execute_bill_action(
             &reject_payload.bill_id,
+            BillAction::RejectBuying,
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -908,26 +811,17 @@ pub async fn reject_to_pay_recourse_bill(
     let timestamp = external::time::TimeApi::get_atomic_time().await.timestamp;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(state).await?;
 
-    let chain = state
+    state
         .bill_service
-        .reject_payment_for_recourse(
+        .execute_bill_action(
             &reject_payload.bill_id,
+            BillAction::RejectPaymentForRecourse,
             &signer_public_data,
             &signer_keys,
             timestamp,
         )
         .await?;
 
-    let bill_service_clone = state.bill_service.clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&reject_payload.bill_id, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -994,27 +888,16 @@ async fn request_recourse(
         }
     };
 
-    let chain = state
+    state
         .bill_service
-        .request_recourse(
+        .execute_bill_action(
             bill_id,
-            &public_data_recoursee,
+            BillAction::RequestRecourse(public_data_recoursee, recourse_reason),
             &signer_public_data,
             &signer_keys,
-            recourse_reason,
             timestamp,
         )
         .await?;
 
-    let bill_id_clone = bill_id.to_owned();
-    let bill_service_clone = state.bill_service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = bill_service_clone
-            .propagate_block(&bill_id_clone, chain.get_latest_block())
-            .await
-        {
-            error!("Error propagating block: {e}");
-        }
-    });
     Ok(Json(SuccessResponse::new()))
 }

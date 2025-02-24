@@ -23,7 +23,7 @@ uuid.workspace = true
 bitcoin.workspace = true
 nostr-sdk.workspace = true
 futures.workspace = true
-reqwest = { version = "0.12.12", default-features = false, features = ["__rustls-ring", "json"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls", "json"] }
 lettre = { version = "0.11.12", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 rust_decimal = { version = "1.36.0", default-features = false }
 infer = { version = "0.19.0", default-features = false }

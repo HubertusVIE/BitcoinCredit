@@ -1503,7 +1503,7 @@ mod tests {
             COMPANY_PROOF_PREFIX, KEY_PREFIX,
         },
         data::File,
-        service::bill_service::tests::{get_baseline_bill, get_genesis_chain},
+        service::bill_service::test_utils::{get_baseline_bill, get_genesis_chain},
         tests::tests::{
             MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
             MockCompanyStoreApiMock, MockFileUploadStoreApiMock, MockIdentityStoreApiMock,
