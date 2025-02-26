@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
-use crate::util;
-
+use super::service::BillService;
 use super::{Result, error::Error};
+use crate::util;
 use bcr_ebill_core::{
     bill::{BillKeys, BitcreditBill, BitcreditBillResult, LightSignedBy, PastEndorsee},
     blockchain::{
@@ -19,8 +17,7 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 use log::error;
-
-use super::service::BillService;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub(super) struct BillSigningKeys {

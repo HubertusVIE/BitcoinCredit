@@ -92,9 +92,6 @@ pub trait BillServiceApi: Send + Sync {
     /// Gets the bill for the given bill id
     async fn get_bill(&self, bill_id: &str) -> Result<BitcreditBill>;
 
-    /// Try to get the given bill chain from the dht and sync the blocks, if found
-    async fn find_and_sync_with_bill_in_dht(&self, bill_id: &str) -> Result<()>;
-
     /// Gets the keys for a given bill
     async fn get_bill_keys(&self, bill_id: &str) -> Result<BillKeys>;
 

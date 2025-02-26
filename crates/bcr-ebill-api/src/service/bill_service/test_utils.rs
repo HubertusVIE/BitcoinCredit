@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     data::identity::IdentityWithAll,
-    dht::Client,
     external,
     service::{
         company_service::tests::get_valid_company_block,
@@ -30,7 +29,6 @@ use bcr_ebill_core::blockchain::{
 };
 use core::str;
 use external::bitcoin::MockBitcoinClientApi;
-use futures::channel::mpsc;
 use service::BillService;
 use std::sync::Arc;
 use util::crypto::BcrKeys;
@@ -87,7 +85,6 @@ pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
 }
 
 pub fn get_service(mut ctx: MockBillContext) -> BillService {
-    let (sender, _) = mpsc::channel(0);
     let mut bitcoin_client = MockBitcoinClientApi::new();
     bitcoin_client
         .expect_check_if_paid()
@@ -145,15 +142,6 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .expect_get_full()
         .returning(|| Ok(get_baseline_identity()));
     BillService::new(
-        Client::new(
-            sender,
-            Arc::new(MockBillStoreApiMock::new()),
-            Arc::new(MockBillChainStoreApiMock::new()),
-            Arc::new(MockCompanyStoreApiMock::new()),
-            Arc::new(MockCompanyChainStoreApiMock::new()),
-            Arc::new(MockIdentityStoreApiMock::new()),
-            Arc::new(MockFileUploadStoreApiMock::new()),
-        ),
         Arc::new(ctx.bill_store),
         Arc::new(ctx.bill_blockchain_store),
         Arc::new(ctx.identity_store),

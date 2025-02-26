@@ -1,4 +1,4 @@
-use crate::{GossipsubEvent, GossipsubEventId};
+use super::{BillAction, Result, service::BillService};
 use bcr_ebill_core::{
     bill::{BillKeys, RecourseReason},
     blockchain::bill::{BillBlock, BillBlockchain},
@@ -6,10 +6,6 @@ use bcr_ebill_core::{
     identity::Identity,
     notification::ActionType,
 };
-use borsh::to_vec;
-use log::info;
-
-use super::{BillAction, Result, service::BillService};
 
 impl BillService {
     pub(super) async fn notify_for_block_action(
@@ -141,44 +137,30 @@ impl BillService {
         Ok(())
     }
 
-    pub(super) async fn propagate_block(&self, bill_id: &str, block: &BillBlock) -> Result<()> {
-        let block_bytes = to_vec(block)?;
-        let event = GossipsubEvent::new(GossipsubEventId::BillBlock, block_bytes);
-        let message = event.to_byte_array()?;
-
-        self.client
-            .clone()
-            .add_message_to_bill_topic(message, bill_id)
-            .await?;
+    pub(super) async fn propagate_block(&self, _bill_id: &str, _block: &BillBlock) -> Result<()> {
+        // TODO NOSTR: propagate new block to bill topic
         Ok(())
     }
 
-    pub(super) async fn propagate_bill_for_node(&self, bill_id: &str, node_id: &str) -> Result<()> {
-        self.client
-            .clone()
-            .add_bill_to_dht_for_node(bill_id, node_id)
-            .await?;
-        Ok(())
-    }
-
-    pub(super) async fn propagate_bill(
+    pub(super) async fn propagate_bill_for_node_id(
         &self,
-        bill_id: &str,
-        drawer_node_id: &str,
-        drawee_node_id: &str,
-        payee_node_id: &str,
+        _bill_id: &str,
+        _node_id: &str,
     ) -> Result<()> {
-        let mut client = self.client.clone();
+        // TODO NOSTR: propagate bill to given node
+        Ok(())
+    }
 
-        for node in [drawer_node_id, drawee_node_id, payee_node_id] {
-            if !node.is_empty() {
-                info!("issue bill: add {} for node {}", bill_id, &node);
-                client.add_bill_to_dht_for_node(bill_id, node).await?;
-            }
-        }
-
-        client.subscribe_to_bill_topic(bill_id).await?;
-        client.start_providing_bill(bill_id).await?;
+    pub(super) async fn propagate_bill_and_subscribe(
+        &self,
+        _bill_id: &str,
+        _drawer_node_id: &str,
+        _drawee_node_id: &str,
+        _payee_node_id: &str,
+    ) -> Result<()> {
+        // TODO NOSTR: propagate bill to participants
+        // TODO NOSTR: subscribe to bill topic
+        // TODO NOSTR: propagate data and uploaded files metadata
         Ok(())
     }
 }

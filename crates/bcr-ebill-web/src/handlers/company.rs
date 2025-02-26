@@ -8,25 +8,11 @@ use crate::data::{
 use bcr_ebill_api::data::{OptionalPostalAddress, PostalAddress};
 use bcr_ebill_api::util;
 use bcr_ebill_api::{
-    GossipsubEvent, GossipsubEventId, external,
+    external,
     service::{self, ServiceContext},
     util::file::{UploadFileHandler, detect_content_type_for_bytes},
 };
-use log::error;
 use rocket::{State, form::Form, get, http::ContentType, post, put, serde::json::Json};
-
-#[get("/check_dht")]
-pub async fn check_companies_in_dht(
-    _identity: IdentityCheck,
-    state: &State<ServiceContext>,
-) -> Result<Json<SuccessResponse>> {
-    state
-        .dht_client()
-        .check_companies()
-        .await
-        .map_err(service::Error::Dht)?;
-    Ok(Json(SuccessResponse::new()))
-}
 
 #[get("/list")]
 pub async fn list(state: &State<ServiceContext>) -> Result<Json<CompaniesResponse<CompanyWeb>>> {
@@ -144,29 +130,6 @@ pub async fn create(
         )
         .await?;
 
-    let id = &created_company.id;
-    let node_id = state.identity_service.get_identity().await?.node_id;
-
-    // asynchronously update the DHT
-    let mut dht_client = state.dht_client();
-    let id_clone = id.clone();
-    tokio::spawn(async move {
-        if let Err(e) = dht_client
-            .add_company_to_dht_for_node(&id_clone, &node_id.to_string())
-            .await
-        {
-            error!("Error while adding company {id_clone} to dht for node: {e}");
-        }
-
-        if let Err(e) = dht_client.subscribe_to_company_topic(&id_clone).await {
-            error!("Error while subscribing to company topic {id_clone}: {e}");
-        }
-
-        if let Err(e) = dht_client.start_providing_company(&id_clone).await {
-            error!("Error while starting to provide company {id_clone}: {e}");
-        }
-    });
-
     Ok(Json(created_company.into_web()))
 }
 
@@ -218,37 +181,6 @@ pub async fn add_signatory(
         .add_signatory(&payload.id, payload.signatory_node_id.clone(), timestamp)
         .await?;
 
-    // asynchronously update the DHT
-    let mut dht_client = state.dht_client();
-    tokio::spawn(async move {
-        if let Err(e) = dht_client
-            .add_company_to_dht_for_node(&payload.id, &payload.signatory_node_id)
-            .await
-        {
-            error!(
-                "Error while adding company {} to dht for node: {e}",
-                &payload.id
-            );
-        }
-
-        match GossipsubEvent::new(
-            GossipsubEventId::AddSignatoryFromCompany,
-            payload.signatory_node_id.into_bytes(),
-        )
-        .to_byte_array()
-        {
-            Ok(event) => {
-                if let Err(e) = dht_client
-                    .add_message_to_company_topic(event, &payload.id)
-                    .await
-                {
-                    error!("Error while adding signatory to company topic: {e}");
-                }
-            }
-            Err(e) => error!("Error while creating gossipsub event: {e}"),
-        };
-    });
-
     Ok(Json(SuccessResponse::new()))
 }
 
@@ -268,46 +200,6 @@ pub async fn remove_signatory(
         .company_service
         .remove_signatory(&payload.id, payload.signatory_node_id.clone(), timestamp)
         .await?;
-
-    // asynchronously update the DHT
-    let mut dht_client = state.dht_client();
-    let node_id = state.identity_service.get_identity().await?.node_id;
-    tokio::spawn(async move {
-        if let Err(e) = dht_client
-            .remove_company_from_dht_for_node(&payload.id, &payload.signatory_node_id)
-            .await
-        {
-            error!("Error while removing company from dht for node: {e}");
-        }
-
-        match GossipsubEvent::new(
-            GossipsubEventId::RemoveSignatoryFromCompany,
-            payload.signatory_node_id.clone().into_bytes(),
-        )
-        .to_byte_array()
-        {
-            Ok(event) => {
-                if let Err(e) = dht_client
-                    .add_message_to_company_topic(event, &payload.id)
-                    .await
-                {
-                    error!("Error while removing signatory to company topic: {e}");
-                }
-            }
-            Err(e) => error!("Error while creating gossipsub event: {e}"),
-        };
-
-        // if we're removing ourselves, we need to stop subscribing and stop providing
-        if node_id.to_string().eq(&payload.signatory_node_id) {
-            if let Err(e) = dht_client.stop_providing_company(&payload.id).await {
-                error!("Error while stopping to provide company: {e}");
-            }
-
-            if let Err(e) = dht_client.unsubscribe_from_company_topic(&payload.id).await {
-                error!("Error while unsubscribing from company topic: {e}");
-            }
-        }
-    });
 
     Ok(Json(SuccessResponse::new()))
 }

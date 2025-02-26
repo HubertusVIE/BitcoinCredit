@@ -1,15 +1,11 @@
 use clap::Parser;
 
 /// Configuration for the bitcredit application
-/// Allows to set the ports and addresses for the http and p2p connections
+/// Allows to set the ports and addresses for the network connections
 /// either via command line or environment variables
 #[derive(Parser, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Config {
-    #[arg(default_value_t = 1908, long, env = "P2P_PORT")]
-    pub p2p_port: u16,
-    #[arg(default_value_t = String::from("0.0.0.0"), long, env = "P2P_ADDRESS")]
-    pub p2p_address: String,
     #[arg(default_value_t = 8000, long, env = "HTTP_PORT")]
     pub http_port: u16,
     #[arg(default_value_t = String::from("127.0.0.1"), long, env = "HTTP_ADDRESS")]
@@ -36,10 +32,6 @@ pub struct Config {
     pub frontend_url_path: String,
     #[arg(default_value_t = false, long, env = "LAUNCH_FRONTEND_AT_STARTUP")]
     pub launch_frontend_at_startup: bool,
-    #[arg(default_value_t = String::from("/ip4/45.147.248.87/tcp/1908"), long, env = "RELAY_BOOTSTRAP_ADDRESS")]
-    pub relay_bootstrap_address: String,
-    #[arg(default_value_t = String::from("12D3KooWL5y2jyVFtk541g9ySSoKGjNf61GEPG1XbPhop5MRfyA8"), long, env = "RELAY_BOOTSTRAP_PEER_ID")]
-    pub relay_bootstrap_peer_id: String,
 }
 
 impl Config {

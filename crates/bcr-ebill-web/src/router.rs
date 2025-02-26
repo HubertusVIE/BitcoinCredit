@@ -114,7 +114,6 @@ pub fn rocket_main(conf: crate::Config, context: ServiceContext) -> Rocket<Build
         .mount(
             "/api/company",
             routes![
-                handlers::company::check_companies_in_dht,
                 handlers::company::list,
                 handlers::company::detail,
                 handlers::company::get_file,
@@ -146,8 +145,6 @@ pub fn rocket_main(conf: crate::Config, context: ServiceContext) -> Rocket<Build
                 handlers::bill::check_payment,
                 handlers::bill::bitcoin_key,
                 handlers::bill::numbers_to_words_for_sum,
-                handlers::bill::find_and_sync_with_bill_in_dht,
-                handlers::bill::check_dht_for_bills,
                 handlers::bill::search,
                 handlers::bill::get_past_endorsees_for_bill,
                 handlers::bill::get_endorsements_for_bill,

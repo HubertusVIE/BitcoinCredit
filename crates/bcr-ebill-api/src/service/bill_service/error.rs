@@ -1,4 +1,4 @@
-use crate::{blockchain, dht, external, persistence, service::notification_service, util};
+use crate::{blockchain, external, persistence, service::notification_service, util};
 use thiserror::Error;
 
 /// Generic error type
@@ -127,10 +127,6 @@ pub enum Error {
     /// errors that stem from interacting with a blockchain
     #[error("Blockchain error: {0}")]
     Blockchain(#[from] blockchain::Error),
-
-    /// errors that stem from interacting with the Dht
-    #[error("Dht error: {0}")]
-    Dht(#[from] dht::Error),
 
     /// all errors originating from the persistence layer
     #[error("Persistence error: {0}")]

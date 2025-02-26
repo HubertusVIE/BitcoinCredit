@@ -2,8 +2,6 @@ services:
   bitcredit:
     build: .
     environment:
-      - P2P_ADDRESS=0.0.0.0
-      - P2P_PORT=1909
       - HTTP_ADDRESS=0.0.0.0
       - HTTP_PORT=8001
       - RUST_LOG=info

@@ -63,8 +63,7 @@ pub trait IdentityServiceApi: Send + Sync {
     ) -> Result<Vec<u8>>;
 }
 
-/// The identity service is responsible for managing the local identity and syncing it
-/// with the dht data.
+/// The identity service is responsible for managing the local identity
 #[derive(Clone)]
 pub struct IdentityService {
     store: Arc<dyn IdentityStoreApi>,

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-
 use super::Result;
+use super::service::BillService;
+use crate::service::bill_service::{BillAction, BillServiceApi};
 use bcr_ebill_core::{
     blockchain::{
         Blockchain,
@@ -12,10 +12,7 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 use log::{error, info};
-
-use crate::service::bill_service::{BillAction, BillServiceApi};
-
-use super::service::BillService;
+use std::collections::HashMap;
 
 impl BillService {
     pub(super) async fn check_bill_payment(
@@ -100,10 +97,13 @@ impl BillService {
                             }
 
                             if let Err(e) = self
-                                .propagate_bill_for_node(bill_id, &payment_info.recoursee.node_id)
+                                .propagate_bill_for_node_id(
+                                    bill_id,
+                                    &payment_info.recoursee.node_id,
+                                )
                                 .await
                             {
-                                error!("Error propagating bill for node on DHT: {e}");
+                                error!("Error propagating bill for node_id: {e}");
                             }
                         }
                         return Ok(()); // return early
@@ -145,10 +145,13 @@ impl BillService {
                             }
 
                             if let Err(e) = self
-                                .propagate_bill_for_node(bill_id, &payment_info.recoursee.node_id)
+                                .propagate_bill_for_node_id(
+                                    bill_id,
+                                    &payment_info.recoursee.node_id,
+                                )
                                 .await
                             {
-                                error!("Error propagating bill for node on DHT: {e}");
+                                error!("Error propagating bill for node_id: {e}");
                             }
                         }
                     }
@@ -208,10 +211,10 @@ impl BillService {
                             }
 
                             if let Err(e) = self
-                                .propagate_bill_for_node(bill_id, &payment_info.buyer.node_id)
+                                .propagate_bill_for_node_id(bill_id, &payment_info.buyer.node_id)
                                 .await
                             {
-                                error!("Error propagating bill for node on DHT: {e}");
+                                error!("Error propagating bill for node_id: {e}");
                             }
                         }
                         return Ok(()); // return early
@@ -256,10 +259,10 @@ impl BillService {
                             }
 
                             if let Err(e) = self
-                                .propagate_bill_for_node(bill_id, &payment_info.buyer.node_id)
+                                .propagate_bill_for_node_id(bill_id, &payment_info.buyer.node_id)
                                 .await
                             {
-                                error!("Error propagating bill for node on DHT: {e}");
+                                error!("Error propagating bill for node_id: {e}");
                             }
                         }
                     }

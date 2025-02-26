@@ -5,7 +5,7 @@ use clap::Parser;
 use config::Config;
 use constants::SHUTDOWN_GRACE_PERIOD_MS;
 use log::{error, info};
-use tokio::spawn;
+use tokio::{spawn, sync::broadcast};
 
 mod api_docs;
 mod config;
@@ -31,12 +31,8 @@ async fn main() -> Result<()> {
     let api_config = bcr_ebill_api::Config {
         bitcoin_network: conf.bitcoin_network.clone(),
         nostr_relay: conf.nostr_relay.clone(),
-        relay_bootstrap_address: conf.relay_bootstrap_address.clone(),
-        relay_bootstrap_peer_id: conf.relay_bootstrap_peer_id.clone(),
         surreal_db_connection: conf.surreal_db_connection.clone(),
         data_dir: conf.data_dir.clone(),
-        p2p_address: conf.p2p_address.clone(),
-        p2p_port: conf.p2p_port,
     };
     info!("Chosen Network: {:?}", api_config.bitcoin_network());
     bcr_ebill_api::init(api_config.clone())?;
@@ -67,21 +63,9 @@ async fn start(
 ) -> Result<()> {
     // Initialize the database context
     let db = get_db_context(&api_config).await?;
+    let (shutdown_sender, _) = broadcast::channel::<bool>(100);
 
-    let dht = bcr_ebill_api::dht_main(
-        &api_config,
-        db.bill_store.clone(),
-        db.bill_blockchain_store.clone(),
-        db.company_store.clone(),
-        db.company_chain_store.clone(),
-        db.identity_store.clone(),
-        db.file_upload_store.clone(),
-    )
-    .await
-    .expect("DHT failed to start");
-    let dht_client = dht.client;
-
-    let ctrl_c_sender = dht.shutdown_sender.clone();
+    let ctrl_c_sender = shutdown_sender.clone();
     spawn(async move {
         tokio::signal::ctrl_c()
             .await
@@ -93,70 +77,34 @@ async fn start(
         }
     });
 
-    if CONFIG.terminal_client {
-        let terminal_client_shutdown_receiver = dht.shutdown_sender.clone().subscribe();
-        let terminal_dht_client = dht_client.clone();
-        spawn(bcr_ebill_api::util::terminal::run_terminal_client(
-            terminal_client_shutdown_receiver,
-            terminal_dht_client,
-        ));
+    let local_node_id = db.identity_store.get_key_pair().await?.get_public_key();
+    let keys = db.identity_store.get_key_pair().await?;
+    info!("Local node id: {local_node_id:?}");
+    info!("Local npub: {:?}", keys.get_nostr_npub()?);
+    info!("Local npub as hex: {:?}", keys.get_nostr_npub_as_hex());
+
+    if db.identity_store.exists().await {
+        // TODO NOSTR: subscribe to updates on all local bills
+        // TODO NOSTR: subscribe to updates on all local companies
+        // TODO NOSTR: handle new incoming messages (new companies/bills)
+        // TODO NOSTR: check and update propagated data on nostr based on local state
+        // TODO NOSTR: react to incoming events and blocks
+        //      * Company and Bill blocks - validate and reconcile with local chain
+        //      * Company
+        //          * AddSignatory - add signatory locally - if it's me - fetch company data, keys and files
+        //          etc. and create company locally
+        //          * RemoveSignatory - remove signatory locally, if it's me - remove company etc.
+        //      * Bill
+        //          * When added to a bill - fetch bill, keys and files and create bill locally
     }
 
-    let local_node_id = db.identity_store.get_key_pair().await?.get_public_key();
-    let mut dht_client_clone = dht_client.clone();
-    let identity_store_clone = db.identity_store.clone();
-    spawn(async move {
-        // These actions only make sense, if we already have created an identity
-        // We do them asynchronously, in a non-failing way
-        if identity_store_clone.exists().await {
-            if let Err(e) = dht_client_clone.check_new_bills().await {
-                error!("Error while checking for new bills: {e}");
-            }
-
-            if let Err(e) = dht_client_clone.subscribe_to_all_bills_topics().await {
-                error!("Error while subscribing to bills: {e}");
-            }
-
-            if let Err(e) = dht_client_clone.put_bills_for_parties().await {
-                error!("Error while putting bills for parties: {e}");
-            }
-
-            if let Err(e) = dht_client_clone.start_providing_bills().await {
-                error!("Error while starting to provide bills: {e}");
-            }
-
-            if let Err(e) = dht_client_clone
-                .receive_updates_for_all_bills_topics()
-                .await
-            {
-                error!("Error while starting receive updates for bill topics: {e}");
-            }
-
-            if let Err(e) = dht_client_clone.check_companies().await {
-                error!("Error while checking for new companies: {e}");
-            }
-
-            if let Err(e) = dht_client_clone.put_companies_for_signatories().await {
-                error!("Error while putting companies for signatories: {e}");
-            }
-
-            if let Err(e) = dht_client_clone.start_providing_companies().await {
-                error!("Error while starting to provide companies: {e}");
-            }
-
-            if let Err(e) = dht_client_clone.subscribe_to_all_companies_topics().await {
-                error!("Error while subscribing to all companies: {e}");
-            }
-        }
-    });
-
-    let job_shutdown_receiver = dht.shutdown_sender.clone().subscribe();
-    let web_server_error_shutdown_sender = dht.shutdown_sender.clone();
+    let job_shutdown_receiver = shutdown_sender.clone().subscribe();
+    let web_server_error_shutdown_sender = shutdown_sender.clone();
+    let service_context_shutdown_sender = shutdown_sender.clone();
     let service_context = create_service_context(
         &local_node_id,
         api_config.clone(),
-        dht_client.clone(),
-        dht.shutdown_sender,
+        service_context_shutdown_sender,
         db,
         reboot_sender,
     )
@@ -181,7 +129,7 @@ async fn start(
     nostr_handle.abort();
 
     info!("Waiting for application to exit...");
-    // If the web server exits fast, we wait for a grace period so libp2p can finish as well
+    // If the web server exits fast, we wait for a grace period so i/o can finish
     tokio::time::sleep(std::time::Duration::from_millis(SHUTDOWN_GRACE_PERIOD_MS)).await;
 
     Ok(())

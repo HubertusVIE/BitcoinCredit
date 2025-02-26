@@ -11,9 +11,6 @@ use bcr_ebill_core::{
 pub trait IdentityStoreApi: Send + Sync {
     /// Checks if the identity has been created
     async fn exists(&self) -> bool;
-    /// Checks if the libp2p credentials for the identity have been created
-    #[allow(dead_code)]
-    async fn libp2p_credentials_exist(&self) -> bool;
     /// Saves the given identity
     async fn save(&self, identity: &Identity) -> Result<()>;
     /// Gets the local identity

@@ -7,11 +7,11 @@ pub mod identity_service;
 pub mod notification_service;
 pub mod search_service;
 
-use super::{Config, dht::Client};
+use super::Config;
 use crate::external::bitcoin::BitcoinClient;
 use crate::persistence::DbContext;
 use crate::util;
-use crate::{blockchain, dht, external};
+use crate::{blockchain, external};
 use backup_service::{BackupService, BackupServiceApi};
 use bcr_ebill_persistence::db::SurrealDbConfig;
 use bill_service::{BillServiceApi, service::BillService};
@@ -60,10 +60,6 @@ pub enum Error {
     #[error("Crypto util error: {0}")]
     CryptoUtil(#[from] util::crypto::Error),
 
-    /// errors that stem from interacting with the Dht
-    #[error("Dht error: {0}")]
-    Dht(#[from] dht::Error),
-
     /// errors that stem from validation
     #[error("Validation Error: {0}")]
     Validation(String),
@@ -88,7 +84,6 @@ pub enum Error {
 #[derive(Clone)]
 pub struct ServiceContext {
     pub config: Config,
-    dht_client: Client,
     pub contact_service: Arc<dyn ContactServiceApi>,
     pub search_service: Arc<dyn SearchServiceApi>,
     pub bill_service: Arc<dyn BillServiceApi>,
@@ -112,11 +107,6 @@ pub struct SwitchIdentityState {
 }
 
 impl ServiceContext {
-    /// returns an owned instance of the dht client
-    pub fn dht_client(&self) -> Client {
-        self.dht_client.clone()
-    }
-
     /// sends a shutdown event to all parts of the application
     pub fn shutdown(&self) {
         if let Err(e) = self.shutdown_sender.send(true) {
@@ -145,7 +135,6 @@ impl ServiceContext {
 pub async fn create_service_context(
     local_node_id: &str,
     config: Config,
-    client: Client,
     shutdown_sender: broadcast::Sender<bool>,
     db: DbContext,
     reboot_sender: watch::Sender<bool>,
@@ -162,7 +151,6 @@ pub async fn create_service_context(
         create_notification_service(nostr_client.clone(), db.notification_store.clone()).await?;
 
     let bill_service = Arc::new(BillService::new(
-        client.clone(),
         db.bill_store,
         db.bill_blockchain_store.clone(),
         db.identity_store.clone(),
@@ -216,7 +204,6 @@ pub async fn create_service_context(
 
     Ok(ServiceContext {
         config,
-        dht_client: client,
         contact_service,
         search_service: Arc::new(search_service),
         bill_service,

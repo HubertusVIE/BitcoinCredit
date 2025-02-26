@@ -1,3 +1,4 @@
+use super::{BillAction, Result, error::Error, service::BillService};
 use bcr_ebill_core::{
     bill::{BillKeys, BitcreditBill, RecourseReason},
     blockchain::{
@@ -9,8 +10,6 @@ use bcr_ebill_core::{
     },
     constants::{ACCEPT_DEADLINE_SECONDS, PAYMENT_DEADLINE_SECONDS, RECOURSE_DEADLINE_SECONDS},
 };
-
-use super::{BillAction, Result, error::Error, service::BillService};
 
 impl BillService {
     pub(super) async fn validate_bill_action(

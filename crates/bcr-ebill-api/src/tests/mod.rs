@@ -123,8 +123,6 @@ pub mod tests {
         #[async_trait]
         impl IdentityStoreApi for IdentityStoreApiMock {
             async fn exists(&self) -> bool;
-            #[allow(dead_code)]
-            async fn libp2p_credentials_exist(&self) -> bool;
             async fn save(&self, identity: &Identity) -> Result<()>;
             async fn get(&self) -> Result<Identity>;
             async fn get_full(&self) -> Result<IdentityWithAll>;
@@ -220,13 +218,8 @@ pub mod tests {
                 crate::init(crate::Config {
                     bitcoin_network: "mainnet".to_string(),
                     nostr_relay: "ws://localhost:8080".to_string(),
-                    relay_bootstrap_address: "/ip4/45.147.248.87/tcp/1908".to_string(),
-                    relay_bootstrap_peer_id: "12D3KooWL5y2jyVFtk541g9ySSoKGjNf61GEPG1XbPhop5MRfyA8"
-                        .to_string(),
                     surreal_db_connection: "ws://localhost:8800".to_string(),
                     data_dir: ".".to_string(),
-                    p2p_address: "0.0.0.0".to_string(),
-                    p2p_port: 1908,
                 })
                 .unwrap();
             }
