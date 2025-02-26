@@ -35,7 +35,7 @@ pub struct BillKeys {
     pub public_key: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecourseReason {
     Accept,
     Pay(u64, String), // sum and currency

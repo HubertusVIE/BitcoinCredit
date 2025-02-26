@@ -14,7 +14,7 @@ use crate::util;
 use crate::{blockchain, dht, external};
 use backup_service::{BackupService, BackupServiceApi};
 use bcr_ebill_persistence::db::SurrealDbConfig;
-use bill_service::{BillService, BillServiceApi};
+use bill_service::{BillServiceApi, service::BillService};
 use company_service::{CompanyService, CompanyServiceApi};
 use contact_service::{ContactService, ContactServiceApi};
 use file_upload_service::{FileUploadService, FileUploadServiceApi};
@@ -54,7 +54,7 @@ pub enum Error {
 
     /// errors stemming from handling bills
     #[error("Bill service error: {0}")]
-    BillService(#[from] bill_service::Error),
+    BillService(#[from] bill_service::error::Error),
 
     /// errors stemming from crypto utils
     #[error("Crypto util error: {0}")]
