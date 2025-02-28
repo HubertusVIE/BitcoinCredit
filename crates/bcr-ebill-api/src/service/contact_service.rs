@@ -80,8 +80,7 @@ pub trait ContactServiceApi: Send + Sync {
     ) -> Result<Vec<u8>>;
 }
 
-/// The contact service is responsible for managing the contacts and syncing them with the
-/// dht data.
+/// The contact service is responsible for managing the local contacts
 #[derive(Clone)]
 pub struct ContactService {
     store: Arc<dyn ContactStoreApi>,

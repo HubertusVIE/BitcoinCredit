@@ -4,8 +4,6 @@ The application can be configured using command-line parameters, or environment 
 
 The following options are available:
 
-* `P2P_PORT` / `--p2p-port` - the P2P port (default: 1908)
-* `P2P_ADDRESS` / `--p2p-address` - the P2P address (default: 0.0.0.0)
 * `HTTP_PORT` / `--http-port` - the HTTP address (default: 8000)
 * `HTTP_ADDRESS` / `--http-address` - the HTTP address (default: 127.0.0.1)
 * `DATA_DIR` - the data directory root (default: ".")
@@ -20,8 +18,6 @@ The following options are available:
 * `FRONTEND_URL_PATH` - default path to serve the frontend from (default: /)
 * `FRONTEND_SERVE_FOLDER` - folder where the static frontend is served from (default: ./frontend)
 * `LAUNCH_FRONTEND_AT_STARTUP` - open the frontend in a browser on startup (default: false)
-* `RELAY_BOOTSTRAP_ADDRESS` - the relay bootstrap address (default: /ip4/45.147.248.87/tcp/1908)
-* `RELAY_BOOTSTRAP_PEER_ID` - the relay bootstrap peer id (default: 12D3KooWL5y2jyVFtk541g9ySSoKGjNf61GEPG1XbPhop5MRfyA8)
 
 ## Example
 

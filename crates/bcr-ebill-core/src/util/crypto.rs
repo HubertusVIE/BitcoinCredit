@@ -6,7 +6,6 @@ use bitcoin::{
     Network,
     secp256k1::{self, Keypair, Scalar, SecretKey, schnorr::Signature},
 };
-use libp2p::PeerId;
 use nostr_sdk::ToBech32;
 use secp256k1::{Message, PublicKey, Secp256k1, rand};
 use thiserror::Error;
@@ -23,12 +22,6 @@ pub enum Error {
 
     #[error("Nostr bech32 key error: {0}")]
     NostrNip19(#[from] nostr_sdk::nips::nip19::Error),
-
-    #[error("Libp2p key conversion error: {0}")]
-    Secp256k1Conversion(#[from] libp2p::identity::DecodingError),
-
-    #[error("Libp2p key error: {0}")]
-    LibP2p(#[from] libp2p::identity::OtherVariantError),
 
     #[error("Ecies encryption error: {0}")]
     Ecies(String),
@@ -134,22 +127,6 @@ impl BcrKeys {
     pub fn get_nostr_npriv(&self) -> Result<String> {
         Ok(self.get_nostr_keys().secret_key().to_bech32()?)
     }
-
-    /// Converts the keypair to a libp2p keypair
-    pub fn get_libp2p_keys(&self) -> Result<libp2p::identity::Keypair> {
-        as_libp2p_keypair(&self.inner)
-    }
-
-    /// Checks if the given libp2p PeerId was created from this key
-    pub fn is_peer_id_from_this_key(&self, peer_id: &PeerId) -> bool {
-        let libp2p_keypair = match self.get_libp2p_keys() {
-            Err(_) => return false,
-            Ok(keypair) => keypair,
-        };
-        peer_id
-            .is_public_key(&libp2p_keypair.public())
-            .unwrap_or(false)
-    }
 }
 
 impl Default for BcrKeys {
@@ -189,37 +166,6 @@ pub fn is_node_id_nostr_hex_npub(node_id: &str, npub: &str) -> bool {
         Ok(npub_from_node_id) => npub == npub_from_node_id.to_hex(),
         Err(_) => false,
     }
-}
-
-pub fn is_peer_id_from_this_node_id(node_id: &str, peer_id: &PeerId) -> bool {
-    let public_key = match PublicKey::from_str(node_id) {
-        Err(_) => return false,
-
-        Ok(pub_key) => pub_key,
-    };
-    let libp2p_secp_pub_key = match libp2p::identity::secp256k1::PublicKey::try_from_bytes(
-        public_key.serialize().as_slice(),
-    ) {
-        Err(_) => return false,
-
-        Ok(pub_key) => pub_key,
-    };
-    let libp2p_pub_key = libp2p::identity::PublicKey::from(libp2p_secp_pub_key);
-    peer_id.is_public_key(&libp2p_pub_key).unwrap_or(false)
-}
-
-/// libp2p uses a different secp256k1 library than bitcoin and nostr. This
-/// function converts the key via priv key bytes and returns the keypair as a
-/// libp2p keypair.
-fn as_libp2p_keypair(keypair: &Keypair) -> Result<libp2p::identity::Keypair> {
-    let secret: libp2p::identity::secp256k1::SecretKey =
-        libp2p::identity::secp256k1::SecretKey::try_from_bytes(
-            keypair.secret_key().secret_bytes(),
-        )?;
-
-    Ok(libp2p::identity::Keypair::from(
-        libp2p::identity::secp256k1::Keypair::from(secret),
-    ))
 }
 
 /// Generates a new keypair using the secp256k1 library
@@ -663,98 +609,6 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_keypair() {
-        let keypair = BcrKeys::new();
-        let lp2p_keypair = keypair
-            .get_libp2p_keys()
-            .expect("could not convert keypair to libp2p keypair");
-        let secp256k1_keypair = as_secp256k1_keypair(&lp2p_keypair)
-            .expect("could not convert keypair to secp256k1 keypair");
-        assert_eq!(
-            keypair.get_private_key_string(),
-            secp256k1_keypair.display_secret().to_string()
-        );
-    }
-
-    #[test]
-    fn test_check_libp2p_peer_id_against_keypair() {
-        let keypair = BcrKeys::new();
-        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
-
-        assert!(keypair.is_peer_id_from_this_key(&peer_id));
-    }
-
-    #[test]
-    fn test_check_libp2p_peer_id_against_keypair_invalid() {
-        let keypair = BcrKeys::new();
-        let keypair_other = BcrKeys::new();
-        let another_key_pair = BcrKeys::from_private_key(
-            "8863c82829480536893fc49c4b30e244f97261e989433373d73c648c1a656a79",
-        )
-        .unwrap();
-        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
-        let other_peer_id =
-            PeerId::from_str("16Uiu2HAkxDBLq6DXuKA9vacbxQ9TgsP2Th9GmzkY44cA2vDyn7Eo").unwrap();
-        let another_peer_id =
-            PeerId::from_str("16Uiu2HAmEqJNJbkTVX9TLtcya4p5mhUL3E8rZq2VjitE7HZtuWCE").unwrap();
-
-        assert!(!keypair_other.is_peer_id_from_this_key(&peer_id));
-        assert!(!keypair.is_peer_id_from_this_key(&other_peer_id));
-        assert!(keypair.is_peer_id_from_this_key(&peer_id));
-        assert!(another_key_pair.is_peer_id_from_this_key(&another_peer_id));
-        assert!(!another_key_pair.is_peer_id_from_this_key(&peer_id));
-        assert!(!another_key_pair.is_peer_id_from_this_key(&other_peer_id));
-    }
-
-    #[test]
-    fn test_check_libp2p_peer_id_against_node_id() {
-        let keypair = BcrKeys::new();
-        let node_id = keypair.get_public_key();
-        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
-
-        assert!(is_peer_id_from_this_node_id(&node_id, &peer_id));
-    }
-
-    #[test]
-    fn test_check_libp2p_peer_id_against_node_id_hardcoded_values() {
-        assert!(is_peer_id_from_this_node_id(
-            "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef",
-            &PeerId::from_str("16Uiu2HAmEqJNJbkTVX9TLtcya4p5mhUL3E8rZq2VjitE7HZtuWCE").unwrap()
-        ));
-        assert!(!is_peer_id_from_this_node_id(
-            "03205b8dec12bc9e879f5b517aa32192a2550e88adcee3e54ec2c7294802568fef",
-            &PeerId::from_str("16Uiu2HAkxDBLq6DXuKA9vacbxQ9TgsP2Th9GmzkY44cA2vDyn7Eo").unwrap()
-        ));
-    }
-
-    #[test]
-    fn test_check_libp2p_peer_id_against_node_id_invalid() {
-        let keypair = BcrKeys::new();
-        let keypair_other = BcrKeys::new();
-        let node_id = keypair.get_public_key();
-        let peer_id = keypair.get_libp2p_keys().unwrap().public().to_peer_id();
-        let keypair_other_peer_id = keypair_other
-            .get_libp2p_keys()
-            .unwrap()
-            .public()
-            .to_peer_id();
-
-        let other_peer_id =
-            PeerId::from_str("16Uiu2HAkxDBLq6DXuKA9vacbxQ9TgsP2Th9GmzkY44cA2vDyn7Eo").unwrap();
-        let another_peer_id =
-            PeerId::from_str("16Uiu2HAmEqJNJbkTVX9TLtcya4p5mhUL3E8rZq2VjitE7HZtuWCE").unwrap();
-
-        assert!(is_peer_id_from_this_node_id(&node_id, &peer_id));
-        assert!(!is_peer_id_from_this_node_id(&node_id, &other_peer_id));
-        assert!(!is_peer_id_from_this_node_id(&node_id, &another_peer_id));
-        assert!(!is_peer_id_from_this_node_id(
-            &node_id,
-            &keypair_other_peer_id
-        ));
-        assert!(!is_peer_id_from_this_node_id("nonsense", &other_peer_id));
-    }
-
-    #[test]
     fn encrypt_decrypt_ecies_basic() {
         let msg = "Hello, this is a very important message!"
             .to_string()
@@ -892,14 +746,5 @@ mod tests {
             node_id,
             TEST_NODE_ID_SECP_AS_NPUB_HEX
         ));
-    }
-
-    /// reverses the conversion of a libp2p keypair to a secp256k1 keypair for testing
-    fn as_secp256k1_keypair(keypair: &libp2p::identity::Keypair) -> Result<Keypair> {
-        let secret = keypair.to_owned().try_into_secp256k1()?.secret().to_bytes();
-        Ok(Keypair::from_secret_key(
-            &Secp256k1::new(),
-            &SecretKey::from_slice(&secret)?,
-        ))
     }
 }

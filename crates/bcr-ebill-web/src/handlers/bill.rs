@@ -278,19 +278,6 @@ pub async fn numbers_to_words_for_sum(
     Ok(Json(BillNumbersToWordsForSum { sum, sum_as_words }))
 }
 
-#[get("/dht/<bill_id>")]
-pub async fn find_and_sync_with_bill_in_dht(
-    _identity: IdentityCheck,
-    state: &State<ServiceContext>,
-    bill_id: &str,
-) -> Result<Json<SuccessResponse>> {
-    state
-        .bill_service
-        .find_and_sync_with_bill_in_dht(bill_id)
-        .await?;
-    Ok(Json(SuccessResponse::new()))
-}
-
 #[utoipa::path(
     tag = "Bills",
     path = "/bill/{id}",
@@ -335,20 +322,6 @@ pub async fn check_payment(
     if let Err(e) = state.bill_service.check_bills_offer_to_sell_payment().await {
         error!("Error while checking bills offer to sell payment: {e}");
     }
-
-    Ok(Json(SuccessResponse::new()))
-}
-
-#[get("/dht")]
-pub async fn check_dht_for_bills(
-    _identity: IdentityCheck,
-    state: &State<ServiceContext>,
-) -> Result<Json<SuccessResponse>> {
-    let mut client = state.dht_client();
-    client
-        .check_new_bills()
-        .await
-        .map_err(service::Error::Dht)?;
 
     Ok(Json(SuccessResponse::new()))
 }

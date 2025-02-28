@@ -25,7 +25,6 @@ pub mod test_utils;
 pub mod bill_action_event_handler;
 pub mod default_service;
 mod email;
-mod email_lettre;
 mod email_sendgrid;
 mod event;
 mod handler;
@@ -48,22 +47,6 @@ pub enum Error {
     /// json errors when serializing/deserializing notification events
     #[error("json serialization error: {0}")]
     Json(#[from] serde_json::Error),
-
-    /// errors stemming from lettre smtp transport
-    #[error("lettre smtp transport error: {0}")]
-    SmtpTransport(#[from] lettre::transport::smtp::Error),
-
-    /// errors stemming from lettre stub transport (this will only be used for testing)
-    #[error("lettre stub transport error: {0}")]
-    StubTransport(#[from] lettre::transport::stub::Error),
-
-    /// errors stemming from lettre email contents creation
-    #[error("lettre email error: {0}")]
-    LettreEmail(#[from] lettre::error::Error),
-
-    /// errors stemming from lettre address parsing
-    #[error("lettre address error: {0}")]
-    LettreAddress(#[from] lettre::address::AddressError),
 
     /// some transports require a http client where we use reqwest
     #[error("http client error: {0}")]

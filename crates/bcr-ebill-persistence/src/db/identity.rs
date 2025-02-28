@@ -32,10 +32,6 @@ impl IdentityStoreApi for SurrealIdentityStore {
         self.get().await.map(|_| true).unwrap_or(false)
     }
 
-    async fn libp2p_credentials_exist(&self) -> bool {
-        self.get_key_pair().await.map(|_| true).unwrap_or(false)
-    }
-
     async fn save(&self, identity: &Identity) -> Result<()> {
         let entity: IdentityDb = identity.into();
         let _: Option<IdentityDb> = self
@@ -204,15 +200,6 @@ mod tests {
         assert!(!store.exists().await);
         store.save(&empty_identity()).await.unwrap();
         assert!(store.exists().await)
-    }
-
-    #[tokio::test]
-    async fn test_libp2p_credentials_exist() {
-        let store = get_store().await;
-        assert!(!store.libp2p_credentials_exist().await);
-        let (keys, seed) = BcrKeys::new_with_seed_phrase().expect("key could not be generated");
-        store.save_key_pair(&keys, &seed).await.unwrap();
-        assert!(store.libp2p_credentials_exist().await)
     }
 
     #[tokio::test]

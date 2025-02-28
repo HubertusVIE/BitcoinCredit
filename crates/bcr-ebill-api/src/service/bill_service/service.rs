@@ -17,12 +17,12 @@ use crate::data::{
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::get_config;
 use crate::persistence::bill::BillChainStoreApi;
+use crate::persistence::bill::BillStoreApi;
 use crate::persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
 use crate::persistence::contact::ContactStoreApi;
 use crate::persistence::file_upload::FileUploadStoreApi;
 use crate::persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use crate::util::BcrKeys;
-use crate::{dht::Client, persistence::bill::BillStoreApi};
 use crate::{external, util};
 use async_trait::async_trait;
 use bcr_ebill_core::constants::{
@@ -34,10 +34,10 @@ use log::{error, info};
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// The bill service is responsible for all bill-related logic and for syncing them with the dht data.
+/// The bill service is responsible for all bill-related logic and for syncing them with the
+/// network
 #[derive(Clone)]
 pub struct BillService {
-    pub client: Client,
     pub store: Arc<dyn BillStoreApi>,
     pub blockchain_store: Arc<dyn BillChainStoreApi>,
     pub identity_store: Arc<dyn IdentityStoreApi>,
@@ -52,7 +52,6 @@ pub struct BillService {
 
 impl BillService {
     pub fn new(
-        client: Client,
         store: Arc<dyn BillStoreApi>,
         blockchain_store: Arc<dyn BillChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
@@ -65,7 +64,6 @@ impl BillService {
         company_store: Arc<dyn CompanyStoreApi>,
     ) -> Self {
         Self {
-            client,
             store,
             blockchain_store,
             identity_store,
@@ -410,15 +408,6 @@ impl BillServiceApi for BillService {
         Ok(bill)
     }
 
-    async fn find_and_sync_with_bill_in_dht(&self, bill_id: &str) -> Result<()> {
-        if !self.store.exists(bill_id).await {
-            return Err(Error::NotFound);
-        }
-        let mut dht_client = self.client.clone();
-        dht_client.receive_updates_for_bill_topic(bill_id).await?;
-        Ok(())
-    }
-
     async fn get_bill_keys(&self, bill_id: &str) -> Result<BillKeys> {
         if !self.store.exists(bill_id).await {
             return Err(Error::NotFound);
@@ -546,50 +535,48 @@ impl BillServiceApi for BillService {
         let self_clone = self.clone();
         let latest_block = blockchain.get_latest_block().clone();
         let bill_id_clone = bill_id.to_owned();
-        tokio::spawn(async move {
-            if let Err(e) = self_clone
-                .propagate_block(&bill_id_clone, &latest_block)
-                .await
-            {
-                error!("Error propagating block: {e}");
-            }
+        if let Err(e) = self_clone
+            .propagate_block(&bill_id_clone, &latest_block)
+            .await
+        {
+            error!("Error propagating block: {e}");
+        }
 
-            match bill_action {
-                BillAction::Endorse(endorsee) => {
-                    if let Err(e) = self_clone
-                        .propagate_bill_for_node(&bill_id_clone, &endorsee.node_id)
-                        .await
-                    {
-                        error!("Error propagating bill for node on DHT: {e}");
-                    }
+        match bill_action {
+            BillAction::Endorse(endorsee) => {
+                if let Err(e) = self_clone
+                    .propagate_bill_for_node_id(&bill_id_clone, &endorsee.node_id)
+                    .await
+                {
+                    error!("Error propagating bill for node_id: {e}");
                 }
-                BillAction::Sell(buyer, _, _, _) => {
-                    if let Err(e) = self_clone
-                        .propagate_bill_for_node(&bill_id_clone, &buyer.node_id)
-                        .await
-                    {
-                        error!("Error propagating bill for node on DHT: {e}");
-                    }
+            }
+            BillAction::Sell(buyer, _, _, _) => {
+                if let Err(e) = self_clone
+                    .propagate_bill_for_node_id(&bill_id_clone, &buyer.node_id)
+                    .await
+                {
+                    error!("Error propagating bill for node_id: {e}");
                 }
-                BillAction::Mint(mint, _, _) => {
-                    if let Err(e) = self_clone
-                        .propagate_bill_for_node(&bill_id_clone, &mint.node_id)
-                        .await
-                    {
-                        error!("Error propagating bill for node on DHT: {e}");
-                    }
+            }
+            BillAction::Mint(mint, _, _) => {
+                if let Err(e) = self_clone
+                    .propagate_bill_for_node_id(&bill_id_clone, &mint.node_id)
+                    .await
+                {
+                    error!("Error propagating bill for node_id: {e}");
                 }
-                BillAction::Recourse(recoursee, _, _) => {
-                    if let Err(e) = self_clone
-                        .propagate_bill_for_node(&bill_id_clone, &recoursee.node_id)
-                        .await
-                    {
-                        error!("Error propagating bill for node on DHT: {e}");
-                    }
+            }
+            BillAction::Recourse(recoursee, _, _) => {
+                if let Err(e) = self_clone
+                    .propagate_bill_for_node_id(&bill_id_clone, &recoursee.node_id)
+                    .await
+                {
+                    error!("Error propagating bill for node_id: {e}");
                 }
-                _ => (),
-            };
-        });
+            }
+            _ => (),
+        };
 
         Ok(blockchain)
     }

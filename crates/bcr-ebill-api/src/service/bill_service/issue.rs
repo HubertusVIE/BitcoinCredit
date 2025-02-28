@@ -1,3 +1,5 @@
+use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
+use crate::util;
 use bcr_ebill_core::{
     File,
     bill::{BillKeys, BitcreditBill},
@@ -9,10 +11,6 @@ use bcr_ebill_core::{
     util::BcrKeys,
 };
 use log::error;
-
-use crate::util;
-
-use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
 
 impl BillService {
     #[allow(clippy::too_many_arguments)]
@@ -129,19 +127,17 @@ impl BillService {
         // propagate the bill
         let bill_clone = bill.clone();
         let self_clone = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = self_clone
-                .propagate_bill(
-                    &bill_clone.id,
-                    &bill_clone.drawer.node_id,
-                    &bill_clone.drawee.node_id,
-                    &bill_clone.payee.node_id,
-                )
-                .await
-            {
-                error!("Error propagating bill on DHT: {e}");
-            }
-        });
+        if let Err(e) = self_clone
+            .propagate_bill_and_subscribe(
+                &bill_clone.id,
+                &bill_clone.drawer.node_id,
+                &bill_clone.drawee.node_id,
+                &bill_clone.payee.node_id,
+            )
+            .await
+        {
+            error!("Error propagating and subscribing to bill: {e}");
+        }
 
         // If we're the drawee, we immediately accept the bill with timestamp increased by 1 sec
         if bill.drawer == bill.drawee {

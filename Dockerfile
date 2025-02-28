@@ -60,7 +60,4 @@ ENV ROCKET_ADDRESS=0.0.0.0
 # Expose web server port
 EXPOSE 8000
 
-# Expose P2P port
-EXPOSE 1908
-
 CMD ["/ebills/bitcredit"]

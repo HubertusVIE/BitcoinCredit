@@ -217,11 +217,6 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for ServiceError {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }
-            // for now, DHT errors are InternalServerError
-            Error::Dht(e) => {
-                error!("{e}");
-                Status::InternalServerError.respond_to(req)
-            }
             Error::CryptoUtil(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
@@ -302,10 +297,6 @@ impl<'r, 'o: 'r> Responder<'r, 'o> for BillServiceError {
                 Status::InternalServerError.respond_to(req)
             }
             bill_service::Error::Blockchain(e) => {
-                error!("{e}");
-                Status::InternalServerError.respond_to(req)
-            }
-            bill_service::Error::Dht(e) => {
                 error!("{e}");
                 Status::InternalServerError.respond_to(req)
             }

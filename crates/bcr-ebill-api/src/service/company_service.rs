@@ -291,6 +291,9 @@ impl CompanyServiceApi for CompanyService {
             .await?;
         self.identity_blockchain_store.add_block(&new_block).await?;
 
+        // TODO NOSTR: create company topic and subscribe to it
+        // TODO NOSTR: upload files to nostr
+
         // clean up temporary file uploads, if there are any, logging any errors
         for upload_id in [proof_of_registration_file_upload_id, logo_file_upload_id]
             .iter()
@@ -525,6 +528,9 @@ impl CompanyServiceApi for CompanyService {
             .add_block(&new_identity_block)
             .await?;
 
+        // TODO NOSTR: propagate block to company topic
+        // TODO NOSTR: propagate company and files to new signatory
+
         Ok(())
     }
 
@@ -595,7 +601,10 @@ impl CompanyServiceApi for CompanyService {
             .add_block(&new_identity_block)
             .await?;
 
+        // TODO NOSTR: propagate block to company topic
+
         if full_identity.identity.node_id == signatory_node_id {
+            // TODO NOSTR: stop susbcribing to company topic
             info!("Removed self from company {id} - deleting company chain");
             if let Err(e) = self.company_blockchain_store.remove(id).await {
                 error!("Could not delete local company chain for {id}: {e}");

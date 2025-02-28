@@ -1,15 +1,3 @@
-// General
-pub const BILLS_PREFIX: &str = "BILLS";
-pub const BILL_PREFIX: &str = "BILL";
-pub const BILL_ATTACHMENT_PREFIX: &str = "BILLATT";
-pub const KEY_PREFIX: &str = "KEY";
-pub const COMPANIES_PREFIX: &str = "COMPANIES";
-pub const COMPANY_PREFIX: &str = "COMPANY";
-pub const COMPANY_KEY_PREFIX: &str = "COMPANYKEY";
-pub const COMPANY_CHAIN_PREFIX: &str = "COMPANYCHAIN";
-pub const COMPANY_LOGO_PREFIX: &str = "COMPANYLOGO";
-pub const COMPANY_PROOF_PREFIX: &str = "COMPANYPROOF";
-
 // Currency
 pub const SAT_TO_BTC_RATE: i64 = 100_000_000;
 

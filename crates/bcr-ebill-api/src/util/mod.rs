@@ -1,7 +1,6 @@
 pub mod currency;
 pub mod file;
 pub mod numbers_to_words;
-pub mod terminal;
 
 pub use bcr_ebill_core::util::crypto;
 pub use bcr_ebill_core::util::date;
