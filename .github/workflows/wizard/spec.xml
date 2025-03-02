@@ -11,6 +11,7 @@
     <createOsxBundleDmg>1</createOsxBundleDmg>
     <enableRollback>1</enableRollback>
     <enableTimestamp>1</enableTimestamp>
+    <singleInstanceCheck>1</singleInstanceCheck>
     <vendor></vendor>
     <outputDirectory>.</outputDirectory>
     <initializationActionList />
@@ -253,7 +254,7 @@
                 </runProgram>
                 <deleteFile path="~/Library/LaunchAgents/${be_service_name}.plist"/>
                 <deleteFile path="${installdir}/Bitcredit Core.webloc"/>
-                <deleteFile path="~/Desktop/BitCredit Core.webloc"/>
+                <deleteFile path="~/Desktop/Bitcredit Core.webloc"/>
             </actionList>
             <conditionRuleList>
                 <platformTest type="osx"/>
